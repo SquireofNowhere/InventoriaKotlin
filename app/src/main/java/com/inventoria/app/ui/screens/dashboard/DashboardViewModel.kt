@@ -28,36 +28,44 @@ class DashboardViewModel @Inject constructor(
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
     
     init {
-        loadDashboardData()
+        observeDashboardData()
     }
 
-    private fun loadDashboardData() {
-        viewModelScope.launch {
-            combine(
-                repository.getItemCount(),
-                repository.getTotalValue(),
-                repository.getLowStockItems(),
-                repository.getOutOfStockItems(),
-                repository.getAllItems(),
-                repository.getAllCategories()
-            ) { args: Array<*> -> // Use Array access for 6+ flows
-                DashboardUiState(
-                    totalItems = args[0] as Int,
-                    totalValue = (args[1] as? Double) ?: 0.0,
-                    lowStockCount = (args[2] as List<*>).size,
-                    outOfStockCount = (args[3] as List<*>).size,
-                    recentItems = (args[4] as List<InventoryItem>).take(5),
-                    categories = args[5] as List<String>,
-                    isLoading = false
-                )
-            }.collect { state ->
-                _uiState.value = state
-            }
+    private fun observeDashboardData() {
+        combine(
+            repository.getItemCount(),
+            repository.getTotalValue(),
+            repository.getLowStockItems(),
+            repository.getOutOfStockItems(),
+            repository.getAllItems(),
+            repository.getAllCategories()
+        ) { args ->
+            val totalItems = args[0] as? Int ?: 0
+            val totalValue = args[1] as? Double ?: 0.0
+            val lowStockItems = args[2] as? List<*> ?: emptyList<Any>()
+            val outOfStockItems = args[3] as? List<*> ?: emptyList<Any>()
+            val allItems = args[4] as? List<*> ?: emptyList<Any>()
+            val categories = args[5] as? List<*> ?: emptyList<Any>()
+
+            DashboardUiState(
+                totalItems = totalItems,
+                totalValue = totalValue,
+                lowStockCount = lowStockItems.size,
+                outOfStockCount = outOfStockItems.size,
+                recentItems = allItems.filterIsInstance<InventoryItem>().take(5),
+                categories = categories.filterIsInstance<String>(),
+                isLoading = false
+            )
         }
+        .onEach { state ->
+            _uiState.value = state
+        }
+        .launchIn(viewModelScope)
     }
     
     fun refresh() {
         _uiState.value = _uiState.value.copy(isLoading = true)
-        loadDashboardData()
+        // Since we are observing flows, they will update automatically if the repository changes.
+        // But if we want to "force" a refresh from a source that isn't reactive, we'd do it here.
     }
 }

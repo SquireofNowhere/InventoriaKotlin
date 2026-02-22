@@ -1,163 +1,95 @@
 package com.inventoria.app.data.repository
 
-import android.content.Context
+import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.model.InventoryItem
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
-import java.io.File
+import kotlinx.coroutines.flow.Flow
 import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Repository for inventory data operations using a simple text file.
- * Uses a StateFlow to provide real-time updates across the app.
+ * Repository for inventory data operations using Room Database.
+ * Provides a clean API for the rest of the app to interact with inventory data.
  */
 @Singleton
 class InventoryRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    private val inventoryDao: InventoryDao
 ) {
-    private val fileName = "inventory.txt"
-    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    /**
+     * Returns a Flow of all inventory items, ordered by creation date descending.
+     */
+    fun getAllItems(): Flow<List<InventoryItem>> = inventoryDao.getAllItems()
     
-    private val _itemsFlow = MutableStateFlow<List<InventoryItem>>(emptyList())
-    val itemsFlow: StateFlow<List<InventoryItem>> = _itemsFlow.asStateFlow()
-
-    init {
-        // Initial load
-        repositoryScope.launch {
-            _itemsFlow.value = readItemsFromFile()
-        }
-    }
-
-    private suspend fun readItemsFromFile(): List<InventoryItem> = withContext(Dispatchers.IO) {
-        val file = File(context.filesDir, fileName)
-        if (!file.exists()) {
-            return@withContext emptyList()
-        }
-        try {
-            file.readLines().mapNotNull { line ->
-                val parts = line.split("|")
-                if (parts.size >= 4) {
-                    try {
-                        InventoryItem(
-                            id = parts[0].toLong(),
-                            name = parts[1],
-                            quantity = parts[2].toInt(),
-                            location = parts[3],
-                            price = parts.getOrNull(4)?.toDoubleOrNull(),
-                            category = parts.getOrNull(5),
-                            description = parts.getOrNull(6),
-                            minimumQuantity = parts.getOrNull(7)?.toIntOrNull()
-                        )
-                    } catch (e: Exception) {
-                        null 
-                    }
-                } else {
-                    null
-                }
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private suspend fun writeItemsToFile(items: List<InventoryItem>) = withContext(Dispatchers.IO) {
-        val file = File(context.filesDir, fileName)
-        file.bufferedWriter().use { writer ->
-            items.forEach { item ->
-                val line = listOf(
-                    item.id,
-                    item.name,
-                    item.quantity,
-                    item.location,
-                    item.price ?: "",
-                    item.category ?: "",
-                    item.description ?: "",
-                    item.minimumQuantity ?: ""
-                ).joinToString("|")
-                writer.write(line)
-                writer.newLine()
-            }
-        }
-        // Update the flow so all UI observers get the new data immediately
-        _itemsFlow.value = items
-    }
-
-    // Queries (Now using the observable StateFlow)
-    fun getAllItems(): Flow<List<InventoryItem>> = itemsFlow
+    /**
+     * Retrieves a single item by its ID.
+     */
+    suspend fun getItemById(id: Long): InventoryItem? = inventoryDao.getItemById(id)
     
-    suspend fun getItemById(id: Long): InventoryItem? {
-        return _itemsFlow.value.find { it.id == id }
-    }
+    /**
+     * Returns a Flow of a single item by its ID for real-time updates.
+     */
+    fun getItemByIdFlow(id: Long): Flow<InventoryItem?> = inventoryDao.getItemByIdFlow(id)
     
-    fun getItemByIdFlow(id: Long): Flow<InventoryItem?> = itemsFlow.map { items ->
-        items.find { it.id == id }
-    }
+    /**
+     * Searches items by name, location, or description.
+     */
+    fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)
     
-    fun searchItems(query: String): Flow<List<InventoryItem>> = itemsFlow.map { items ->
-        if (query.isBlank()) items 
-        else items.filter { it.name.contains(query, ignoreCase = true) || it.category?.contains(query, ignoreCase = true) == true }
-    }
+    /**
+     * Returns items belonging to a specific category.
+     */
+    fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = inventoryDao.getItemsByCategory(category)
     
-    fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = itemsFlow.map { items ->
-        items.filter { it.category == category }
-    }
+    /**
+     * Returns items that are at or below their minimum quantity.
+     */
+    fun getLowStockItems(): Flow<List<InventoryItem>> = inventoryDao.getLowStockItems()
     
-    fun getLowStockItems(): Flow<List<InventoryItem>> = itemsFlow.map { items ->
-        items.filter { it.quantity <= (it.minimumQuantity ?: 0) }
-    }
+    /**
+     * Returns items with zero quantity.
+     */
+    fun getOutOfStockItems(): Flow<List<InventoryItem>> = inventoryDao.getOutOfStockItems()
     
-    fun getOutOfStockItems(): Flow<List<InventoryItem>> = itemsFlow.map { items ->
-        items.filter { it.quantity <= 0 }
-    }
+    /**
+     * Returns a list of all unique categories used in the inventory.
+     */
+    fun getAllCategories(): Flow<List<String>> = inventoryDao.getAllCategories()
     
-    fun getAllCategories(): Flow<List<String>> = itemsFlow.map { items ->
-        items.mapNotNull { it.category }.filter { it.isNotBlank() }.distinct()
-    }
+    /**
+     * Returns the total number of items in the inventory.
+     */
+    fun getItemCount(): Flow<Int> = inventoryDao.getItemCount()
     
-    fun getItemCount(): Flow<Int> = itemsFlow.map { it.size }
+    /**
+     * Calculates the total value of all items (price * quantity).
+     */
+    fun getTotalValue(): Flow<Double?> = inventoryDao.getTotalValue()
     
-    fun getTotalValue(): Flow<Double?> = itemsFlow.map { items ->
-        items.sumOf { (it.price ?: 0.0) * it.quantity }
-    }
-    
-    // Mutations
+    /**
+     * Inserts a new item into the database.
+     */
     suspend fun insertItem(item: InventoryItem): Long {
-        val items = _itemsFlow.value.toMutableList()
-        val newItem = item.copy(
-            id = (items.maxOfOrNull { it.id } ?: 0L) + 1,
-            createdAt = Date(),
-            updatedAt = Date()
-        )
-        items.add(newItem)
-        writeItemsToFile(items)
-        return newItem.id
+        return inventoryDao.insertItem(item.copy(createdAt = Date(), updatedAt = Date()))
     }
     
+    /**
+     * Updates an existing item in the database.
+     */
     suspend fun updateItem(item: InventoryItem) {
-        val items = _itemsFlow.value.toMutableList()
-        val index = items.indexOfFirst { it.id == item.id }
-        if (index != -1) {
-            items[index] = item.copy(updatedAt = Date())
-            writeItemsToFile(items)
-        }
+        inventoryDao.updateItem(item.copy(updatedAt = Date()))
     }
     
+    /**
+     * Deletes an item by its ID.
+     */
     suspend fun deleteItemById(id: Long) {
-        val items = _itemsFlow.value.toMutableList()
-        if (items.removeAll { it.id == id }) {
-            writeItemsToFile(items)
-        }
+        inventoryDao.deleteItemById(id)
     }
 
+    /**
+     * Updates only the quantity of an item.
+     */
     suspend fun updateQuantity(id: Long, newQuantity: Int) {
-        val items = _itemsFlow.value.toMutableList()
-        val index = items.indexOfFirst { it.id == id }
-        if (index != -1) {
-            items[index] = items[index].copy(quantity = newQuantity, updatedAt = Date())
-            writeItemsToFile(items)
-        }
+        inventoryDao.updateQuantity(id, newQuantity)
     }
 }
