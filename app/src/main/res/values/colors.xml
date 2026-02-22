@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Purple Palette -->
+    <color name="purple_primary">#8B5CF6</color>
+    <color name="purple_primary_dark">#7C3AED</color>
+    <color name="purple_primary_light">#A78BFA</color>
+    
+    <!-- Secondary Purple Palette -->
+    <color name="purple_secondary">#C084FC</color>
+    <color name="purple_secondary_dark">#A855F7</color>
+    <color name="purple_secondary_light">#D8B4FE</color>
+    
+    <!-- Accent Purple -->
+    <color name="purple_accent">#E879F9</color>
+    <color name="purple_accent_light">#F0ABFC</color>
+    
+    <!-- Light Mode Colors -->
+    <color name="light_background">#F8FAFC</color>
+    <color name="light_surface">#FFFFFF</color>
+    <color name="light_surface_variant">#F1F5F9</color>
+    <color name="light_on_surface">#1E293B</color>
+    <color name="light_on_surface_variant">#64748B</color>
+    
+    <!-- Dark Mode Colors -->
+    <color name="dark_background">#0F172A</color>
+    <color name="dark_surface">#1E293B</color>
+    <color name="dark_surface_variant">#334155</color>
+    <color name="dark_on_surface">#F1F5F9</color>
+    <color name="dark_on_surface_variant">#CBD5E1</color>
+    
+    <!-- Status Colors -->
+    <color name="success">#10B981</color>
+    <color name="warning">#F59E0B</color>
+    <color name="error">#EF4444</color>
+    <color name="info">#3B82F6</color>
+    
+    <!-- Common -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+    
+    <!-- Gradient Colors -->
+    <color name="gradient_start">#8B5CF6</color>
+    <color name="gradient_middle">#A855F7</color>
+    <color name="gradient_end">#C084FC</color>
+    
+    <!-- Shimmer/Sheen Effect -->
+    <color name="shimmer_highlight">#40FFFFFF</color>
+    <color name="shimmer_base">#20FFFFFF</color>
+</resources>

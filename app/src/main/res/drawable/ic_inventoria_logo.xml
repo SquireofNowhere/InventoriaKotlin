@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    
+    <!-- Purple Circle Background -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,60m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0" />
+    
+    <!-- Inventory Box Icon -->
+    <path
+        android:fillColor="@color/purple_primary"
+        android:pathData="M40,35 L80,35 L80,85 L40,85 Z
+                         M45,40 L75,40 L75,50 L45,50 Z
+                         M45,55 L75,55 L75,65 L45,65 Z
+                         M45,70 L75,70 L75,80 L45,80 Z" />
+    
+    <!-- Checkmarks -->
+    <path
+        android:fillColor="@color/purple_accent"
+        android:strokeWidth="2"
+        android:pathData="M50,45 L53,48 L57,43
+                         M50,60 L53,63 L57,58" />
+</vector>

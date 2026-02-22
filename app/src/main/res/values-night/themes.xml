@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Mode Theme -->
+    <style name="Theme.Inventoria" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Primary Colors -->
+        <item name="colorPrimary">@color/purple_primary_light</item>
+        <item name="colorPrimaryVariant">@color/purple_primary</item>
+        <item name="colorOnPrimary">@color/black</item>
+        
+        <!-- Secondary Colors -->
+        <item name="colorSecondary">@color/purple_secondary_light</item>
+        <item name="colorSecondaryVariant">@color/purple_secondary</item>
+        <item name="colorOnSecondary">@color/black</item>
+        
+        <!-- Background Colors -->
+        <item name="android:colorBackground">@color/dark_background</item>
+        <item name="colorSurface">@color/dark_surface</item>
+        <item name="colorOnSurface">@color/dark_on_surface</item>
+        
+        <!-- Status Bar -->
+        <item name="android:statusBarColor">@color/transparent</item>
+        <item name="android:navigationBarColor">@color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        
+        <!-- Error Colors -->
+        <item name="colorError">@color/error</item>
+        <item name="colorOnError">@color/white</item>
+        
+        <!-- Window Properties -->
+        <item name="android:windowBackground">@color/dark_background</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
+    </style>
+    
+    <!-- Card Style for Dark Mode -->
+    <style name="Widget.Inventoria.Card" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardElevation">8dp</item>
+        <item name="cardCornerRadius">16dp</item>
+        <item name="cardBackgroundColor">@color/dark_surface</item>
+    </style>
+    
+    <!-- Text Styles for Dark Mode -->
+    <style name="TextAppearance.Inventoria.Headline" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="android:textColor">@color/dark_on_surface</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    
+    <style name="TextAppearance.Inventoria.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textColor">@color/dark_on_surface</item>
+    </style>
+    
+    <style name="TextAppearance.Inventoria.Body" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textColor">@color/dark_on_surface_variant</item>
+    </style>
+</resources>

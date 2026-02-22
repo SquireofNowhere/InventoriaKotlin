@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Inventoria</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="inventory">Inventory</string>
+    <string name="settings">Settings</string>
+    <string name="add_item">Add Item</string>
+    <string name="search">Search</string>
+    <string name="total_items">Total Items</string>
+    <string name="total_value">Total Value</string>
+    <string name="low_stock">Low Stock</string>
+    <string name="out_of_stock">Out of Stock</string>
+</resources>
