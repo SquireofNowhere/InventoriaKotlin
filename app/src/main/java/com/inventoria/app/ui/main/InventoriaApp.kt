@@ -11,11 +11,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.navigation.NavHostController
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
 import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
@@ -36,7 +38,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 fun InventoriaApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    val currentDestination = navBackStackEntry?.destination
 
     val bottomNavItems = listOf(
         Screen.Dashboard,
@@ -48,16 +50,25 @@ fun InventoriaApp() {
 
     Scaffold(
         bottomBar = {
-            if (currentRoute in bottomNavItems.map { it.route }) {
+            // Check if current destination matches any of our bottom nav routes
+            val showBottomBar = bottomNavItems.any { item ->
+                currentDestination?.hierarchy?.any { it.route?.split("?")?.firstOrNull() == item.route } == true
+            }
+            
+            if (showBottomBar) {
                 NavigationBar {
                     bottomNavItems.forEach { screen ->
+                        val isSelected = currentDestination?.hierarchy?.any { 
+                            it.route?.split("?")?.firstOrNull() == screen.route 
+                        } == true
+                        
                         NavigationBarItem(
                             icon = { Icon(screen.icon, contentDescription = null) },
                             label = { Text(screen.title) },
-                            selected = currentRoute == screen.route,
+                            selected = isSelected,
                             onClick = {
                                 navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
                                     launchSingleTop = true
@@ -77,16 +88,37 @@ fun InventoriaApp() {
         ) {
             composable(Screen.Dashboard.route) {
                 DashboardScreen(
-                    onNavigateToInventory = { navController.navigate(Screen.Inventory.route) },
+                    onNavigateToInventory = { 
+                        navController.navigate("${Screen.Inventory.route}?fromDashboard=true") {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onNavigateToAddItem = { navController.navigate("add_item") },
                     onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id") }
                 )
             }
             
-            composable(Screen.Inventory.route) {
+            composable(
+                route = "${Screen.Inventory.route}?fromDashboard={fromDashboard}",
+                arguments = listOf(navArgument("fromDashboard") { defaultValue = "false" })
+            ) { backStackEntry ->
+                val fromDashboard = backStackEntry.arguments?.getString("fromDashboard") == "true"
                 InventoryListScreen(
                     onAddItem = { navController.navigate("add_item") },
-                    onItemClick = { id -> navController.navigate("item_detail/$id") }
+                    onItemClick = { id -> navController.navigate("item_detail/$id") },
+                    onNavigateBack = if (fromDashboard) { { 
+                        navController.navigate(Screen.Dashboard.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    } } else null
                 )
             }
 
@@ -107,28 +139,38 @@ fun InventoriaApp() {
             composable("add_item") {
                 AddEditItemScreen(
                     onNavigateBack = { navController.popBackStack() },
-                    onPickLocation = { navController.navigate("location_picker") }
+                    onPickLocation = { 
+                        // Route to picker from add_item
+                        navController.navigate("location_picker/add_item") 
+                    }
                 )
             }
 
             composable("item_detail/{itemId}") { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId")?.toLongOrNull() ?: return@composable
+                val itemId = backStackEntry.arguments?.getString("itemId") ?: return@composable
                 ItemDetailScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onEditItem = { id -> navController.navigate("edit_item/$id") }
                 )
             }
 
-            composable("edit_item/{itemId}") {
+            composable("edit_item/{itemId}") { backStackEntry ->
+                val itemId = backStackEntry.arguments?.getString("itemId") ?: return@composable
                 AddEditItemScreen(
                     onNavigateBack = { navController.popBackStack() },
-                    onPickLocation = { navController.navigate("location_picker") }
+                    onPickLocation = { 
+                        // Route to picker from edit_item
+                        navController.navigate("location_picker/edit_item_$itemId") 
+                    }
                 )
             }
 
-            composable("location_picker") {
+            // Location picker route with identifier to help routing result back to correct screen
+            composable("location_picker/{origin}") { backStackEntry ->
+                val origin = backStackEntry.arguments?.getString("origin") ?: "unknown"
                 LocationPickerScreen(
                     onLocationSelected = { geoPoint, address ->
+                        // Pass result back using the origin as identifier
                         navController.previousBackStackEntry?.savedStateHandle?.set("selected_location", geoPoint)
                         navController.previousBackStackEntry?.savedStateHandle?.set("selected_address", address)
                         navController.popBackStack()

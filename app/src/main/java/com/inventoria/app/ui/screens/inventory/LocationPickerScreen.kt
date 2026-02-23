@@ -1,10 +1,13 @@
 package com.inventoria.app.ui.screens.inventory
 
 import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,6 +20,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -33,9 +40,11 @@ fun LocationPickerScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     val defaultLocation = GeoPoint(-26.2041, 28.0473) // Johannesburg default
     
     var markerPosition by remember { mutableStateOf(initialLocation ?: defaultLocation) }
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     
     val mapView = remember {
         MapView(context).apply {
@@ -46,15 +55,27 @@ fun LocationPickerScreen(
         }
     }
 
-    val locationPermissionState = rememberMultiplePermissionsState(
-        listOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-    )
-
-    LaunchedEffect(Unit) {
-        locationPermissionState.launchMultiplePermissionRequest()
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val isGranted = permissions.values.all { it }
+        if (isGranted) {
+            scope.launch {
+                try {
+                    val locationResult = fusedLocationClient.getCurrentLocation(
+                        Priority.PRIORITY_HIGH_ACCURACY,
+                        null
+                    ).await()
+                    if (locationResult != null) {
+                        val geoPoint = GeoPoint(locationResult.latitude, locationResult.longitude)
+                        markerPosition = geoPoint
+                        mapView.controller.animateTo(geoPoint)
+                    }
+                } catch (e: Exception) {
+                    // Handle exception
+                }
+            }
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -89,6 +110,18 @@ fun LocationPickerScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = {
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }) {
+                Icon(Icons.Default.MyLocation, contentDescription = "My Location")
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {

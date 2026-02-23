@@ -105,6 +105,7 @@ fun AddEditItemScreen(
                     label = { Text("Location *") },
                     modifier = Modifier.weight(1f)
                 )
+                
                 IconButton(onClick = onPickLocation) {
                     Icon(Icons.Default.LocationOn, contentDescription = "Pick on Map", tint = MaterialTheme.colorScheme.primary)
                 }

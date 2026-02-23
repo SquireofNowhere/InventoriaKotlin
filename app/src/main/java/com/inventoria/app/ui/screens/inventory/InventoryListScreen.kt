@@ -1,4 +1,3 @@
-
 package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.foundation.clickable
@@ -7,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,6 +21,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 fun InventoryListScreen(
     onAddItem: () -> Unit,
     onItemClick: (Long) -> Unit,
+    onNavigateBack: (() -> Unit)? = null,
     viewModel: InventoryListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -29,7 +30,14 @@ fun InventoryListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Inventory") }
+                title = { Text("Inventory") },
+                navigationIcon = {
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                }
             )
         },
         floatingActionButton = {
