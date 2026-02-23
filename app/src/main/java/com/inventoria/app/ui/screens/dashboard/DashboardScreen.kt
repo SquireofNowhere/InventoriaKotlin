@@ -250,7 +250,9 @@ fun RecentItemCard(item: InventoryItem, onClick: () -> Unit) {
                 Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 Text(text = item.location, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(text = "Qty: ${item.quantity}", fontWeight = FontWeight.Medium)
+            if (item.quantity != 1) {
+                Text(text = "Qty: ${item.quantity}", fontWeight = FontWeight.Medium)
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.inventoria.app.ui.screens.task.RunningTask
 import com.inventoria.app.ui.screens.task.TrackedTask
+import com.inventoria.app.ui.screens.task.TaskKind
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
 import javax.inject.Inject
@@ -13,6 +14,7 @@ import javax.inject.Singleton
 data class SerializableRunningTask(
     val id: UUID,
     val name: String,
+    val kind: TaskKind?,
     val startTime: Long
 )
 
@@ -24,7 +26,7 @@ class TaskRepository @Inject constructor(
     private val gson = Gson()
 
     fun saveRunningTasks(tasks: List<RunningTask>) {
-        val serializableTasks = tasks.map { SerializableRunningTask(it.id, it.name, it.startTime) }
+        val serializableTasks = tasks.map { SerializableRunningTask(it.id, it.name, it.kind, it.startTime) }
         val json = gson.toJson(serializableTasks)
         prefs.edit().putString("running_tasks", json).apply()
     }
@@ -32,7 +34,11 @@ class TaskRepository @Inject constructor(
     fun loadRunningTasks(): List<SerializableRunningTask> {
         val json = prefs.getString("running_tasks", null) ?: return emptyList()
         val type = object : TypeToken<List<SerializableRunningTask>>() {}.type
-        return gson.fromJson(json, type)
+        return try {
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     fun saveCompletedTasks(tasks: List<TrackedTask>) {
@@ -45,6 +51,18 @@ class TaskRepository @Inject constructor(
     fun loadCompletedTasks(): List<TrackedTask> {
         val json = prefs.getString("completed_tasks", null) ?: return emptyList()
         val type = object : TypeToken<List<TrackedTask>>() {}.type
-        return gson.fromJson(json, type)
+        return try {
+            val tasks: List<TrackedTask> = gson.fromJson(json, type) ?: emptyList()
+            // Sanitize tasks to ensure no null kinds (important for backward compatibility)
+            tasks.map { task ->
+                if (task.kind == null) {
+                    task.copy(kind = TaskKind.NEUTRAL_WAITING)
+                } else {
+                    task
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }

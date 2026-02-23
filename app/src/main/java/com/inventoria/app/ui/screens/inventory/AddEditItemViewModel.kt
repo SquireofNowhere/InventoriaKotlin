@@ -42,10 +42,14 @@ class AddEditItemViewModel @Inject constructor(
     val eventFlow = _eventFlow.asSharedFlow()
 
     init {
-        savedStateHandle.get<Long>("itemId")?.let { itemId ->
-            if (itemId != -1L) {
+        // Safely retrieve itemId which might be stored as a String by Compose Navigation
+        val itemId: Long? = savedStateHandle.get<String>("itemId")?.toLongOrNull()
+            ?: savedStateHandle.get<Long>("itemId")
+
+        itemId?.let { id ->
+            if (id != -1L && id != 0L) {
                 viewModelScope.launch {
-                    repository.getItemById(itemId)?.let { item ->
+                    repository.getItemById(id)?.let { item ->
                         currentItemId = item.id
                         name = item.name
                         quantity = item.quantity.toString()

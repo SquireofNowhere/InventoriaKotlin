@@ -27,10 +27,17 @@ class ItemDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
 
-    private val itemId: Long = checkNotNull(savedStateHandle["itemId"])
+    // Safely retrieve itemId which might be stored as a String by Compose Navigation
+    private val itemId: Long = savedStateHandle.get<String>("itemId")?.toLongOrNull()
+        ?: savedStateHandle.get<Long>("itemId")
+        ?: 0L
 
     init {
-        loadItem()
+        if (itemId != 0L) {
+            loadItem()
+        } else {
+            _uiState.value = ItemDetailUiState(isLoading = false, error = "Invalid Item ID")
+        }
     }
 
     private fun loadItem() {
@@ -47,7 +54,9 @@ class ItemDetailViewModel @Inject constructor(
 
     fun deleteItem(onDeleted: () -> Unit) {
         viewModelScope.launch {
-            repository.deleteItemById(itemId)
+            if (itemId != 0L) {
+                repository.deleteItemById(itemId)
+            }
             onDeleted()
         }
     }

@@ -2,6 +2,7 @@ package com.inventoria.app
 
 import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
+import org.osmdroid.config.Configuration
 
 /**
  * Application class for Inventoria
@@ -12,6 +13,9 @@ class InventoriaApplication : Application() {
     
     override fun onCreate() {
         super.onCreate()
-        // Initialize any app-wide services here
+        
+        // OSMDroid configuration
+        // The user agent should be a unique identifier for your app
+        Configuration.getInstance().userAgentValue = BuildConfig.APPLICATION_ID
     }
 }

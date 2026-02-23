@@ -4,8 +4,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.IBinder
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
@@ -21,10 +23,20 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+enum class TaskKind(val displayName: String, val color: Color) {
+    FREE_TIME("Free Time", Color.White),
+    BIG_WASTE("Big Waste", Color(0xFFDC143C)), // Crimson
+    SMALL_WASTE("Small Waste", Color.Red),
+    NEUTRAL_WAITING("Neutral/Waiting", Color.Gray),
+    SMALL_PRODUCTIVE("Small Productive", Color(0xFF006400)), // Dark Green
+    BIG_PRODUCTIVE("Big Productive", Color.Green)
+}
+
 // Represents a completed task
 data class TrackedTask(
     val id: UUID = UUID.randomUUID(),
     val name: String,
+    val kind: TaskKind = TaskKind.NEUTRAL_WAITING,
     val startTime: Long,
     val endTime: Long,
     val duration: Long,
@@ -35,6 +47,7 @@ data class TrackedTask(
 data class RunningTask(
     val id: UUID = UUID.randomUUID(),
     var name: String,
+    var kind: TaskKind = TaskKind.NEUTRAL_WAITING,
     val startTime: Long = System.currentTimeMillis(),
     val elapsedTime: MutableStateFlow<Long> = MutableStateFlow(0L),
     var timerJob: Job? = null,
@@ -91,6 +104,7 @@ class TaskTrackerViewModel @Inject constructor(
             val task = RunningTask(
                 id = serializable.id,
                 name = serializable.name,
+                kind = serializable.kind ?: TaskKind.NEUTRAL_WAITING,
                 startTime = serializable.startTime
             )
             startLocalTimer(task)
@@ -130,7 +144,7 @@ class TaskTrackerViewModel @Inject constructor(
         
         // Start foreground service if not already running
         val intent = Intent(context, TaskTimerService::class.java)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
             context.startService(intent)
@@ -153,6 +167,7 @@ class TaskTrackerViewModel @Inject constructor(
 
         val newCompletedTask = TrackedTask(
             name = task.name,
+            kind = task.kind,
             startTime = task.startTime,
             endTime = System.currentTimeMillis(),
             duration = task.elapsedTime.value
@@ -172,6 +187,14 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
+    fun updateTaskKind(task: RunningTask, newKind: TaskKind) {
+        val index = runningTasks.indexOf(task)
+        if (index != -1) {
+            runningTasks[index] = runningTasks[index].copy(kind = newKind)
+            repository.saveRunningTasks(runningTasks)
+        }
+    }
+
     fun updateCompletedTaskName(task: TrackedTask, newName: String) {
         val updatedList = _completedTasks.value.map {
             if (it.id == task.id) it.copy(name = newName) else it
@@ -180,11 +203,17 @@ class TaskTrackerViewModel @Inject constructor(
         repository.saveCompletedTasks(updatedList)
     }
 
-    fun markTaskAsSavedToCalendar(task: TrackedTask) {
-        // Once marked as saved to calendar, it will effectively be removed from persistence
-        // because saveCompletedTasks filters out tasks where savedToCalendar is true.
+    fun updateCompletedTaskKind(task: TrackedTask, newKind: TaskKind) {
         val updatedList = _completedTasks.value.map {
-            if (it.id == task.id) it.copy(savedToCalendar = true) else it
+            if (it.id == task.id) it.copy(kind = newKind) else it
+        }
+        _completedTasks.value = updatedList
+        repository.saveCompletedTasks(updatedList)
+    }
+
+    fun setCompletedTaskCalendarStatus(task: TrackedTask, isSaved: Boolean) {
+        val updatedList = _completedTasks.value.map {
+            if (it.id == task.id) it.copy(savedToCalendar = isSaved) else it
         }
         _completedTasks.value = updatedList
         repository.saveCompletedTasks(updatedList)

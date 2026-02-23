@@ -130,11 +130,13 @@ fun InventoryItemCard(
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "Qty: $quantity",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (quantity <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
+                if (quantity != 1) {
+                    Text(
+                        text = "Qty: $quantity",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (quantity <= 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                }
                 if (price != null) {
                     val formattedPrice = String.format("%.2f", price)
                     Text(

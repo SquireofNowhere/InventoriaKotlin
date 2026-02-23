@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun AddEditItemScreen(
     onNavigateBack: () -> Unit,
+    onPickLocation: () -> Unit,
     viewModel: AddEditItemViewModel = hiltViewModel()
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -92,12 +94,21 @@ fun AddEditItemScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(
-                value = viewModel.location,
-                onValueChange = { viewModel.location = it },
-                label = { Text("Location *") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = viewModel.location,
+                    onValueChange = { viewModel.location = it },
+                    label = { Text("Location *") },
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onPickLocation) {
+                    Icon(Icons.Default.LocationOn, contentDescription = "Pick on Map", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
 
             OutlinedTextField(
                 value = viewModel.category,

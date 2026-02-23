@@ -45,6 +45,7 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
+        buildConfig = true
     }
     
     composeOptions {
@@ -102,11 +103,18 @@ dependencies {
     // DataStore
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     
+    // OpenStreetMap (osmdroid)
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+    
+    // Location Services
+    implementation("com.google.android.gms:play-services-location:21.2.0")
+
     // Gson for JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
     
-    // Accompanist (for system UI controller)
+    // Accompanist (for system UI controller and permissions)
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")
+    implementation("com.google.accompanist:accompanist-permissions:0.32.0")
     
     // Lottie for animations
     implementation("com.airbnb.android:lottie:6.2.0")
@@ -121,5 +129,3 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
-
-
