@@ -31,10 +31,6 @@ data class InventoryItem(
     val category: String? = null,
     val tags: List<String> = emptyList(),
     
-    // Status tracking
-    val isLowStock: Boolean = false,
-    val minimumQuantity: Int? = null,
-    
     // Optional fields
     val description: String? = null,
     val imageUrl: String? = null,
@@ -45,13 +41,6 @@ data class InventoryItem(
      * Check if the item is currently in stock
      */
     fun isInStock(): Boolean = quantity > 0
-    
-    /**
-     * Check if item needs restocking
-     */
-    fun needsRestock(): Boolean {
-        return minimumQuantity?.let { min -> quantity <= min } ?: false
-    }
     
     /**
      * Get display name with quantity
@@ -84,8 +73,7 @@ data class InventoryItemInput(
     val customFields: Map<String, String> = emptyMap(),
     val category: String? = null,
     val tags: List<String> = emptyList(),
-    val description: String? = null,
-    val minimumQuantity: Int? = null
+    val description: String? = null
 ) {
     fun toInventoryItem(id: Long = 0): InventoryItem {
         return InventoryItem(
@@ -97,9 +85,7 @@ data class InventoryItemInput(
             customFields = customFields,
             category = category,
             tags = tags,
-            description = description,
-            minimumQuantity = minimumQuantity,
-            isLowStock = minimumQuantity?.let { quantity <= it } ?: false
+            description = description
         )
     }
 }

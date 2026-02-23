@@ -6,11 +6,12 @@ import androidx.room.TypeConverters
 import com.inventoria.app.data.model.InventoryItem
 
 /**
- * Room database for Inventoria
+ * Room database for Inventoria.
+ * Version incremented to 2 due to schema change (removed minimumQuantity and isLowStock).
  */
 @Database(
     entities = [InventoryItem::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

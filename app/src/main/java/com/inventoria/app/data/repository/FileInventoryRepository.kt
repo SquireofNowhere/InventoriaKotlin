@@ -1,4 +1,3 @@
-
 package com.inventoria.app.data.repository
 
 import android.content.Context
@@ -37,8 +36,7 @@ class FileInventoryRepository @Inject constructor(
                         location = parts[3],
                         price = parts.getOrNull(4)?.toDoubleOrNull(),
                         category = parts.getOrNull(5),
-                        description = parts.getOrNull(6),
-                        minimumQuantity = parts.getOrNull(7)?.toIntOrNull()
+                        description = parts.getOrNull(6)
                     )
                 } catch (e: Exception) {
                     null 
@@ -60,8 +58,7 @@ class FileInventoryRepository @Inject constructor(
                     item.location,
                     item.price ?: "",
                     item.category ?: "",
-                    item.description ?: "",
-                    item.minimumQuantity ?: ""
+                    item.description ?: ""
                 ).joinToString(";")
                 writer.write(line)
                 writer.newLine()
@@ -77,10 +74,6 @@ class FileInventoryRepository @Inject constructor(
 
     fun getTotalValue(): Flow<Double?> = getAllItems().map { items ->
         items.sumOf { (it.price ?: 0.0) * it.quantity }
-    }
-
-    fun getLowStockItems(): Flow<List<InventoryItem>> = getAllItems().map { items ->
-        items.filter { it.quantity <= (it.minimumQuantity ?: 0) }
     }
 
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = getAllItems().map { items ->

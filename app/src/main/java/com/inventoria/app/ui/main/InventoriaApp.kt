@@ -22,11 +22,13 @@ import com.inventoria.app.ui.screens.inventory.InventoryListScreen
 import com.inventoria.app.ui.screens.inventory.AddEditItemScreen
 import com.inventoria.app.ui.screens.inventory.ItemDetailScreen
 import com.inventoria.app.ui.screens.settings.SettingsScreen
+import com.inventoria.app.ui.screens.task.TaskTrackerScreen
 import androidx.compose.ui.unit.dp
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
     object Inventory : Screen("inventory", "Inventory", Icons.Default.Inventory)
+    object TaskTracker : Screen("task_tracker", "Tasks", Icons.Default.Timer)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
     object AddEditItem : Screen("add_edit_item", "Add/Edit Item", Icons.Default.Add)
     object ItemDetail : Screen("item_detail", "Item Detail", Icons.Default.Info)
@@ -35,6 +37,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 val bottomNavItems = listOf(
     Screen.Dashboard,
     Screen.Inventory,
+    Screen.TaskTracker,
     Screen.Settings
 )
 
@@ -45,14 +48,14 @@ fun InventoriaApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     
-    val hideBottomBarRoutes = listOf(
-        Screen.AddEditItem.route + "/{itemId}",
-        Screen.ItemDetail.route + "/{itemId}"
-    )
+    // Check if current screen is part of the bottom navigation hierarchy
+    val shouldShowBottomBar = bottomNavItems.any { screen ->
+        currentDestination?.hierarchy?.any { it.route == screen.route } == true
+    }
 
     Scaffold(
         bottomBar = {
-            if (currentDestination?.route !in hideBottomBarRoutes) {
+            if (shouldShowBottomBar) {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp
@@ -101,7 +104,14 @@ fun InventoriaApp() {
             composable(Screen.Dashboard.route) {
                 DashboardScreen(
                     onNavigateToInventory = {
-                        navController.navigate(Screen.Inventory.route)
+                        // Navigate to Inventory as a Tab Switch to prevent nested state issues
+                        navController.navigate(Screen.Inventory.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     },
                     onNavigateToAddItem = {
                         navController.navigate(Screen.AddEditItem.route + "/-1")
@@ -121,6 +131,10 @@ fun InventoriaApp() {
                         navController.navigate(Screen.ItemDetail.route + "/$itemId")
                     }
                 )
+            }
+
+            composable(Screen.TaskTracker.route) {
+                TaskTrackerScreen()
             }
             
             composable(

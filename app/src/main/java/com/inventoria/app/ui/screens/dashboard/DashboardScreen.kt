@@ -154,41 +154,23 @@ fun GradientHeaderCard() {
 
 @Composable
 fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "Total Items",
-                value = uiState.totalItems.toString(),
-                icon = Icons.Default.Inventory,
-                color = PurplePrimary,
-                shimmerOffset = shimmerOffset
-            )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        StatCard(
+            modifier = Modifier.weight(1f),
+            title = "Total Items",
+            value = uiState.totalItems.toString(),
+            icon = Icons.Default.Inventory,
+            color = PurplePrimary,
+            shimmerOffset = shimmerOffset
+        )
+        // Conditionally show the Total Value card based on the setting
+        if (uiState.showTotalValue) {
             StatCard(
                 modifier = Modifier.weight(1f),
                 title = "Total Value",
                 value = NumberFormat.getCurrencyInstance().format(uiState.totalValue),
                 icon = Icons.Default.AttachMoney,
                 color = Success,
-                shimmerOffset = shimmerOffset
-            )
-        }
-        
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "Low Stock",
-                value = uiState.lowStockCount.toString(),
-                icon = Icons.Default.Warning,
-                color = Warning,
-                shimmerOffset = shimmerOffset
-            )
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "Out of Stock",
-                value = uiState.outOfStockCount.toString(),
-                icon = Icons.Default.Error,
-                color = Error,
                 shimmerOffset = shimmerOffset
             )
         }

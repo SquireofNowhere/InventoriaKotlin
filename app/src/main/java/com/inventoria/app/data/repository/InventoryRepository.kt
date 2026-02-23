@@ -41,11 +41,6 @@ class InventoryRepository @Inject constructor(
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = inventoryDao.getItemsByCategory(category)
     
     /**
-     * Returns items that are at or below their minimum quantity.
-     */
-    fun getLowStockItems(): Flow<List<InventoryItem>> = inventoryDao.getLowStockItems()
-    
-    /**
      * Returns items with zero quantity.
      */
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = inventoryDao.getOutOfStockItems()

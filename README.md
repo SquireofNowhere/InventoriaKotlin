@@ -1,281 +1,80 @@
-# 📦 Inventoria - Android Inventory Management App
+# 📦 Inventoria - Professional Inventory Management
 
-A beautiful, modern Android inventory management application built with Kotlin and Jetpack Compose, featuring a stunning purple theme that adapts seamlessly between light and dark modes.
+**Inventoria** is a modern, feature-rich Android application built to simplify inventory tracking. Designed with a stunning **Purple Sheen** aesthetic and powered by the latest Android technologies, it provides a seamless experience for managing stock, costs, and locations.
 
-## ✨ Features
+## ✨ Key Features
 
-### Current Features
-- **Beautiful Purple Theme** - Elegant purple gradient design with shimmer effects
-- **Light & Dark Mode Support** - Seamlessly adapts to system theme
-- **Animated Splash Screen** - Eye-catching intro with smooth animations
-- **Dashboard Overview** - Quick stats and insights at a glance
-- **Room Database** - Local data persistence
-- **Modern Architecture** - MVVM with Clean Architecture principles
-- **Dependency Injection** - Hilt for clean, testable code
+### 📊 Intelligent Dashboard
+- **Real-time Statistics**: Instantly view total item count, inventory valuation, and stock health.
+- **Stock Alerts**: Automatic tracking of low-stock and out-of-stock items.
+- **Recent Activity**: Quick access to the most recently added or updated items.
 
-### Coming Soon
-- ✅ Add/Edit/Delete Inventory Items
-- ✅ Barcode Scanner Integration
-- ✅ Search & Filter Functionality
-- ✅ Export to CSV/PDF
-- ✅ Multi-language Support
-- ✅ Cloud Sync (Firebase)
-- ✅ Analytics & Reports
+### 📋 Inventory Management
+- **Full CRUD Operations**: Easily add, view, edit, and delete inventory items.
+- **Smart Search**: Find items instantly by name, category, or description.
+- **Detailed Tracking**: Record specific details including price, location, categories, and minimum stock levels.
+- **Reactive Updates**: Powered by Kotlin Flow, ensuring the UI always reflects the latest database state.
 
-## 🎨 Design Philosophy
+### 🎨 Premium Design
+- **Purple Sheen Theme**: A beautiful, custom-crafted purple color palette.
+- **Light & Dark Mode**: Seamlessly adapts to your system theme for comfortable use day or night.
+- **Modern UI Components**: Built entirely with **Jetpack Compose** and **Material 3**.
+- **Visual Feedback**: Smooth transitions, shimmer effects, and Lottie animations.
 
-Inventoria features a **purple sheen theme** that:
-- Provides excellent contrast in both light and dark modes
-- Uses gradient backgrounds for visual appeal
-- Implements shimmer effects for an interactive feel
-- Follows Material Design 3 guidelines
-- Offers smooth animations and transitions
+## 🏗️ Architecture & Tech Stack
 
-### Color Palette
+Inventoria follows **Clean Architecture** principles and the **MVVM** pattern, ensuring a scalable and maintainable codebase.
 
-**Light Mode:**
-- Primary: `#8B5CF6` (Purple)
-- Background: `#F8FAFC` (Light Gray)
-- Surface: `#FFFFFF` (White)
+- **Language**: [Kotlin](https://kotlinlang.org/)
+- **UI Framework**: [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material 3)
+- **Dependency Injection**: [Hilt](https://dagger.dev/hilt/)
+- **Local Database**: [Room](https://developer.android.com/training/data-storage/room) (SQLite)
+- **Asynchronous Flow**: [Kotlin Coroutines](https://kotlinlang.org/docs/coroutines-overview.html) & [Flow](https://kotlinlang.org/docs/flow.html)
+- **Navigation**: [Jetpack Navigation Compose](https://developer.android.com/jetpack/compose/navigation)
+- **Image/Animation**: [Lottie](https://airbnb.io/lottie/) & Shimmer effects
 
-**Dark Mode:**
-- Primary: `#A78BFA` (Light Purple)
-- Background: `#0F172A` (Dark Blue)
-- Surface: `#1E293B` (Dark Gray)
-
-## 🏗️ Architecture
-
-The app follows **Clean Architecture** with **MVVM** pattern:
+## 📁 Project Structure
 
 ```
-app/
+app/src/main/java/com/inventoria/app/
 ├── data/
-│   ├── local/           # Room Database & DAOs
-│   ├── model/           # Data models & entities
-│   └── repository/      # Repository implementations
-├── di/                  # Hilt dependency injection modules
+│   ├── local/          # Room Database, DAOs, and Type Converters
+│   ├── model/          # InventoryItem entities and UI state models
+│   └── repository/     # Data sources (Room & File-based implementations)
+├── di/                 # Hilt Modules for Dependency Injection
 ├── ui/
-│   ├── main/           # Main activity & navigation
-│   ├── screens/        # Feature screens
-│   │   ├── dashboard/
-│   │   ├── inventory/
-│   │   └── settings/
-│   ├── splash/         # Splash screen
-│   └── theme/          # Compose theme & colors
-└── InventoriaApplication.kt
+│   ├── main/           # MainActivity and Navigation Graph
+│   ├── screens/        # Feature screens (Dashboard, Inventory, Detail, Add/Edit)
+│   ├── splash/         # Animated Splash Screen
+│   └── theme/          # Custom Theme, Colors, and Typography
+└── InventoriaApplication.kt # Hilt Application Class
 ```
-
-## 🛠️ Tech Stack
-
-- **Language:** Kotlin
-- **UI Framework:** Jetpack Compose
-- **Architecture:** MVVM + Clean Architecture
-- **Dependency Injection:** Hilt
-- **Database:** Room
-- **Async:** Kotlin Coroutines & Flow
-- **Navigation:** Jetpack Navigation Compose
-- **Build System:** Gradle (Kotlin DSL)
-
-### Key Dependencies
-
-```kotlin
-// Jetpack Compose
-androidx.compose:compose-bom:2023.10.01
-androidx.compose.material3:material3
-
-// Architecture Components
-androidx.lifecycle:lifecycle-viewmodel-ktx
-androidx.navigation:navigation-compose
-
-// Room Database
-androidx.room:room-runtime
-androidx.room:room-ktx
-
-// Hilt
-com.google.dagger:hilt-android
-androidx.hilt:hilt-navigation-compose
-
-// Coroutines
-org.jetbrains.kotlinx:kotlinx-coroutines-android
-```
-
-## 📱 Screenshots
-
-### Splash Screen
-Beautiful purple gradient with shimmer effect and smooth animations.
-
-### Dashboard
-- Total items count
-- Total inventory value
-- Low stock alerts
-- Out of stock warnings
-- Recent items list
-- Quick action buttons
-
-### Inventory List
-- Search functionality
-- Filter by category
-- Swipe actions
-- Item details
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-
-- Android Studio Hedgehog (2023.1.1) or newer
+- Android Studio Iguana (or newer)
 - JDK 17
-- Android SDK (API 24+)
-- Gradle 8.2+
+- Android SDK 24+ (Android 7.0+)
 
-### Installation
-
-1. **Clone the repository**
+### Setup
+1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/inventoria-android.git
-   cd inventoria-android
+   git clone https://github.com/yourusername/inventoria-kotlin.git
    ```
-
-2. **Open in Android Studio**
-   - Open Android Studio
-   - Select "Open an Existing Project"
-   - Navigate to the cloned directory
-   - Click "OK"
-
-3. **Sync Gradle**
-   - Android Studio will automatically sync Gradle
-   - If not, click "File" → "Sync Project with Gradle Files"
-
-4. **Run the app**
-   - Connect an Android device or start an emulator
-   - Click the "Run" button (▶️) or press `Shift + F10`
-
-### Build Variants
-
-```bash
-# Debug build
-./gradlew assembleDebug
-
-# Release build
-./gradlew assembleRelease
-
-# Run tests
-./gradlew test
-
-# Run instrumented tests
-./gradlew connectedAndroidTest
-```
-
-## 📐 Project Structure
-
-### Data Layer
-
-**Models:**
-```kotlin
-@Entity(tableName = "inventory_items")
-data class InventoryItem(
-    @PrimaryKey(autoGenerate = true) val id: Long,
-    val name: String,
-    val quantity: Int,
-    val location: String,
-    val price: Double? = null,
-    val customFields: Map<String, String>,
-    // ... more fields
-)
-```
-
-**Repository:**
-```kotlin
-@Singleton
-class InventoryRepository @Inject constructor(
-    private val inventoryDao: InventoryDao
-) {
-    fun getAllItems(): Flow<List<InventoryItem>>
-    suspend fun insertItem(item: InventoryItem): Long
-    // ... more operations
-}
-```
-
-### UI Layer
-
-**ViewModel:**
-```kotlin
-@HiltViewModel
-class DashboardViewModel @Inject constructor(
-    private val repository: InventoryRepository
-) : ViewModel() {
-    val uiState: StateFlow<DashboardUiState>
-    // ... state management
-}
-```
-
-**Screen:**
-```kotlin
-@Composable
-fun DashboardScreen(
-    viewModel: DashboardViewModel = hiltViewModel()
-) {
-    val uiState by viewModel.uiState.collectAsState()
-    // ... UI composition
-}
-```
+2. **Open in Android Studio**:
+   Select the `InventoriaKotlin` folder.
+3. **Sync & Run**:
+   Let Gradle sync finish, then click **Run** (▶️) to deploy to your device or emulator.
 
 ## 🎯 Roadmap
-
-### Version 1.0 (Current)
-- [x] Basic project structure
-- [x] Database setup
-- [x] Dashboard with statistics
-- [x] Purple theme implementation
-- [x] Splash screen animation
-- [ ] Inventory CRUD operations
-- [ ] Search & filter
-
-### Version 1.1 (Next)
-- [ ] Barcode scanner
-- [ ] Export functionality
-- [ ] Categories management
-- [ ] Advanced filtering
-- [ ] Sorting options
-
-### Version 2.0 (Future)
-- [ ] Cloud synchronization
-- [ ] Multi-device support
-- [ ] Analytics dashboard
-- [ ] Notification system
-- [ ] Widgets
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Code Style
-
-- Follow [Kotlin coding conventions](https://kotlinlang.org/docs/coding-conventions.html)
-- Use meaningful variable and function names
-- Add comments for complex logic
-- Write unit tests for new features
+- [ ] **Barcode Scanning**: Integrated scanner for faster item entry.
+- [ ] **Export/Import**: Support for CSV and PDF reporting.
+- [ ] **Cloud Sync**: Firebase integration for multi-device support.
+- [ ] **Advanced Analytics**: Interactive charts for stock trends and value history.
 
 ## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Material Design 3 Guidelines
-- Jetpack Compose Documentation
-- Android Architecture Components
-- The Kotlin and Android Community
-
-## 📧 Contact
-
-Project Link: [https://github.com/yourusername/inventoria-android](https://github.com/yourusername/inventoria-android)
+This project is licensed under the MIT License.
 
 ---
-
-**Made with 💜 and Jetpack Compose**
+*Made with 💜 and Jetpack Compose*

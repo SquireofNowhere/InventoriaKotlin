@@ -1,7 +1,7 @@
-
 package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class CustomField(
+    val key: String,
+    val value: String
+)
+
 @HiltViewModel
 class AddEditItemViewModel @Inject constructor(
     private val repository: InventoryRepository,
@@ -27,7 +32,9 @@ class AddEditItemViewModel @Inject constructor(
     var price by mutableStateOf("")
     var category by mutableStateOf("")
     var description by mutableStateOf("")
-    var minQuantity by mutableStateOf("")
+    
+    // Custom fields state
+    var customFields = mutableStateListOf<CustomField>()
 
     private var currentItemId: Long? = null
 
@@ -46,10 +53,31 @@ class AddEditItemViewModel @Inject constructor(
                         price = item.price?.toString() ?: ""
                         category = item.category ?: ""
                         description = item.description ?: ""
-                        minQuantity = item.minimumQuantity?.toString() ?: ""
+                        
+                        // Load existing custom fields
+                        customFields.clear()
+                        item.customFields.forEach { (key, value) ->
+                            customFields.add(CustomField(key, value))
+                        }
                     }
                 }
             }
+        }
+    }
+
+    fun addCustomField() {
+        customFields.add(CustomField("", ""))
+    }
+
+    fun removeCustomField(index: Int) {
+        if (index in customFields.indices) {
+            customFields.removeAt(index)
+        }
+    }
+
+    fun updateCustomField(index: Int, key: String, value: String) {
+        if (index in customFields.indices) {
+            customFields[index] = CustomField(key, value)
         }
     }
 
@@ -61,6 +89,11 @@ class AddEditItemViewModel @Inject constructor(
                     return@launch
                 }
 
+                // Convert list to map, filtering out empty keys
+                val customFieldsMap = customFields
+                    .filter { it.key.isNotBlank() }
+                    .associate { it.key to it.value }
+
                 val item = InventoryItem(
                     id = currentItemId ?: 0L,
                     name = name,
@@ -69,10 +102,10 @@ class AddEditItemViewModel @Inject constructor(
                     price = price.toDoubleOrNull(),
                     category = category.ifBlank { null },
                     description = description.ifBlank { null },
-                    minimumQuantity = minQuantity.toIntOrNull()
+                    customFields = customFieldsMap
                 )
 
-                if (currentItemId == null) {
+                if (currentItemId == null || currentItemId == 0L) {
                     repository.insertItem(item)
                 } else {
                     repository.updateItem(item)

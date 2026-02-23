@@ -36,10 +36,6 @@ interface InventoryDao {
     @Query("SELECT * FROM inventory_items WHERE category = :category ORDER BY name ASC")
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>>
     
-    // Get low stock items
-    @Query("SELECT * FROM inventory_items WHERE isLowStock = 1 ORDER BY quantity ASC")
-    fun getLowStockItems(): Flow<List<InventoryItem>>
-    
     // Get out of stock items
     @Query("SELECT * FROM inventory_items WHERE quantity = 0 ORDER BY name ASC")
     fun getOutOfStockItems(): Flow<List<InventoryItem>>

@@ -111,7 +111,7 @@ fun ItemDetailScreen(
                         label = "Quantity",
                         value = item.quantity.toString(),
                         icon = Icons.Default.ProductionQuantityLimits,
-                        color = if (item.quantity <= (item.minimumQuantity ?: 0)) Warning else Success
+                        color = if (item.quantity <= 0) Warning else Success
                     )
                     DetailInfoCard(
                         modifier = Modifier.weight(1f),
@@ -124,9 +124,7 @@ fun ItemDetailScreen(
 
                 // Additional Details
                 DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
-                item.minimumQuantity?.let {
-                    DetailItemRow(label = "Minimum Stock Level", value = it.toString(), icon = Icons.Default.NotificationsActive)
-                }
+                
                 item.description?.let {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Description", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -134,7 +132,20 @@ fun ItemDetailScreen(
                     }
                 }
 
-                Spacer(Modifier.weight(1f))
+                // Custom Fields Section
+                if (item.customFields.isNotEmpty()) {
+                    Divider()
+                    Text(
+                        text = "Custom Information",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    item.customFields.forEach { (key, value) ->
+                        DetailItemRow(label = key, value = value, icon = Icons.Default.Label)
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
 
                 Button(
                     onClick = { onEditItem(item.id) },
