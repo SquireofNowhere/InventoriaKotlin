@@ -53,8 +53,8 @@ class AddEditItemViewModel @Inject constructor(
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
 
     init {
-        val itemId: Long? = savedStateHandle.get<String>("itemId")?.toLongOrNull()
-            ?: savedStateHandle.get<Long>("itemId")
+        // Now safely retrieved as Long because of NavType.LongType in NavHost
+        val itemId: Long? = savedStateHandle.get<Long>("itemId")
 
         if (itemId != null && itemId != -1L && itemId != 0L) {
             viewModelScope.launch {

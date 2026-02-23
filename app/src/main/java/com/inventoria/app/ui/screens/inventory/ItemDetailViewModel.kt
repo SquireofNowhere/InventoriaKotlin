@@ -27,10 +27,8 @@ class ItemDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
 
-    // Safely retrieve itemId which might be stored as a String by Compose Navigation
-    private val itemId: Long = savedStateHandle.get<String>("itemId")?.toLongOrNull()
-        ?: savedStateHandle.get<Long>("itemId")
-        ?: 0L
+    // Safely retrieve itemId as a Long because of NavType.LongType in NavHost
+    private val itemId: Long = savedStateHandle.get<Long>("itemId") ?: 0L
 
     init {
         if (itemId != 0L) {

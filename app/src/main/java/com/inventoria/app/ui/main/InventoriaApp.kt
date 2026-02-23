@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -23,7 +24,6 @@ import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.SettingsScreen
 import com.inventoria.app.ui.screens.task.TaskTrackerScreen
-import org.osmdroid.util.GeoPoint
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
@@ -104,9 +104,14 @@ fun InventoriaApp() {
             
             composable(
                 route = "${Screen.Inventory.route}?fromDashboard={fromDashboard}",
-                arguments = listOf(navArgument("fromDashboard") { defaultValue = "false" })
+                arguments = listOf(
+                    navArgument("fromDashboard") { 
+                        type = NavType.BoolType
+                        defaultValue = false 
+                    }
+                )
             ) { backStackEntry ->
-                val fromDashboard = backStackEntry.arguments?.getString("fromDashboard") == "true"
+                val fromDashboard = backStackEntry.arguments?.getBoolean("fromDashboard") == true
                 InventoryListScreen(
                     onAddItem = { navController.navigate("add_item") },
                     onItemClick = { id -> navController.navigate("item_detail/$id") },
@@ -146,16 +151,26 @@ fun InventoriaApp() {
                 )
             }
 
-            composable("item_detail/{itemId}") { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId") ?: return@composable
+            composable(
+                route = "item_detail/{itemId}",
+                arguments = listOf(
+                    navArgument("itemId") { type = NavType.LongType }
+                )
+            ) { backStackEntry ->
+                val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
                 ItemDetailScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onEditItem = { id -> navController.navigate("edit_item/$id") }
                 )
             }
 
-            composable("edit_item/{itemId}") { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId") ?: return@composable
+            composable(
+                route = "edit_item/{itemId}",
+                arguments = listOf(
+                    navArgument("itemId") { type = NavType.LongType }
+                )
+            ) { backStackEntry ->
+                val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
                 AddEditItemScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onPickLocation = { 
@@ -166,7 +181,12 @@ fun InventoriaApp() {
             }
 
             // Location picker route with identifier to help routing result back to correct screen
-            composable("location_picker/{origin}") { backStackEntry ->
+            composable(
+                route = "location_picker/{origin}",
+                arguments = listOf(
+                    navArgument("origin") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
                 val origin = backStackEntry.arguments?.getString("origin") ?: "unknown"
                 LocationPickerScreen(
                     onLocationSelected = { geoPoint, address ->
