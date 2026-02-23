@@ -15,9 +15,11 @@ import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.data.repository.InventoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.osmdroid.util.GeoPoint
 import javax.inject.Inject
 
 data class CustomField(
@@ -28,7 +30,7 @@ data class CustomField(
 @HiltViewModel
 class AddEditItemViewModel @Inject constructor(
     private val repository: InventoryRepository,
-    private val savedStateHandle: SavedStateHandle,
+    savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -39,9 +41,10 @@ class AddEditItemViewModel @Inject constructor(
     var category by mutableStateOf("")
     var description by mutableStateOf("")
     
-    // Custom fields state
-    var customFields = mutableStateListOf<CustomField>()
+    // For the map picker
+    var currentLocationGeoPoint by mutableStateOf<GeoPoint?>(null)
 
+    var customFields = mutableStateListOf<CustomField>()
     private var currentItemId: Long? = null
 
     private val _eventFlow = MutableSharedFlow<UiEvent>()
@@ -50,12 +53,10 @@ class AddEditItemViewModel @Inject constructor(
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
 
     init {
-        // Safely retrieve itemId which might be stored as a String by Compose Navigation
         val itemId: Long? = savedStateHandle.get<String>("itemId")?.toLongOrNull()
             ?: savedStateHandle.get<Long>("itemId")
 
         if (itemId != null && itemId != -1L && itemId != 0L) {
-            // Edit Mode
             viewModelScope.launch {
                 repository.getItemById(itemId)?.let { item ->
                     currentItemId = item.id
@@ -66,7 +67,9 @@ class AddEditItemViewModel @Inject constructor(
                     category = item.category ?: ""
                     description = item.description ?: ""
                     
-                    // Load existing custom fields
+                    // Parse initial GeoPoint if exists
+                    currentLocationGeoPoint = parseLocation(item.location)
+
                     customFields.clear()
                     item.customFields.forEach { (key, value) ->
                         customFields.add(CustomField(key, value))
@@ -74,84 +77,47 @@ class AddEditItemViewModel @Inject constructor(
                 }
             }
         } else {
-            // Add Mode: Fetch current location automatically
             getCurrentLocation(isManual = false)
         }
-
-        // Observe results from the location picker
-        observeNavigationResults()
     }
 
-    private fun observeNavigationResults() {
-        // Using StateFlow observation for the navigation result. 
-        // This is more robust for Compose Navigation than LiveData.
-        savedStateHandle.getStateFlow<String?>("selected_address", null)
-            .onEach { address ->
-                if (!address.isNullOrBlank()) {
-                    location = address
-                    // Clear the result immediately so it doesn't re-apply
-                    savedStateHandle["selected_address"] = null
-                    _eventFlow.emit(UiEvent.ShowSnackbar("Location updated from map"))
-                }
-            }
-            .launchIn(viewModelScope)
+    fun updateLocation(geoPoint: GeoPoint, text: String) {
+        location = text
+        currentLocationGeoPoint = geoPoint
     }
 
-    /**
-     * Fetches the current GPS location.
-     * @param isManual If true, it will overwrite any existing location data and show feedback.
-     *                 If false (automatic), it will only set the location if the field is currently blank.
-     */
     @SuppressLint("MissingPermission")
     fun getCurrentLocation(isManual: Boolean = true) {
-        // Automatic check: don't overwrite if data already exists
         if (!isManual && location.isNotBlank()) return
 
         viewModelScope.launch {
             try {
-                if (isManual) {
-                    _eventFlow.emit(UiEvent.ShowSnackbar("Updating location from GPS..."))
-                }
-
                 val locationResult = fusedLocationClient.getCurrentLocation(
                     Priority.PRIORITY_HIGH_ACCURACY,
                     null
                 ).await()
                 
-                if (locationResult != null) {
-                    val coords = "${locationResult.latitude}, ${locationResult.longitude}"
-                    // Re-check awareness before setting to prevent race conditions
+                locationResult?.let {
+                    val coords = "${it.latitude}, ${it.longitude}"
                     if (isManual || location.isBlank()) {
-                        location = coords
-                        if (isManual) {
-                            _eventFlow.emit(UiEvent.ShowSnackbar("Location updated"))
-                        }
+                        updateLocation(GeoPoint(it.latitude, it.longitude), coords)
                     }
-                } else if (isManual) {
-                    _eventFlow.emit(UiEvent.ShowSnackbar("Could not acquire GPS location"))
                 }
-            } catch (e: Exception) {
-                if (isManual) {
-                    _eventFlow.emit(UiEvent.ShowSnackbar("GPS Error: ${e.message}"))
-                }
-            }
+            } catch (e: Exception) { }
         }
     }
 
-    fun addCustomField() {
-        customFields.add(CustomField("", ""))
+    private fun parseLocation(locationStr: String): GeoPoint? {
+        return try {
+            val parts = locationStr.split(",")
+            if (parts.size == 2) GeoPoint(parts[0].trim().toDouble(), parts[1].trim().toDouble()) else null
+        } catch (e: Exception) { null }
     }
 
-    fun removeCustomField(index: Int) {
-        if (index in customFields.indices) {
-            customFields.removeAt(index)
-        }
-    }
-
+    fun addCustomField() { customFields.add(CustomField("", "")) }
+    fun removeCustomField(index: Int) { if (index in customFields.indices) customFields.removeAt(index) }
     fun updateCustomField(index: Int, key: String, value: String) {
-        if (index in customFields.indices) {
-            customFields[index] = CustomField(key, value)
-        }
+        if (index in customFields.indices) customFields[index] = CustomField(key, value)
     }
 
     fun onSaveClick() {
@@ -162,7 +128,6 @@ class AddEditItemViewModel @Inject constructor(
                     return@launch
                 }
 
-                // Convert list to map, filtering out empty keys
                 val customFieldsMap = customFields
                     .filter { it.key.isNotBlank() }
                     .associate { it.key to it.value }

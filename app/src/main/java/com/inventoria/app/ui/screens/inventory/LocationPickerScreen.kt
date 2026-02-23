@@ -41,6 +41,7 @@ fun LocationPickerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val defaultLocation = GeoPoint(-26.2041, 28.0473) // Johannesburg default
     
     var markerPosition by remember { mutableStateOf(initialLocation ?: defaultLocation) }
@@ -70,10 +71,16 @@ fun LocationPickerScreen(
                         val geoPoint = GeoPoint(locationResult.latitude, locationResult.longitude)
                         markerPosition = geoPoint
                         mapView.controller.animateTo(geoPoint)
+                    } else {
+                        snackbarHostState.showSnackbar("Unable to retrieve location. Please ensure GPS is enabled.")
                     }
                 } catch (e: Exception) {
-                    // Handle exception
+                    snackbarHostState.showSnackbar("Error fetching location: ${e.message}")
                 }
+            }
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("Location permission denied.")
             }
         }
     }
@@ -94,6 +101,7 @@ fun LocationPickerScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Pick Location") },
@@ -103,8 +111,9 @@ fun LocationPickerScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { 
-                        onLocationSelected(markerPosition, "${markerPosition.latitude}, ${markerPosition.longitude}") 
+                    IconButton(onClick = {
+                        onLocationSelected(markerPosition, "${markerPosition.latitude}, ${markerPosition.longitude}")
+                        onNavigateBack()
                     }) {
                         Icon(Icons.Default.Check, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -156,9 +165,9 @@ fun LocationPickerScreen(
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(16.dp)
+                    .padding(16.dp,80.dp)
                     .fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
