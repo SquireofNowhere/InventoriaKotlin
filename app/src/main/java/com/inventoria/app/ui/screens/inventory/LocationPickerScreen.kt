@@ -113,7 +113,7 @@ fun LocationPickerScreen(
                 actions = {
                     IconButton(onClick = {
                         onLocationSelected(markerPosition, "${markerPosition.latitude}, ${markerPosition.longitude}")
-                        onNavigateBack()
+                        //onNavigateBack()
                     }) {
                         Icon(Icons.Default.Check, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
                     }

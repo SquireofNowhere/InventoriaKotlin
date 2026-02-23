@@ -17,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.osmdroid.util.GeoPoint
@@ -30,7 +31,7 @@ data class CustomField(
 @HiltViewModel
 class AddEditItemViewModel @Inject constructor(
     private val repository: InventoryRepository,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -78,6 +79,20 @@ class AddEditItemViewModel @Inject constructor(
             }
         } else {
             getCurrentLocation(isManual = false)
+        }
+
+        // Observe changes from the Location Picker
+        viewModelScope.launch {
+            savedStateHandle.getStateFlow<GeoPoint?>("selected_location", null).collectLatest { geoPoint ->
+                if (geoPoint != null) {
+                    val address = savedStateHandle.get<String>("selected_address") ?: ""
+                    updateLocation(geoPoint, address)
+                    
+                    // Clear the values so they don't trigger again
+                    savedStateHandle.remove<GeoPoint>("selected_location")
+                    savedStateHandle.remove<String>("selected_address")
+                }
+            }
         }
     }
 
