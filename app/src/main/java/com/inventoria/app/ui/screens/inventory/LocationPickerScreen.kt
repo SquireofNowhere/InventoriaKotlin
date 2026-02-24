@@ -19,7 +19,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
@@ -47,13 +46,43 @@ fun LocationPickerScreen(
     var markerPosition by remember { mutableStateOf(initialLocation ?: defaultLocation) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     
+    // Create the marker once
+    val marker = remember {
+        Marker(MapView(context)).apply {
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = "Selected Location"
+        }
+    }
+
     val mapView = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             controller.setZoom(15.0)
             controller.setCenter(markerPosition)
+            
+            // Add the tap listener once
+            val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                    markerPosition = p
+                    return true
+                }
+                override fun longPressHelper(p: GeoPoint): Boolean = false
+            })
+            overlays.add(eventsOverlay)
+            overlays.add(marker)
         }
+    }
+
+    // Sync marker position state with the actual marker object
+    LaunchedEffect(markerPosition) {
+        marker.position = markerPosition
+        mapView.invalidate()
+    }
+    
+    // Ensure initial centering happens even if MapView takes time to load
+    LaunchedEffect(Unit) {
+        mapView.controller.setCenter(markerPosition)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -113,7 +142,6 @@ fun LocationPickerScreen(
                 actions = {
                     IconButton(onClick = {
                         onLocationSelected(markerPosition, "${markerPosition.latitude}, ${markerPosition.longitude}")
-                        //onNavigateBack()
                     }) {
                         Icon(Icons.Default.Check, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -139,33 +167,10 @@ fun LocationPickerScreen(
                 factory = { mapView }
             )
             
-            LaunchedEffect(markerPosition) {
-                mapView.overlays.clear()
-                
-                // Add Marker
-                val marker = Marker(mapView)
-                marker.position = markerPosition
-                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                marker.title = "Selected Location"
-                mapView.overlays.add(marker)
-                
-                // Add Click Listener
-                val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
-                    override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
-                        markerPosition = p
-                        return true
-                    }
-                    override fun longPressHelper(p: GeoPoint): Boolean = false
-                })
-                mapView.overlays.add(eventsOverlay)
-                
-                mapView.invalidate()
-            }
-            
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(16.dp,80.dp)
+                    .padding(16.dp, 80.dp)
                     .fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {

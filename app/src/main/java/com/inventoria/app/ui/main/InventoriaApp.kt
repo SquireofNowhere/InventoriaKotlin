@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -24,6 +25,7 @@ import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.SettingsScreen
 import com.inventoria.app.ui.screens.task.TaskTrackerScreen
+import org.osmdroid.util.GeoPoint
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
@@ -141,8 +143,19 @@ fun InventoriaApp() {
                 SettingsScreen()
             }
 
-            composable("add_item") {
+            composable("add_item") { backStackEntry ->
+                val viewModel: AddEditItemViewModel = hiltViewModel()
+                
+                // Before navigating to picker, save current location in backStackEntry's savedStateHandle
+                // so the picker can access it
+                LaunchedEffect(viewModel.currentLocationGeoPoint) {
+                    viewModel.currentLocationGeoPoint?.let { geoPoint ->
+                        backStackEntry.savedStateHandle["current_location"] = geoPoint
+                    }
+                }
+                
                 AddEditItemScreen(
+                    viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onPickLocation = { 
                         // Route to picker from add_item
@@ -171,12 +184,23 @@ fun InventoriaApp() {
                 )
             ) { backStackEntry ->
                 val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
+                val viewModel: AddEditItemViewModel = hiltViewModel()
+                
+                // Before navigating to picker, save current location in backStackEntry's savedStateHandle
+                LaunchedEffect(viewModel.currentLocationGeoPoint) {
+                    viewModel.currentLocationGeoPoint?.let { geoPoint ->
+                        backStackEntry.savedStateHandle["current_location"] = geoPoint
+                    }
+                }
+                
                 AddEditItemScreen(
+
                     onNavigateBack = { navController.popBackStack() },
                     onPickLocation = { 
                         // Route to picker from edit_item
                         navController.navigate("location_picker/edit_item_$itemId") 
-                    }
+                    }, viewModel = viewModel
+
                 )
             }
 
@@ -188,7 +212,14 @@ fun InventoriaApp() {
                 )
             ) { backStackEntry ->
                 val origin = backStackEntry.arguments?.getString("origin") ?: "unknown"
+                
+                // Try to get initial location from the calling screen's backStackEntry
+                val initialLocation = navController.previousBackStackEntry
+                    ?.savedStateHandle
+                    ?.get<GeoPoint>("current_location")
+                
                 LocationPickerScreen(
+                    initialLocation = initialLocation,
                     onLocationSelected = { geoPoint, address ->
                         // Pass result back using the origin as identifier
                         navController.previousBackStackEntry?.savedStateHandle?.set("selected_location", geoPoint)
