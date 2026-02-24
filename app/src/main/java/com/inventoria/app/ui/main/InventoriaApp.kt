@@ -187,11 +187,9 @@ fun InventoriaApp() {
             composable(
                 route = "location_picker/{origin}",
                 arguments = listOf(
-                    navArgument("origin") { type = NavType.StringType }
+                    navArgument("argument") { type = NavType.StringType; defaultValue = "" }
                 )
             ) { backStackEntry ->
-                // Scope the ViewModel to the previous backstack entry (Add or Edit screen)
-                // so they share the exact same instance.
                 val parentEntry = remember(backStackEntry) {
                     navController.previousBackStackEntry!!
                 }
@@ -199,9 +197,8 @@ fun InventoriaApp() {
                 
                 LocationPickerScreen(
                     initialLocation = viewModel.currentLocationGeoPoint,
-                    onLocationSelected = { geoPoint, address ->
-                        // Update the ViewModel directly
-                        viewModel.updateLocation(geoPoint, address)
+                    onLocationSelected = { geoPoint ->
+                        viewModel.updateLocation(geoPoint)
                         navController.popBackStack()
                     },
                     onNavigateBack = { navController.popBackStack() }

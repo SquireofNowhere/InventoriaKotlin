@@ -7,11 +7,11 @@ import com.inventoria.app.data.model.InventoryItem
 
 /**
  * Room database for Inventoria.
- * Version incremented to 2 due to schema change (removed minimumQuantity and isLowStock).
+ * Version incremented to 3 due to adding latitude and longitude fields to InventoryItem.
  */
 @Database(
     entities = [InventoryItem::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

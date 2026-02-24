@@ -34,7 +34,7 @@ import org.osmdroid.views.overlay.Marker
 @Composable
 fun LocationPickerScreen(
     initialLocation: GeoPoint? = null,
-    onLocationSelected: (GeoPoint, String) -> Unit,
+    onLocationSelected: (GeoPoint) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -141,7 +141,7 @@ fun LocationPickerScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        onLocationSelected(markerPosition, "${markerPosition.latitude}, ${markerPosition.longitude}")
+                        onLocationSelected(markerPosition)
                     }) {
                         Icon(Icons.Default.Check, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
                     }

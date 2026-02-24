@@ -1,4 +1,3 @@
-
 package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.foundation.layout.*
@@ -14,6 +13,8 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ fun AddEditItemScreen(
     viewModel: AddEditItemViewModel = hiltViewModel()
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(key1 = true) {
         viewModel.eventFlow.collectLatest { event ->
@@ -94,21 +96,28 @@ fun AddEditItemScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
-                    value = viewModel.location,
-                    onValueChange = { viewModel.location = it },
+                    value = uiState.address,
+                    onValueChange = { /* Read-only or controlled by ViewModel */ },
                     label = { Text("Location *") },
-                    modifier = Modifier.weight(1f)
+                    readOnly = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (uiState.isResolvingAddress) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            IconButton(onClick = onPickLocation) {
+                                Icon(Icons.Default.LocationOn, contentDescription = "Pick on Map", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
                 )
-                
-                IconButton(onClick = onPickLocation) {
-                    Icon(Icons.Default.LocationOn, contentDescription = "Pick on Map", tint = MaterialTheme.colorScheme.primary)
-                }
             }
 
             OutlinedTextField(

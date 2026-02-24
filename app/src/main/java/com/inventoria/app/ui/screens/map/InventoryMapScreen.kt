@@ -20,10 +20,15 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.inventoria.app.ui.screens.inventory.InventoryListViewModel
+import org.osmdroid.events.DelayedMapListener
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.infowindow.MarkerInfoWindow
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
@@ -36,39 +41,46 @@ fun InventoryMapScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val defaultLocation = GeoPoint(-26.2041, 28.0473) // Johannesburg
+    val defaultLocation = GeoPoint(-26.2041, 28.0473)
 
     val locationPermissionState = rememberPermissionState(
         Manifest.permission.ACCESS_FINE_LOCATION
     )
 
-    // Create MapView once and remember it
+    var currentZoom by remember { mutableStateOf(10.0) }
+    val isZoomedIn = currentZoom > 15.0
+
     val mapView = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             controller.setZoom(10.0)
             controller.setCenter(defaultLocation)
+            
+            addMapListener(DelayedMapListener(object : MapListener {
+                override fun onScroll(event: ScrollEvent?): Boolean = false
+                override fun onZoom(event: ZoomEvent?): Boolean {
+                    event?.let { currentZoom = it.zoomLevel }
+                    return true
+                }
+            }, 100))
         }
     }
 
-    // Create and remember MyLocationOverlay
     val myLocationOverlay = remember {
         val provider = GpsMyLocationProvider(context)
-        MyLocationNewOverlay(provider, mapView).apply {
-            enableMyLocation()
-        }
+        MyLocationNewOverlay(provider, mapView)
     }
 
     LaunchedEffect(locationPermissionState.status.isGranted) {
         if (locationPermissionState.status.isGranted) {
+            myLocationOverlay.enableMyLocation()
             if (!mapView.overlays.contains(myLocationOverlay)) {
                 mapView.overlays.add(myLocationOverlay)
             }
         }
     }
 
-    // Lifecycle handling for MapView
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -103,11 +115,9 @@ fun InventoryMapScreen(
                         myLocationOverlay.enableFollowLocation()
                         val myLocation = myLocationOverlay.myLocation
                         if (myLocation != null) {
-                            mapView.controller.setZoom(15.0) // Approximately 1.5km across
+                            mapView.controller.setZoom(15.0)
                             mapView.controller.animateTo(myLocation)
                         } else {
-                            // If location not yet found, at least enable following
-                            myLocationOverlay.enableFollowLocation()
                             mapView.controller.setZoom(15.0)
                         }
                     } else {
@@ -126,24 +136,62 @@ fun InventoryMapScreen(
                 factory = { mapView }
             )
             
-            // Re-render markers when items change
+            // Manage markers only when items change
             LaunchedEffect(uiState.filteredItems) {
-                // Clear all except myLocationOverlay if it exists
-                val overlaysToRemove = mapView.overlays.filter { it != myLocationOverlay }
-                mapView.overlays.removeAll(overlaysToRemove)
+                val existingMarkers = mapView.overlays.filterIsInstance<Marker>()
+                existingMarkers.forEach { it.closeInfoWindow() }
+                mapView.overlays.removeAll(existingMarkers)
                 
                 uiState.filteredItems.forEach { item ->
-                    val coords = parseLocationToGeoPoint(item.location)
+                    val coords = if (item.latitude != null && item.longitude != null) {
+                        GeoPoint(item.latitude, item.longitude)
+                    } else {
+                        parseLocationToGeoPoint(item.location)
+                    }
+                    
                     if (coords != null) {
+                        val itemId = item.id
                         val marker = Marker(mapView)
                         marker.position = coords
                         marker.title = item.name
-                        marker.snippet = "Qty: ${item.quantity} | ${item.location}"
+                        marker.snippet = "Qty: ${item.quantity}\n${item.location}"
+                        
+                        marker.infoWindow = object : MarkerInfoWindow(org.osmdroid.library.R.layout.bonuspack_bubble, mapView) {
+                            override fun onOpen(item: Any?) {
+                                super.onOpen(item)
+                                // Handle click on the entire bubble layout
+                                view.setOnClickListener {
+                                    onItemClick(itemId)
+                                    close()
+                                }
+                            }
+                        }
+
+                        if (isZoomedIn) {
+                            marker.showInfoWindow()
+                        }
+
                         marker.setOnMarkerClickListener { m, _ ->
-                            onItemClick(item.id)
+                            if (m.isInfoWindowShown) {
+                                onItemClick(itemId)
+                            } else {
+                                m.showInfoWindow()
+                            }
                             true
                         }
                         mapView.overlays.add(marker)
+                    }
+                }
+                mapView.invalidate()
+            }
+
+            // Efficiently toggle InfoWindows based on zoom threshold
+            LaunchedEffect(isZoomedIn) {
+                mapView.overlays.filterIsInstance<Marker>().forEach { marker ->
+                    if (isZoomedIn) {
+                        marker.showInfoWindow()
+                    } else {
+                        marker.closeInfoWindow()
                     }
                 }
                 mapView.invalidate()
@@ -160,7 +208,9 @@ private fun parseLocationToGeoPoint(location: String): GeoPoint? {
     return try {
         val parts = location.split(",")
         if (parts.size == 2) {
-            GeoPoint(parts[0].trim().toDouble(), parts[1].trim().toDouble())
+            val lat = parts[0].trim().toDoubleOrNull()
+            val lon = parts[1].trim().toDoubleOrNull()
+            if (lat != null && lon != null) GeoPoint(lat, lon) else null
         } else null
     } catch (e: Exception) {
         null
