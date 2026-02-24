@@ -16,10 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
@@ -52,7 +54,7 @@ fun ItemDetailScreen(
                     if (item != null) {
                         IconButton(onClick = viewModel::toggleEquip) {
                             Icon(
-                                imageVector = if (item.isEquipped) Icons.Default.AccessibilityNew else Icons.Default.Accessibility,
+                                painter = if (item.isEquipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
                                 contentDescription = if (item.isEquipped) "Unequip" else "Equip"
                             )
                         }
@@ -138,7 +140,11 @@ fun ItemDetailScreen(
 
                 // Location Row
                 if (item.isEquipped) {
-                    DetailItemRow(label = "Location", value = "Equipped (With You)", icon = Icons.Default.AccessibilityNew)
+                    DetailItemRow(
+                        label = "Location", 
+                        value = "Equipped (With You)", 
+                        iconPainter = painterResource(R.drawable.mobile_theft_24px)
+                    )
                 } else if (parentItem != null) {
                     DetailItemRow(
                         label = "Inside Container", 
@@ -240,7 +246,8 @@ fun DetailInfoCard(
 fun DetailItemRow(
     label: String, 
     value: String, 
-    icon: ImageVector, 
+    icon: ImageVector? = null,
+    iconPainter: androidx.compose.ui.graphics.painter.Painter? = null,
     onClick: (() -> Unit)? = null
 ) {
     val rowModifier = if (onClick != null) {
@@ -253,7 +260,11 @@ fun DetailItemRow(
         modifier = rowModifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        } else if (iconPainter != null) {
+            Icon(iconPainter, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        }
         Spacer(Modifier.width(16.dp))
         Column {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

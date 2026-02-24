@@ -69,13 +69,16 @@ fun InventoriaApp() {
                             label = { Text(screen.title) },
                             selected = isSelected,
                             onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                if (!isSelected){
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
+
                             }
                         )
                     }
@@ -93,10 +96,11 @@ fun InventoriaApp() {
                     onNavigateToInventory = { 
                         navController.navigate("${Screen.Inventory.route}?fromDashboard=true") {
                             popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                                saveState = false
+                                inclusive = false
                             }
                             launchSingleTop = true
-                            restoreState = true
+                            restoreState = false
                         }
                     },
                     onNavigateToAddItem = { navController.navigate("add_item") },
@@ -173,12 +177,10 @@ fun InventoriaApp() {
                     onNavigateBack = { navController.popBackStack() },
                     onEditItem = { id -> navController.navigate("edit_item/$id") },
                     onLocationClick = { lat, lon ->
+                        // Navigate to Map without clearing the backstack
+                        // This allows going back to ItemDetail from Map
                         navController.navigate("${Screen.Map.route}?lat=$lat&lon=$lon") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
                             launchSingleTop = true
-                            restoreState = true
                         }
                     },
                     onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id") }
@@ -205,22 +207,29 @@ fun InventoriaApp() {
             composable(
                 route = "location_picker/{origin}",
                 arguments = listOf(
-                    navArgument("argument") { type = NavType.StringType; defaultValue = "" }
+                    navArgument("origin") { type = NavType.StringType; defaultValue = "" }
                 )
             ) { backStackEntry ->
                 val parentEntry = remember(backStackEntry) {
-                    navController.previousBackStackEntry!!
+                    navController.previousBackStackEntry
                 }
-                val viewModel: AddEditItemViewModel = hiltViewModel(parentEntry)
                 
-                LocationPickerScreen(
-                    initialLocation = viewModel.currentLocationGeoPoint,
-                    onLocationSelected = { geoPoint ->
-                        viewModel.updateLocation(geoPoint)
+                if (parentEntry != null) {
+                    val viewModel: AddEditItemViewModel = hiltViewModel(parentEntry)
+                    LocationPickerScreen(
+                        initialLocation = viewModel.currentLocationGeoPoint,
+                        onLocationSelected = { geoPoint ->
+                            viewModel.updateLocation(geoPoint)
+                            navController.popBackStack()
+                        },
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                } else {
+                    // Fallback or navigate back if we lost the parent entry
+                    LaunchedEffect(Unit) {
                         navController.popBackStack()
-                    },
-                    onNavigateBack = { navController.popBackStack() }
-                )
+                    }
+                }
             }
         }
     }

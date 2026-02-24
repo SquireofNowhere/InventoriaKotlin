@@ -22,10 +22,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.ui.theme.*
 import java.text.NumberFormat
@@ -163,7 +165,6 @@ fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
             color = PurplePrimary,
             shimmerOffset = shimmerOffset
         )
-        // Conditionally show the Total Value card based on the setting
         if (uiState.showTotalValue) {
             StatCard(
                 modifier = Modifier.weight(1f),
@@ -247,7 +248,18 @@ fun RecentItemCard(item: InventoryItem, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    if (item.isEquipped) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            painter = painterResource(R.drawable.mobile_theft_24px),
+                            contentDescription = "Equipped",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
                 Text(text = item.location, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (item.quantity != 1) {

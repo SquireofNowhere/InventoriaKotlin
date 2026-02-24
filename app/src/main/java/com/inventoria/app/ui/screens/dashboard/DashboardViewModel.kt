@@ -16,13 +16,13 @@ data class DashboardUiState(
     val recentItems: List<InventoryItem> = emptyList(),
     val categories: List<String> = emptyList(),
     val isLoading: Boolean = true,
-    val showTotalValue: Boolean = true // New field to control visibility
+    val showTotalValue: Boolean = true
 )
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repository: InventoryRepository,
-    private val settingsRepository: SettingsRepository // Injected settings
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -33,34 +33,42 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun observeDashboardData() {
-        // Combine repository data with the settings flow
+        // combine for 6+ flows uses an Array parameter instead of individual arguments
         combine(
             repository.getItemCount(),
             repository.getTotalValue(),
             repository.getOutOfStockItems(),
             repository.getAllItems(),
             repository.getAllCategories(),
-            settingsRepository.showValueOnDashboard // Observe the setting
-        ) { args ->
-            val totalItems = args[0] as? Int ?: 0
-            val totalValue = args[1] as? Double ?: 0.0
-            val outOfStockItems = args[2] as? List<*> ?: emptyList<Any>()
+            settingsRepository.showValueOnDashboard
+        ) { args: Array<Any?> ->
+            val itemCount = args[0] as? Int ?: 0
+            val totalVal = args[1] as? Double
+            @Suppress("UNCHECKED_CAST")
+            val outOfStock = args[2] as? List<InventoryItem> ?: emptyList()
+            @Suppress("UNCHECKED_CAST")
             val allItems = args[3] as? List<InventoryItem> ?: emptyList()
+            @Suppress("UNCHECKED_CAST")
             val categories = args[4] as? List<String> ?: emptyList()
             val showValue = args[5] as? Boolean ?: true
 
             DashboardUiState(
-                totalItems = totalItems,
-                totalValue = totalValue,
-                outOfStockCount = outOfStockItems.size,
+                totalItems = itemCount,
+                totalValue = totalVal ?: 0.0,
+                outOfStockCount = outOfStock.size,
                 recentItems = allItems.take(5),
                 categories = categories,
                 isLoading = false,
-                showTotalValue = showValue // Update the state
+                showTotalValue = showValue
             )
         }
+        .distinctUntilChanged()
         .onEach { state ->
             _uiState.value = state
+        }
+        .catch { e ->
+            // Prevent crash if database is in a transient state
+            _uiState.value = _uiState.value.copy(isLoading = false)
         }
         .launchIn(viewModelScope)
     }

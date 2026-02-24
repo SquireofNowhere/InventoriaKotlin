@@ -12,9 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -183,11 +185,22 @@ fun InventoryItemRow(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (item.isStorage) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (item.isStorage) FontWeight.Bold else FontWeight.Normal
+                        )
+                        if (item.isEquipped) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                painter = painterResource(R.drawable.mobile_theft_24px),
+                                contentDescription = "Equipped",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                     if (item.location.isNotBlank() && !item.isStorage && depth == 0) {
                         Text(
                             text = item.location,
