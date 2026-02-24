@@ -25,7 +25,6 @@ import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.SettingsScreen
 import com.inventoria.app.ui.screens.task.TaskTrackerScreen
-import org.osmdroid.util.GeoPoint
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
@@ -54,7 +53,9 @@ fun InventoriaApp() {
         bottomBar = {
             // Check if current destination matches any of our bottom nav routes
             val showBottomBar = bottomNavItems.any { item ->
-                currentDestination?.hierarchy?.any { it.route?.split("?")?.firstOrNull() == item.route } == true
+                currentDestination?.hierarchy?.any {
+                    it.route?.split("?")?.firstOrNull() == item.route
+                } == true
             }
             
             if (showBottomBar) {
@@ -143,22 +144,12 @@ fun InventoriaApp() {
                 SettingsScreen()
             }
 
-            composable("add_item") { backStackEntry ->
+            composable("add_item") {
                 val viewModel: AddEditItemViewModel = hiltViewModel()
-                
-                // Before navigating to picker, save current location in backStackEntry's savedStateHandle
-                // so the picker can access it
-                LaunchedEffect(viewModel.currentLocationGeoPoint) {
-                    viewModel.currentLocationGeoPoint?.let { geoPoint ->
-                        backStackEntry.savedStateHandle["current_location"] = geoPoint
-                    }
-                }
-                
                 AddEditItemScreen(
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onPickLocation = { 
-                        // Route to picker from add_item
                         navController.navigate("location_picker/add_item") 
                     }
                 )
@@ -170,7 +161,6 @@ fun InventoriaApp() {
                     navArgument("itemId") { type = NavType.LongType }
                 )
             ) { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
                 ItemDetailScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onEditItem = { id -> navController.navigate("edit_item/$id") }
@@ -183,47 +173,35 @@ fun InventoriaApp() {
                     navArgument("itemId") { type = NavType.LongType }
                 )
             ) { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
                 val viewModel: AddEditItemViewModel = hiltViewModel()
-                
-                // Before navigating to picker, save current location in backStackEntry's savedStateHandle
-                LaunchedEffect(viewModel.currentLocationGeoPoint) {
-                    viewModel.currentLocationGeoPoint?.let { geoPoint ->
-                        backStackEntry.savedStateHandle["current_location"] = geoPoint
-                    }
-                }
-                
                 AddEditItemScreen(
-
+                    viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onPickLocation = { 
-                        // Route to picker from edit_item
+                        val itemId = backStackEntry.arguments?.getLong("itemId") ?: 0L
                         navController.navigate("location_picker/edit_item_$itemId") 
-                    }, viewModel = viewModel
-
+                    }
                 )
             }
 
-            // Location picker route with identifier to help routing result back to correct screen
             composable(
                 route = "location_picker/{origin}",
                 arguments = listOf(
                     navArgument("origin") { type = NavType.StringType }
                 )
             ) { backStackEntry ->
-                val origin = backStackEntry.arguments?.getString("origin") ?: "unknown"
-                
-                // Try to get initial location from the calling screen's backStackEntry
-                val initialLocation = navController.previousBackStackEntry
-                    ?.savedStateHandle
-                    ?.get<GeoPoint>("current_location")
+                // Scope the ViewModel to the previous backstack entry (Add or Edit screen)
+                // so they share the exact same instance.
+                val parentEntry = remember(backStackEntry) {
+                    navController.previousBackStackEntry!!
+                }
+                val viewModel: AddEditItemViewModel = hiltViewModel(parentEntry)
                 
                 LocationPickerScreen(
-                    initialLocation = initialLocation,
+                    initialLocation = viewModel.currentLocationGeoPoint,
                     onLocationSelected = { geoPoint, address ->
-                        // Pass result back using the origin as identifier
-                        navController.previousBackStackEntry?.savedStateHandle?.set("selected_location", geoPoint)
-                        navController.previousBackStackEntry?.savedStateHandle?.set("selected_address", address)
+                        // Update the ViewModel directly
+                        viewModel.updateLocation(geoPoint, address)
                         navController.popBackStack()
                     },
                     onNavigateBack = { navController.popBackStack() }
