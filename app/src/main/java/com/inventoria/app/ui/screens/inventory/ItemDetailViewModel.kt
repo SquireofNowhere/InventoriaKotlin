@@ -14,6 +14,7 @@ import javax.inject.Inject
 
 data class ItemDetailUiState(
     val item: InventoryItem? = null,
+    val parentItem: InventoryItem? = null,
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -27,7 +28,6 @@ class ItemDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
 
-    // Safely retrieve itemId as a Long because of NavType.LongType in NavHost
     private val itemId: Long = savedStateHandle.get<Long>("itemId") ?: 0L
 
     init {
@@ -42,11 +42,27 @@ class ItemDetailViewModel @Inject constructor(
         viewModelScope.launch {
             repository.getItemByIdFlow(itemId).collect { item ->
                 if (item != null) {
-                    _uiState.value = ItemDetailUiState(item = item, isLoading = false)
+                    var parentItem: InventoryItem? = null
+                    if (item.parentId != null) {
+                        parentItem = repository.getItemById(item.parentId)
+                    }
+                    _uiState.value = ItemDetailUiState(
+                        item = item, 
+                        parentItem = parentItem,
+                        isLoading = false
+                    )
                 } else {
                     _uiState.value = ItemDetailUiState(isLoading = false, error = "Item not found")
                 }
             }
+        }
+    }
+
+    fun toggleEquip() {
+        viewModelScope.launch {
+            val currentItem = _uiState.value.item ?: return@launch
+            val updatedItem = currentItem.copy(isEquipped = !currentItem.isEquipped)
+            repository.updateItem(updatedItem)
         }
     }
 

@@ -28,7 +28,8 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            .fallbackToDestructiveMigration()
+            // Removed fallbackToDestructiveMigration to prevent data loss on schema changes.
+            // Future schema changes will now require explicit Migrations.
             .build()
     }
     

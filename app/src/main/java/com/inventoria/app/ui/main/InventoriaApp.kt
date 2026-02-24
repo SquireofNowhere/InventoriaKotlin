@@ -51,7 +51,6 @@ fun InventoriaApp() {
 
     Scaffold(
         bottomBar = {
-            // Check if current destination matches any of our bottom nav routes
             val showBottomBar = bottomNavItems.any { item ->
                 currentDestination?.hierarchy?.any {
                     it.route?.split("?")?.firstOrNull() == item.route
@@ -130,9 +129,18 @@ fun InventoriaApp() {
                 )
             }
 
-            composable(Screen.Map.route) {
+            composable(
+                route = "${Screen.Map.route}?lat={lat}&lon={lon}",
+                arguments = listOf(
+                    navArgument("lat") { type = NavType.FloatType; defaultValue = -1f },
+                    navArgument("lon") { type = NavType.FloatType; defaultValue = -1f }
+                )
+            ) { backStackEntry ->
+                val lat = backStackEntry.arguments?.getFloat("lat")?.toDouble()
+                val lon = backStackEntry.arguments?.getFloat("lon")?.toDouble()
                 InventoryMapScreen(
-                    onItemClick = { id -> navController.navigate("item_detail/$id") }
+                    onItemClick = { id -> navController.navigate("item_detail/$id") },
+                    initialLocation = if (lat != null && lon != null && lat != -1.0 && lon != -1.0) Pair(lat, lon) else null
                 )
             }
 
@@ -163,7 +171,17 @@ fun InventoriaApp() {
             ) { backStackEntry ->
                 ItemDetailScreen(
                     onNavigateBack = { navController.popBackStack() },
-                    onEditItem = { id -> navController.navigate("edit_item/$id") }
+                    onEditItem = { id -> navController.navigate("edit_item/$id") },
+                    onLocationClick = { lat, lon ->
+                        navController.navigate("${Screen.Map.route}?lat=$lat&lon=$lon") {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id") }
                 )
             }
 

@@ -1,6 +1,7 @@
 package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +31,8 @@ import java.text.NumberFormat
 fun ItemDetailScreen(
     onNavigateBack: () -> Unit,
     onEditItem: (Long) -> Unit,
+    onLocationClick: (Double, Double) -> Unit,
+    onNavigateToItemDetail: (Long) -> Unit, 
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -45,11 +48,20 @@ fun ItemDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { uiState.item?.id?.let { onEditItem(it) } }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit")
-                    }
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete")
+                    val item = uiState.item
+                    if (item != null) {
+                        IconButton(onClick = viewModel::toggleEquip) {
+                            Icon(
+                                imageVector = if (item.isEquipped) Icons.Default.AccessibilityNew else Icons.Default.Accessibility,
+                                contentDescription = if (item.isEquipped) "Unequip" else "Equip"
+                            )
+                        }
+                        IconButton(onClick = { onEditItem(item.id) }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                        }
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        }
                     }
                 }
             )
@@ -65,6 +77,8 @@ fun ItemDetailScreen(
             }
         } else {
             val item = uiState.item!!
+            val parentItem = uiState.parentItem
+            
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -73,7 +87,7 @@ fun ItemDetailScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Header section with big name and category
+                // Header section
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Box(
                         modifier = Modifier
@@ -83,7 +97,7 @@ fun ItemDetailScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.Inventory2,
+                            if (item.isStorage) Icons.Default.Inventory else Icons.Default.Category,
                             contentDescription = null,
                             tint = PurplePrimary,
                             modifier = Modifier.size(40.dp)
@@ -122,8 +136,26 @@ fun ItemDetailScreen(
                     )
                 }
 
-                // Additional Details
-                DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
+                // Location Row
+                if (item.isEquipped) {
+                    DetailItemRow(label = "Location", value = "Equipped (With You)", icon = Icons.Default.AccessibilityNew)
+                } else if (parentItem != null) {
+                    DetailItemRow(
+                        label = "Inside Container", 
+                        value = parentItem.name, 
+                        icon = Icons.Default.Inventory,
+                        onClick = { onNavigateToItemDetail(parentItem.id) }
+                    )
+                } else if (item.latitude != null && item.longitude != null) {
+                    DetailItemRow(
+                        label = "Location", 
+                        value = item.location, 
+                        icon = Icons.Default.LocationOn,
+                        onClick = { onLocationClick(item.latitude, item.longitude) }
+                    )
+                } else {
+                    DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
+                }
                 
                 item.description?.let {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,9 +237,20 @@ fun DetailInfoCard(
 }
 
 @Composable
-fun DetailItemRow(label: String, value: String, icon: ImageVector) {
+fun DetailItemRow(
+    label: String, 
+    value: String, 
+    icon: ImageVector, 
+    onClick: (() -> Unit)? = null
+) {
+    val rowModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
+    
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = rowModifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
@@ -215,6 +258,10 @@ fun DetailItemRow(label: String, value: String, icon: ImageVector) {
         Column {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        }
+        if (onClick != null) {
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.Default.ChevronRight, contentDescription = "Action", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

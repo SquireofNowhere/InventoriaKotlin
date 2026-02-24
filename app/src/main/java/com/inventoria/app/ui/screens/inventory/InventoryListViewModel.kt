@@ -32,7 +32,7 @@ class InventoryListViewModel @Inject constructor(
 
     private fun observeItems() {
         viewModelScope.launch {
-            combine(repository.getAllItems(), _searchQuery) { items, query ->
+            combine(repository.getAllItemsWithResolvedLocations(), _searchQuery) { items, query ->
                 val filtered = if (query.isBlank()) {
                     items
                 } else {
@@ -51,5 +51,9 @@ class InventoryListViewModel @Inject constructor(
 
     fun search(query: String) {
         _searchQuery.value = query
+    }
+
+    fun updateUserLocation(latitude: Double, longitude: Double) {
+        repository.updateUserLocation(latitude, longitude)
     }
 }

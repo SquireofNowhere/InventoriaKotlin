@@ -36,6 +36,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 @Composable
 fun InventoryMapScreen(
     onItemClick: (Long) -> Unit,
+    initialLocation: Pair<Double, Double>? = null,
     viewModel: InventoryListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -72,9 +73,37 @@ fun InventoryMapScreen(
         MyLocationNewOverlay(provider, mapView)
     }
 
+    LaunchedEffect(initialLocation) {
+        initialLocation?.let { (lat, lon) ->
+            mapView.controller.setZoom(17.0)
+            mapView.controller.animateTo(GeoPoint(lat, lon))
+        }
+    }
+
     LaunchedEffect(locationPermissionState.status.isGranted) {
         if (locationPermissionState.status.isGranted) {
             myLocationOverlay.enableMyLocation()
+            myLocationOverlay.runOnFirstFix {
+                val loc = myLocationOverlay.myLocation
+                if (loc != null) {
+                    viewModel.updateUserLocation(loc.latitude, loc.longitude)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while(true) {
+            val loc = myLocationOverlay.myLocation
+            if (loc != null) {
+                viewModel.updateUserLocation(loc.latitude, loc.longitude)
+            }
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+
+    LaunchedEffect(locationPermissionState.status.isGranted) {
+        if (locationPermissionState.status.isGranted) {
             if (!mapView.overlays.contains(myLocationOverlay)) {
                 mapView.overlays.add(myLocationOverlay)
             }
@@ -136,13 +165,15 @@ fun InventoryMapScreen(
                 factory = { mapView }
             )
             
-            // Manage markers only when items change
             LaunchedEffect(uiState.filteredItems) {
                 val existingMarkers = mapView.overlays.filterIsInstance<Marker>()
                 existingMarkers.forEach { it.closeInfoWindow() }
                 mapView.overlays.removeAll(existingMarkers)
                 
-                uiState.filteredItems.forEach { item ->
+                // Filter: Only show items that are NOT equipped AND NOT in storage
+                val itemsToShow = uiState.filteredItems.filter { !it.isEquipped && it.parentId == null }
+
+                itemsToShow.forEach { item ->
                     val coords = if (item.latitude != null && item.longitude != null) {
                         GeoPoint(item.latitude, item.longitude)
                     } else {
@@ -159,7 +190,6 @@ fun InventoryMapScreen(
                         marker.infoWindow = object : MarkerInfoWindow(org.osmdroid.library.R.layout.bonuspack_bubble, mapView) {
                             override fun onOpen(item: Any?) {
                                 super.onOpen(item)
-                                // Handle click on the entire bubble layout
                                 view.setOnClickListener {
                                     onItemClick(itemId)
                                     close()
@@ -185,7 +215,6 @@ fun InventoryMapScreen(
                 mapView.invalidate()
             }
 
-            // Efficiently toggle InfoWindows based on zoom threshold
             LaunchedEffect(isZoomedIn) {
                 mapView.overlays.filterIsInstance<Marker>().forEach { marker ->
                     if (isZoomedIn) {

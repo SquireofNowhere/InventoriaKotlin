@@ -11,11 +11,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -96,24 +92,124 @@ fun AddEditItemScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Box(modifier = Modifier.fillMaxWidth()) {
+            // Equip Toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Equip Item", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Item follows your GPS location",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = viewModel.isEquipped,
+                    onCheckedChange = { viewModel.isEquipped = it }
+                )
+            }
+
+            // Storage Item Toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Storage Item", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Can contain other items (e.g., a bag or box)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = viewModel.isStorage,
+                    onCheckedChange = { viewModel.isStorage = it }
+                )
+            }
+
+            // Parent Storage Selection
+            var expanded by remember { mutableStateOf(false) }
+            val selectedParent = uiState.storageItems.find { it.id == viewModel.parentId }
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 OutlinedTextField(
-                    value = uiState.address,
-                    onValueChange = { /* Read-only or controlled by ViewModel */ },
-                    label = { Text("Location *") },
+                    value = selectedParent?.name ?: "None (Standalone)",
+                    onValueChange = {},
                     readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (uiState.isResolvingAddress) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(8.dp))
+                    label = { Text("Inside Container") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("None (Standalone)") },
+                        onClick = {
+                            viewModel.parentId = null
+                            expanded = false
+                        }
+                    )
+                    uiState.storageItems.forEach { item ->
+                        DropdownMenuItem(
+                            text = { Text(item.name) },
+                            onClick = {
+                                viewModel.parentId = item.id
+                                expanded = false
                             }
-                            IconButton(onClick = onPickLocation) {
-                                Icon(Icons.Default.LocationOn, contentDescription = "Pick on Map", tint = MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            }
+
+            // Location Section
+            Box(modifier = Modifier.fillMaxWidth()) {
+                val isInheritingLocation = viewModel.parentId != null
+                val isEquipped = viewModel.isEquipped
+                
+                OutlinedTextField(
+                    value = when {
+                        isEquipped -> "Following your location"
+                        isInheritingLocation -> "Inherited from container"
+                        else -> uiState.address
+                    },
+                    onValueChange = { /* Read-only */ },
+                    label = { Text("Location") },
+                    readOnly = true,
+                    enabled = !isInheritingLocation && !isEquipped,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = {
+                        when {
+                            isEquipped -> Text("Item is equipped and will move with you.")
+                            isInheritingLocation -> Text("Location is inherited from the container it's inside.")
+                            uiState.address.isBlank() -> Text("Location is required *", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    trailingIcon = {
+                        if (!isInheritingLocation && !isEquipped) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (uiState.isResolvingAddress) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                IconButton(onClick = onPickLocation) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = "Pick on Map", tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         }
                     }

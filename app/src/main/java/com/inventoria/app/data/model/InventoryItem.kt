@@ -22,6 +22,13 @@ data class InventoryItem(
     val longitude: Double? = null, // Raw longitude
     val price: Double? = null,
     
+    // Storage relationship
+    val isStorage: Boolean = false,
+    val parentId: Long? = null,
+    
+    // Equipped status
+    val isEquipped: Boolean = false,
+    
     // Additional fields stored as key-value pairs
     val customFields: Map<String, String> = emptyMap(),
     
@@ -74,6 +81,9 @@ data class InventoryItemInput(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val price: Double? = null,
+    val isStorage: Boolean = false,
+    val parentId: Long? = null,
+    val isEquipped: Boolean = false,
     val customFields: Map<String, String> = emptyMap(),
     val category: String? = null,
     val tags: List<String> = emptyList(),
@@ -88,6 +98,9 @@ data class InventoryItemInput(
             latitude = latitude,
             longitude = longitude,
             price = price,
+            isStorage = isStorage,
+            parentId = parentId,
+            isEquipped = isEquipped,
             customFields = customFields,
             category = category,
             tags = tags,

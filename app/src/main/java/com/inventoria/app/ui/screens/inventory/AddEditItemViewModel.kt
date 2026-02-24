@@ -1,3 +1,4 @@
+
 package com.inventoria.app.ui.screens.inventory
 
 import android.content.Context
@@ -16,12 +17,7 @@ import com.inventoria.app.data.repository.InventoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.osmdroid.util.GeoPoint
@@ -36,7 +32,8 @@ data class CustomField(
 data class AddEditItemUiState(
     val geoPoint: GeoPoint? = null,
     val address: String = "",
-    val isResolvingAddress: Boolean = false
+    val isResolvingAddress: Boolean = false,
+    val storageItems: List<InventoryItem> = emptyList()
 )
 
 @HiltViewModel
@@ -51,6 +48,9 @@ class AddEditItemViewModel @Inject constructor(
     var price by mutableStateOf("")
     var category by mutableStateOf("")
     var description by mutableStateOf("")
+    var isStorage by mutableStateOf(false)
+    var parentId by mutableStateOf<Long?>(null)
+    var isEquipped by mutableStateOf(false)
     
     private val _uiState = MutableStateFlow(AddEditItemUiState())
     val uiState: StateFlow<AddEditItemUiState> = _uiState
@@ -69,6 +69,13 @@ class AddEditItemViewModel @Inject constructor(
     init {
         val itemId: Long? = savedStateHandle.get<Long>("itemId")
 
+        // Load storage items for parent selection
+        viewModelScope.launch {
+            repository.getStorageItems().collect { items ->
+                _uiState.update { it.copy(storageItems = items.filter { it.id != itemId }) }
+            }
+        }
+
         if (itemId != null && itemId != 0L && itemId != -1L) {
             viewModelScope.launch {
                 repository.getItemById(itemId)?.let { item ->
@@ -78,11 +85,13 @@ class AddEditItemViewModel @Inject constructor(
                     price = item.price?.toString() ?: ""
                     category = item.category ?: ""
                     description = item.description ?: ""
+                    isStorage = item.isStorage
+                    parentId = item.parentId
+                    isEquipped = item.isEquipped
                     
                     val geoPoint = if (item.latitude != null && item.longitude != null) {
                         GeoPoint(item.latitude, item.longitude)
                     } else {
-                        // Fallback to parsing address if coords are missing (legacy data)
                         parseLocation(item.location)
                     }
                     
@@ -178,12 +187,19 @@ class AddEditItemViewModel @Inject constructor(
     fun onSaveClick() {
         viewModelScope.launch {
             try {
-                if (name.isBlank() || quantity.isBlank() || _uiState.value.address.isBlank()) {
+                if (name.isBlank() || quantity.isBlank()) {
                     _eventFlow.emit(UiEvent.ShowSnackbar("Please fill in required fields"))
+                    return@launch
+                }
+                
+                // If no parent and not equipped, location is required
+                if (parentId == null && !isEquipped && _uiState.value.address.isBlank()) {
+                    _eventFlow.emit(UiEvent.ShowSnackbar("Location is required if not equipped or in a container"))
                     return@launch
                 }
 
                 val state = _uiState.value
+                
                 val item = InventoryItem(
                     id = currentItemId ?: 0L,
                     name = name,
@@ -192,6 +208,9 @@ class AddEditItemViewModel @Inject constructor(
                     latitude = state.geoPoint?.latitude,
                     longitude = state.geoPoint?.longitude,
                     price = price.toDoubleOrNull(),
+                    isStorage = isStorage,
+                    parentId = parentId,
+                    isEquipped = isEquipped,
                     category = category.ifBlank { null },
                     description = description.ifBlank { null },
                     customFields = customFields.filter { it.key.isNotBlank() }.associate { it.key to it.value }
