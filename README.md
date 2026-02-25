@@ -1,54 +1,71 @@
 # 📦 Inventoria - Professional Inventory Management
 
-**Inventoria** is a modern, feature-rich Android application built to simplify inventory tracking. Designed with a stunning **Purple Sheen** aesthetic and powered by the latest Android technologies, it provides a seamless experience for managing stock, costs, and locations.
+**Inventoria** is a modern, high-performance Android application designed to streamline inventory tracking. Built with a focus on usability and aesthetics, it features a custom **Purple Sheen** theme and leverages the latest Android development practices.
 
-## ✨ Key Features
+## 📱 Features
 
 ### 📊 Intelligent Dashboard
-- **Real-time Statistics**: Instantly view total item count, inventory valuation, and stock health.
-- **Stock Alerts**: Automatic tracking of low-stock and out-of-stock items.
-- **Recent Activity**: Quick access to the most recently added or updated items.
+- **Dynamic Statistics**: Track total item count and total inventory value at a glance.
+- **Quick Actions**: Rapidly add items or jump to the full inventory list.
+- **Recent Activity**: Scrollable list of recently modified items for quick access.
+- **Visual Feedback**: Shimmer loading effects and smooth transitions.
 
-### 📋 Inventory Management
-- **Full CRUD Operations**: Easily add, view, edit, and delete inventory items.
-- **Smart Search**: Find items instantly by name, category, or description.
-- **Detailed Tracking**: Record specific details including price, location, categories, and minimum stock levels.
-- **Reactive Updates**: Powered by Kotlin Flow, ensuring the UI always reflects the latest database state.
+### 📋 Advanced Inventory Control
+- **Full CRUD Support**: Add, edit, view, and delete inventory items with ease.
+- **Smart Organization**: Categorize items, set quantities, and track pricing.
+- **Custom Fields**: Add flexible key-value pairs to items for specific tracking needs.
+- **Equip System**: Mark items as "Equipped" (e.g., in a mobile kit) or stored in containers.
 
-### 🎨 Premium Design
-- **Purple Sheen Theme**: A beautiful, custom-crafted purple color palette.
-- **Light & Dark Mode**: Seamlessly adapts to your system theme for comfortable use day or night.
-- **Modern UI Components**: Built entirely with **Jetpack Compose** and **Material 3**.
-- **Visual Feedback**: Smooth transitions, shimmer effects, and Lottie animations.
+### 🗺️ Geospatial Tracking
+- **Interactive Map**: Built with **osmdroid**, allowing you to see exactly where your items are located.
+- **Location Picker**: Precision location selection for item entry.
+- **Visual Markers**: Custom markers with info windows for item details.
+
+### ⏱️ Task Management
+- **Integrated Task Tracker**: Manage inventory-related tasks with a built-in timer.
+- **Productivity Focus**: Keep track of time spent on restocking or audits.
+
+### 🎨 Premium UI/UX
+- **Jetpack Compose**: 100% declarative UI for a fluid experience.
+- **Material 3**: Utilizing the latest design components and principles.
+- **Dual Theme**: Comprehensive support for Light and Dark modes.
+- **Lottie Animations**: Engaging visual feedback for a polished feel.
+
+---
 
 ## 🏗️ Architecture & Tech Stack
 
-Inventoria follows **Clean Architecture** principles and the **MVVM** pattern, ensuring a scalable and maintainable codebase.
+The project follows **Clean Architecture** and **MVVM** principles to ensure scalability and maintainability.
 
-- **Language**: [Kotlin](https://kotlinlang.org/)
-- **UI Framework**: [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material 3)
-- **Dependency Injection**: [Hilt](https://dagger.dev/hilt/)
-- **Local Database**: [Room](https://developer.android.com/training/data-storage/room) (SQLite)
-- **Asynchronous Flow**: [Kotlin Coroutines](https://kotlinlang.org/docs/coroutines-overview.html) & [Flow](https://kotlinlang.org/docs/flow.html)
-- **Navigation**: [Jetpack Navigation Compose](https://developer.android.com/jetpack/compose/navigation)
-- **Image/Animation**: [Lottie](https://airbnb.io/lottie/) & Shimmer effects
+- **Language**: Kotlin
+- **UI Framework**: Jetpack Compose
+- **Dependency Injection**: Hilt
+- **Persistence**: Room Database (SQLite)
+- **Async & Streams**: Coroutines & Flow
+- **Navigation**: Jetpack Navigation Compose
+- **Maps**: OpenStreetMap (osmdroid)
+- **Images/Animations**: Lottie, Shimmer, Vector Drawables
+
+---
 
 ## 📁 Project Structure
 
 ```
 app/src/main/java/com/inventoria/app/
 ├── data/
-│   ├── local/          # Room Database, DAOs, and Type Converters
+│   ├── local/          # Room DB, DAOs, and Type Converters
 │   ├── model/          # InventoryItem entities and UI state models
-│   └── repository/     # Data sources (Room & File-based implementations)
+│   └── repository/     # Data sources and business logic
 ├── di/                 # Hilt Modules for Dependency Injection
 ├── ui/
-│   ├── main/           # MainActivity and Navigation Graph
-│   ├── screens/        # Feature screens (Dashboard, Inventory, Detail, Add/Edit)
+│   ├── main/           # MainActivity and Navigation Graph (InventoriaApp.kt)
+│   ├── screens/        # Feature screens (Dashboard, Inventory, Map, Tasks, Settings)
 │   ├── splash/         # Animated Splash Screen
-│   └── theme/          # Custom Theme, Colors, and Typography
+│   └── theme/          # Purple Sheen Theme, Colors, and Typography
 └── InventoriaApplication.kt # Hilt Application Class
 ```
+
+---
 
 ## 🚀 Getting Started
 
@@ -60,21 +77,34 @@ app/src/main/java/com/inventoria/app/
 ### Setup
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/inventoria-kotlin.git
+   git clone https://github.com/yourusername/InventoriaKotlin.git
    ```
 2. **Open in Android Studio**:
-   Select the `InventoriaKotlin` folder.
-3. **Sync & Run**:
-   Let Gradle sync finish, then click **Run** (▶️) to deploy to your device or emulator.
+   Select the `InventoriaKotlin` folder and wait for Gradle sync.
+3. **Run**:
+   Deploy to an emulator or physical device.
+
+---
+
+## 🛑 Known Issues
+
+### 🐛 Navigation Crash (Priority: High)
+There is a known crash that occurs when navigating via the bottom navigation bar under specific conditions:
+1. Open **Dashboard**.
+2. Click an item to open **Item Detail**.
+3. Click the location to open the **Inventory Map**.
+4. Click **Dashboard** in the bottom navigation bar.
+5. **Result**: The application crashes.
+
+*Note: This is currently under investigation and appears related to backstack state restoration when navigating away from the Map screen while it was launched from a detail view.*
+
+---
 
 ## 🎯 Roadmap
-- [ ] **Barcode Scanning**: Integrated scanner for faster item entry.
-- [ ] **Export/Import**: Support for CSV and PDF reporting.
-- [ ] **Cloud Sync**: Firebase integration for multi-device support.
-- [ ] **Advanced Analytics**: Interactive charts for stock trends and value history.
-
-## 📄 License
-This project is licensed under the MIT License.
+- [ ] **Barcode Integration**: Native scanner for faster item management.
+- [ ] **Data Export**: Export inventory lists to CSV or PDF.
+- [ ] **Cloud Sync**: Optional Firebase/Supabase integration.
+- [ ] **Advanced Filtering**: Filter by valuation range or low-stock status.
 
 ---
 *Made with 💜 and Jetpack Compose*
