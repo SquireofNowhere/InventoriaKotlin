@@ -86,40 +86,21 @@ fun InventoriaApp() {
                             label = { Text(screen.title) },
                             selected = isSelected,
                             onClick = {
-                                val isRoot = currentRoute?.split("?")?.firstOrNull() == screen.route
-                                Log.d("InventoriaNav", "Click on ${screen.route}. currentRoute: $currentRoute, isSelected: $isSelected, isRoot: $isRoot")
-
-                                if (isSelected) {
-                                    if (!isRoot) {
-                                        Log.d("InventoriaNav", "Selected but not root, navigating to root of ${screen.route}")
-                                        navController.navigate(screen.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = false
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = false
-                                        }
-                                    } else {
-                                        Log.d("InventoriaNav", "Already at root of selected tab, doing nothing")
+                                Log.d("InventoriaNav", "Click on ${screen.route}. currentRoute: $currentRoute")
+                                
+                                // To achieve a "completely clear stack" and start fresh:
+                                navController.navigate(screen.route) {
+                                    // Pop up to the start destination of the graph (Dashboard)
+                                    // This removes everything else from the backstack.
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        // NEVER save state here to ensure we don't restore old detail screens
+                                        saveState = false
+                                        inclusive = false
                                     }
-                                } else {
-                                    Log.d("InventoriaNav", "Switching to tab ${screen.route}")
-                                    navController.navigate(screen.route) {
-                                        // Standard bottom nav behavior
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                        
-                                        // Special case for Map to avoid crash
-                                        val currentRouteOnClick = navController.currentBackStackEntry?.destination?.route
-                                        if (currentRouteOnClick?.startsWith(Screen.Map.route) == true) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = false
-                                            }
-                                        }
-                                    }
+                                    // Avoid multiple copies of the same destination
+                                    launchSingleTop = true
+                                    // NEVER restore state to ensure we always land on the root screen
+                                    restoreState = false
                                 }
                             }
                         )
@@ -166,10 +147,10 @@ fun InventoriaApp() {
                     onNavigateBack = if (fromDashboard) { { 
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                                saveState = false
                             }
                             launchSingleTop = true
-                            restoreState = true
+                            restoreState = false
                         }
                     } } else null
                 )
