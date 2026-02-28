@@ -135,6 +135,9 @@ fun InventoryItemRow(
     onItemClick: (Long) -> Unit,
     isSearchMode: Boolean
 ) {
+    // Safety check for recursion depth
+    if (depth > 20) return
+
     val isExpanded = expandedItemIds.contains(item.id)
     val children = remember(item.id, allItems) {
         allItems.filter { it.parentId == item.id }

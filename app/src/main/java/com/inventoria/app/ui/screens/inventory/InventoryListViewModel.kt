@@ -1,6 +1,7 @@
 
 package com.inventoria.app.ui.screens.inventory
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryItem
@@ -13,7 +14,8 @@ import javax.inject.Inject
 data class InventoryUiState(
     val items: List<InventoryItem> = emptyList(),
     val filteredItems: List<InventoryItem> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val error: String? = null
 )
 
 @HiltViewModel
@@ -32,20 +34,26 @@ class InventoryListViewModel @Inject constructor(
 
     private fun observeItems() {
         viewModelScope.launch {
-            combine(repository.getAllItemsWithResolvedLocations(), _searchQuery) { items, query ->
-                val filtered = if (query.isBlank()) {
-                    items
-                } else {
-                    items.filter { it.name.contains(query, ignoreCase = true) }
+            repository.getAllItemsWithResolvedLocations()
+                .combine(_searchQuery) { items, query ->
+                    val filtered = if (query.isBlank()) {
+                        items
+                    } else {
+                        items.filter { it.name.contains(query, ignoreCase = true) }
+                    }
+                    InventoryUiState(
+                        items = items,
+                        filteredItems = filtered,
+                        isLoading = false
+                    )
                 }
-                InventoryUiState(
-                    items = items,
-                    filteredItems = filtered,
-                    isLoading = false
-                )
-            }.collect { newState ->
-                _uiState.value = newState
-            }
+                .catch { e ->
+                    Log.e("InventoryListViewModel", "Error observing items", e)
+                    _uiState.value = InventoryUiState(isLoading = false, error = e.message)
+                }
+                .collect { newState ->
+                    _uiState.value = newState
+                }
         }
     }
 
@@ -54,6 +62,12 @@ class InventoryListViewModel @Inject constructor(
     }
 
     fun updateUserLocation(latitude: Double, longitude: Double) {
-        repository.updateUserLocation(latitude, longitude)
+        viewModelScope.launch {
+            try {
+                repository.updateUserLocation(latitude, longitude)
+            } catch (e: Exception) {
+                Log.e("InventoryListViewModel", "Error updating location", e)
+            }
+        }
     }
 }

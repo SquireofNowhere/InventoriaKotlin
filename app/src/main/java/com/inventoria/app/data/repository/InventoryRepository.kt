@@ -2,6 +2,7 @@ package com.inventoria.app.data.repository
 
 import android.content.Context
 import android.location.Geocoder
+import android.util.Log
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.model.InventoryItem
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -92,36 +93,39 @@ class InventoryRepository @Inject constructor(
     fun getAllItemsWithResolvedLocations(): Flow<List<InventoryItem>> {
         return combine(getAllItems(), _userLocation) { items, userLoc ->
             val itemMap = items.associateBy { it.id }
-            val resolvedCache = mutableMapOf<Long, Pair<Double?, Double?>>()
-            val resolvedAddressCache = mutableMapOf<Long, String>()
+            val resolvedCache = mutableMapOf<Long, Triple<Double?, Double?, String>>()
 
-            fun getResolvedLocation(item: InventoryItem): Triple<Double?, Double?, String> {
-                if (resolvedCache.containsKey(item.id)) {
-                    return Triple(resolvedCache[item.id]?.first, resolvedCache[item.id]?.second, resolvedAddressCache[item.id] ?: item.location)
+            fun getResolvedLocation(item: InventoryItem, visited: Set<Long> = emptySet()): Triple<Double?, Double?, String> {
+                // If we've already resolved this item in this pass, return cached result
+                resolvedCache[item.id]?.let { return it }
+
+                // Check for circular dependency
+                if (visited.contains(item.id)) {
+                    Log.w("InventoryRepository", "Circular dependency detected for item ${item.id}")
+                    return Triple(item.latitude, item.longitude, item.location)
                 }
 
-                if (item.isEquipped && userLoc != null) {
-                    val res = Triple(userLoc.first, userLoc.second, "With You")
-                    resolvedCache[item.id] = res.first to res.second
-                    resolvedAddressCache[item.id] = res.third
-                    return res
-                }
+                val currentVisited = visited + item.id
 
-                if (item.parentId != null) {
-                    val parent = itemMap[item.parentId]
-                    if (parent != null) {
-                        val (pLat, pLon, pAddr) = getResolvedLocation(parent)
-                        val res = Triple(pLat, pLon, pAddr)
-                        resolvedCache[item.id] = res.first to res.second
-                        resolvedAddressCache[item.id] = res.third
-                        return res
+                val result = when {
+                    item.isEquipped && userLoc != null -> {
+                        Triple(userLoc.first, userLoc.second, "With You")
+                    }
+                    item.parentId != null -> {
+                        val parent = itemMap[item.parentId]
+                        if (parent != null) {
+                            getResolvedLocation(parent, currentVisited)
+                        } else {
+                            Triple(item.latitude, item.longitude, item.location)
+                        }
+                    }
+                    else -> {
+                        Triple(item.latitude, item.longitude, item.location)
                     }
                 }
 
-                val res = Triple(item.latitude, item.longitude, item.location)
-                resolvedCache[item.id] = res.first to res.second
-                resolvedAddressCache[item.id] = res.third
-                return res
+                resolvedCache[item.id] = result
+                return result
             }
 
             items.map { item ->

@@ -86,24 +86,18 @@ app/src/main/java/com/inventoria/app/
 
 ---
 
-## 🛑 Known Issues
-
-### 🐛 Navigation Crash (Priority: High)
-There is a known crash that occurs when navigating via the bottom navigation bar under specific conditions:
-1. Open **Dashboard**.
-2. Click an item to open **Item Detail**.
-3. Click the location to open the **Inventory Map**.
-4. Click **Dashboard** in the bottom navigation bar.
-5. **Result**: The application crashes.
-
-*Note: This is currently under investigation and appears related to backstack state restoration when navigating away from the Map screen while it was launched from a detail view.*
+## 🛡️ Stability & Robustness
+Inventoria has been rigorously tested for common Android navigation and threading pitfalls. It includes:
+- **Clean-Slate Navigation**: Prevents backstack corruption and state restoration crashes.
+- **Recursion Safety**: Hard-guards against circular dependencies in storage and location resolution.
+- **Coroutine-First Repository**: Ensures all database and location updates are thread-safe.
 
 ---
 
 ## 🎯 Roadmap
 - [ ] **Barcode Integration**: Native scanner for faster item management.
 - [ ] **Data Export**: Export inventory lists to CSV or PDF.
-- [ ] **Cloud Sync**: Optional Firebase/Supabase integration.
+- [ ] **Cloud Sync**: Real-time data synchronization using **Firebase (Free Tier)**.
 - [ ] **Advanced Filtering**: Filter by valuation range or low-stock status.
 
 ---
