@@ -5,7 +5,9 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
+import com.inventoria.app.data.repository.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -20,13 +22,17 @@ data class InventoryUiState(
 
 @HiltViewModel
 class InventoryListViewModel @Inject constructor(
-    private val repository: InventoryRepository
+    private val repository: InventoryRepository,
+    private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(InventoryUiState())
     val uiState: StateFlow<InventoryUiState> = _uiState.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
+    
+    // Expose sync status for UI components
+    val syncStatus: StateFlow<SyncStatus> = syncRepository.syncStatus
 
     init {
         observeItems()

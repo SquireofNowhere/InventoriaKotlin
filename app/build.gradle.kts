@@ -4,6 +4,7 @@ plugins {
     id("com.google.dagger.hilt.android")
     id("androidx.navigation.safeargs.kotlin")
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -120,6 +121,11 @@ dependencies {
     // Lottie for animations
     implementation("com.airbnb.android:lottie:6.2.0")
     implementation("com.airbnb.android:lottie-compose:6.2.0")
+
+    // Firebase
+    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
+    implementation("com.google.firebase:firebase-database")
+    implementation("com.google.firebase:firebase-auth")
     
     // Testing
     testImplementation("junit:junit:4.13.2")

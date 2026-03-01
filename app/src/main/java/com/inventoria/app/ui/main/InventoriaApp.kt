@@ -1,7 +1,7 @@
 package com.inventoria.app.ui.main
 
 import android.util.Log
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Inventory
@@ -10,8 +10,10 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -21,6 +23,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.inventoria.app.data.repository.SyncStatus
+import com.inventoria.app.ui.components.SyncStatusIndicator
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
 import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
@@ -41,6 +45,10 @@ fun InventoriaApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    
+    // Shared ViewModel to get sync status across screens
+    val inventoryViewModel: InventoryListViewModel = hiltViewModel()
+    val syncStatus by inventoryViewModel.syncStatus.collectAsState()
 
     val bottomNavItems = listOf(
         Screen.Dashboard,
@@ -87,19 +95,12 @@ fun InventoriaApp() {
                             selected = isSelected,
                             onClick = {
                                 Log.d("InventoriaNav", "Click on ${screen.route}. currentRoute: $currentRoute")
-                                
-                                // To achieve a "completely clear stack" and start fresh:
                                 navController.navigate(screen.route) {
-                                    // Pop up to the start destination of the graph (Dashboard)
-                                    // This removes everything else from the backstack.
                                     popUpTo(navController.graph.findStartDestination().id) {
-                                        // NEVER save state here to ensure we don't restore old detail screens
                                         saveState = false
                                         inclusive = false
                                     }
-                                    // Avoid multiple copies of the same destination
                                     launchSingleTop = true
-                                    // NEVER restore state to ensure we always land on the root screen
                                     restoreState = false
                                 }
                             }
@@ -109,152 +110,168 @@ fun InventoriaApp() {
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Dashboard.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable(Screen.Dashboard.route) {
-                DashboardScreen(
-                    onNavigateToInventory = { 
-                        navController.navigate("${Screen.Inventory.route}?fromDashboard=true") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = false
-                                inclusive = false
+        Box(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Dashboard.route,
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                composable(Screen.Dashboard.route) {
+                    DashboardScreen(
+                        onNavigateToInventory = { 
+                            navController.navigate("${Screen.Inventory.route}?fromDashboard=true") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = false
+                                    inclusive = false
+                                }
+                                launchSingleTop = true
+                                restoreState = false
                             }
-                            launchSingleTop = true
-                            restoreState = false
-                        }
-                    },
-                    onNavigateToAddItem = { navController.navigate("add_item") },
-                    onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=${Screen.Dashboard.route}") }
-                )
-            }
-            
-            composable(
-                route = "${Screen.Inventory.route}?fromDashboard={fromDashboard}",
-                arguments = listOf(
-                    navArgument("fromDashboard") { 
-                        type = NavType.BoolType
-                        defaultValue = false 
-                    }
-                )
-            ) { backStackEntry ->
-                val fromDashboard = backStackEntry.arguments?.getBoolean("fromDashboard") == true
-                InventoryListScreen(
-                    onAddItem = { navController.navigate("add_item") },
-                    onItemClick = { id -> navController.navigate("item_detail/$id?origin=${Screen.Inventory.route}") },
-                    onNavigateBack = if (fromDashboard) { { 
-                        navController.navigate(Screen.Dashboard.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = false
-                            }
-                            launchSingleTop = true
-                            restoreState = false
-                        }
-                    } } else null
-                )
-            }
-
-            composable(
-                route = "${Screen.Map.route}?lat={lat}&lon={lon}&origin={origin}",
-                arguments = listOf(
-                    navArgument("lat") { type = NavType.FloatType; defaultValue = -1f },
-                    navArgument("lon") { type = NavType.FloatType; defaultValue = -1f },
-                    navArgument("origin") { type = NavType.StringType; defaultValue = Screen.Dashboard.route }
-                )
-            ) { backStackEntry ->
-                val lat = backStackEntry.arguments?.getFloat("lat")?.toDouble()
-                val lon = backStackEntry.arguments?.getFloat("lon")?.toDouble()
-                val origin = backStackEntry.arguments?.getString("origin") ?: Screen.Dashboard.route
-                InventoryMapScreen(
-                    onItemClick = { id -> navController.navigate("item_detail/$id?origin=$origin") },
-                    initialLocation = if (lat != null && lon != null && lat != -1.0 && lon != -1.0) Pair(lat, lon) else null
-                )
-            }
-
-            composable(Screen.Tasks.route) {
-                TaskTrackerScreen()
-            }
-
-            composable(Screen.Settings.route) {
-                SettingsScreen()
-            }
-
-            composable("add_item") {
-                val viewModel: AddEditItemViewModel = hiltViewModel()
-                AddEditItemScreen(
-                    viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onPickLocation = { 
-                        navController.navigate("location_picker/add_item") 
-                    }
-                )
-            }
-
-            composable(
-                route = "item_detail/{itemId}?origin={origin}",
-                arguments = listOf(
-                    navArgument("itemId") { type = NavType.LongType },
-                    navArgument("origin") { type = NavType.StringType; defaultValue = Screen.Dashboard.route }
-                )
-            ) { backStackEntry ->
-                val origin = backStackEntry.arguments?.getString("origin") ?: Screen.Dashboard.route
-                ItemDetailScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                    onEditItem = { id -> navController.navigate("edit_item/$id?origin=$origin") },
-                    onLocationClick = { lat, lon ->
-                        navController.navigate("${Screen.Map.route}?lat=$lat&lon=$lon&origin=$origin") {
-                            launchSingleTop = true
-                        }
-                    },
-                    onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") }
-                )
-            }
-
-            composable(
-                route = "edit_item/{itemId}?origin={origin}",
-                arguments = listOf(
-                    navArgument("itemId") { type = NavType.LongType },
-                     navArgument("origin") { type = NavType.StringType; defaultValue = Screen.Dashboard.route }
-                )
-            ) { backStackEntry ->
-                val viewModel: AddEditItemViewModel = hiltViewModel()
-                AddEditItemScreen(
-                    viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onPickLocation = { 
-                        val itemId = backStackEntry.arguments?.getLong("itemId") ?: 0L
-                        navController.navigate("location_picker/edit_item_$itemId") 
-                    }
-                )
-            }
-
-            composable(
-                route = "location_picker/{origin}",
-                arguments = listOf(
-                    navArgument("origin") { type = NavType.StringType; defaultValue = "" }
-                )
-            ) { backStackEntry ->
-                val parentEntry = remember(backStackEntry) {
-                    navController.previousBackStackEntry
+                        },
+                        onNavigateToAddItem = { navController.navigate("add_item") },
+                        onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=${Screen.Dashboard.route}") }
+                    )
                 }
                 
-                if (parentEntry != null) {
-                    val viewModel: AddEditItemViewModel = hiltViewModel(parentEntry)
-                    LocationPickerScreen(
-                        initialLocation = viewModel.currentLocationGeoPoint,
-                        onLocationSelected = { geoPoint ->
-                            viewModel.updateLocation(geoPoint)
-                            navController.popBackStack()
-                        },
-                        onNavigateBack = { navController.popBackStack() }
+                composable(
+                    route = "${Screen.Inventory.route}?fromDashboard={fromDashboard}",
+                    arguments = listOf(
+                        navArgument("fromDashboard") { 
+                            type = NavType.BoolType
+                            defaultValue = false 
+                        }
                     )
-                } else {
-                    // Fallback or navigate back if we lost the parent entry
-                    LaunchedEffect(Unit) {
-                        navController.popBackStack()
+                ) { backStackEntry ->
+                    val fromDashboard = backStackEntry.arguments?.getBoolean("fromDashboard") == true
+                    InventoryListScreen(
+                        onAddItem = { navController.navigate("add_item") },
+                        onItemClick = { id -> navController.navigate("item_detail/$id?origin=${Screen.Inventory.route}") },
+                        onNavigateBack = if (fromDashboard) { { 
+                            navController.navigate(Screen.Dashboard.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = false
+                                }
+                                launchSingleTop = true
+                                restoreState = false
+                            }
+                        } } else null
+                    )
+                }
+
+                composable(
+                    route = "${Screen.Map.route}?lat={lat}&lon={lon}&origin={origin}",
+                    arguments = listOf(
+                        navArgument("lat") { type = NavType.FloatType; defaultValue = -1f },
+                        navArgument("lon") { type = NavType.FloatType; defaultValue = -1f },
+                        navArgument("origin") { type = NavType.StringType; defaultValue = Screen.Dashboard.route }
+                    )
+                ) { backStackEntry ->
+                    val lat = backStackEntry.arguments?.getFloat("lat")?.toDouble()
+                    val lon = backStackEntry.arguments?.getFloat("lon")?.toDouble()
+                    val origin = backStackEntry.arguments?.getString("origin") ?: Screen.Dashboard.route
+                    InventoryMapScreen(
+                        onItemClick = { id -> navController.navigate("item_detail/$id?origin=$origin") },
+                        initialLocation = if (lat != null && lon != null && lat != -1.0 && lon != -1.0) Pair(lat, lon) else null
+                    )
+                }
+
+                composable(Screen.Tasks.route) {
+                    TaskTrackerScreen()
+                }
+
+                composable(Screen.Settings.route) {
+                    SettingsScreen()
+                }
+
+                composable("add_item") {
+                    val viewModel: AddEditItemViewModel = hiltViewModel()
+                    AddEditItemScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onPickLocation = { 
+                            navController.navigate("location_picker/add_item") 
+                        }
+                    )
+                }
+
+                composable(
+                    route = "item_detail/{itemId}?origin={origin}",
+                    arguments = listOf(
+                        navArgument("itemId") { type = NavType.LongType },
+                        navArgument("origin") { type = NavType.StringType; defaultValue = Screen.Dashboard.route }
+                    )
+                ) { backStackEntry ->
+                    val origin = backStackEntry.arguments?.getString("origin") ?: Screen.Dashboard.route
+                    ItemDetailScreen(
+                        onNavigateBack = { navController.popBackStack() },
+                        onEditItem = { id -> navController.navigate("edit_item/$id?origin=$origin") },
+                        onLocationClick = { lat, lon ->
+                            navController.navigate("${Screen.Map.route}?lat=$lat&lon=$lon&origin=$origin") {
+                                launchSingleTop = true
+                            }
+                        },
+                        onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") }
+                    )
+                }
+
+                composable(
+                    route = "edit_item/{itemId}?origin={origin}",
+                    arguments = listOf(
+                        navArgument("itemId") { type = NavType.LongType },
+                         navArgument("origin") { type = NavType.StringType; defaultValue = Screen.Dashboard.route }
+                    )
+                ) { backStackEntry ->
+                    val viewModel: AddEditItemViewModel = hiltViewModel()
+                    AddEditItemScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onPickLocation = { 
+                            val itemId = backStackEntry.arguments?.getLong("itemId") ?: 0L
+                            navController.navigate("location_picker/edit_item_$itemId") 
+                        }
+                    )
+                }
+
+                composable(
+                    route = "location_picker/{origin}",
+                    arguments = listOf(
+                        navArgument("origin") { type = NavType.StringType; defaultValue = "" }
+                    )
+                ) { backStackEntry ->
+                    val parentEntry = remember(backStackEntry) {
+                        navController.previousBackStackEntry
                     }
+                    
+                    if (parentEntry != null) {
+                        val viewModel: AddEditItemViewModel = hiltViewModel(parentEntry)
+                        LocationPickerScreen(
+                            initialLocation = viewModel.currentLocationGeoPoint,
+                            onLocationSelected = { geoPoint ->
+                                viewModel.updateLocation(geoPoint)
+                                navController.popBackStack()
+                            },
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    } else {
+                        // Fallback or navigate back if we lost the parent entry
+                        LaunchedEffect(Unit) {
+                            navController.popBackStack()
+                        }
+                    }
+                }
+            }
+            
+            // Subtle, floating sync indicator at the top
+            if (syncStatus != SyncStatus.Idle) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                    tonalElevation = 4.dp
+                ) {
+                    SyncStatusIndicator(syncStatus = syncStatus)
                 }
             }
         }

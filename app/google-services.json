@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "480244418323",
+    "project_id": "inventoria-18b97",
+    "storage_bucket": "inventoria-18b97.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:480244418323:android:8cdcfabaea6b9bbce03ce6",
+        "android_client_info": {
+          "package_name": "com.inventoria.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQEdtijHiwJmHuuS7vg1PnG2Ta6ufgyi8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -6,10 +6,13 @@ import android.util.Log
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.model.InventoryItem
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Date
 import java.util.Locale
@@ -23,11 +26,28 @@ import javax.inject.Singleton
 @Singleton
 class InventoryRepository @Inject constructor(
     private val inventoryDao: InventoryDao,
+    private val syncRepository: FirebaseSyncRepository,
+    private val authRepository: FirebaseAuthRepository,
     @ApplicationContext private val context: Context
 ) {
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     // Current user location to be used for equipped items
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     
+    init {
+        // Initialize Firebase Sync
+        repositoryScope.launch {
+            try {
+                authRepository.getOrCreateUserId()
+                syncRepository.startSync()
+                Log.d("InventoryRepository", "Firebase sync initialized successfully")
+            } catch (e: Exception) {
+                Log.e("InventoryRepository", "Failed to initialize Firebase sync", e)
+            }
+        }
+    }
+
     fun updateUserLocation(latitude: Double, longitude: Double) {
         _userLocation.value = latitude to longitude
     }
