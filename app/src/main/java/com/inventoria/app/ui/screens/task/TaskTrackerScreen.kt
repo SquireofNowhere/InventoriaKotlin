@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import java.text.SimpleDateFormat
@@ -43,7 +45,7 @@ fun TaskTrackerScreen(
 ) {
     val context = LocalContext.current
     val completedTasks by viewModel.completedTasks.collectAsState()
-    var taskToShowDetail by remember { mutableStateOf<TrackedTask?>(null) }
+    var taskToShowDetail by remember { mutableStateOf<Task?>(null) }
 
     // Permission launcher for POST_NOTIFICATIONS
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -117,12 +119,12 @@ fun TaskTrackerScreen(
                     fontWeight = FontWeight.Bold
                 )
                 
-                viewModel.runningTasks.forEach { task ->
+                viewModel.runningTasks.forEach { taskUI ->
                     RunningTaskCard(
-                        task = task,
-                        onStop = { viewModel.stopTask(task) },
-                        onUpdateName = { newName -> viewModel.updateTaskName(task, newName) },
-                        onKindChange = { newKind -> viewModel.updateTaskKind(task, newKind) }
+                        taskUI = taskUI,
+                        onStop = { viewModel.stopTask(taskUI) },
+                        onUpdateName = { newName -> viewModel.updateTaskName(taskUI, newName) },
+                        onKindChange = { newKind -> viewModel.updateTaskKind(taskUI, newKind) }
                     )
                 }
                 
@@ -179,7 +181,7 @@ fun TaskTrackerScreen(
 
 @Composable
 fun TaskDetailDialog(
-    task: TrackedTask,
+    task: Task,
     onDismiss: () -> Unit,
     onSaveName: (String) -> Unit,
     onKindChange: (TaskKind) -> Unit,
@@ -209,7 +211,7 @@ fun TaskDetailDialog(
                             modifier = Modifier
                                 .size(12.dp)
                                 .clip(CircleShape)
-                                .background(task.kind.color)
+                                .background(Color(task.kind.colorValue))
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(task.kind.displayName)
@@ -227,7 +229,7 @@ fun TaskDetailDialog(
                                             modifier = Modifier
                                                 .size(12.dp)
                                                 .clip(CircleShape)
-                                                .background(kind.color)
+                                                .background(Color(kind.colorValue))
                                         )
                                         Spacer(Modifier.width(8.dp))
                                         Text(kind.displayName)
@@ -244,12 +246,13 @@ fun TaskDetailDialog(
                 
                 Divider()
                 
-                if (isSpanningDays(task.startTime, task.endTime)) {
-                    DetailItem(label = "Date", value = formatDateRange(task.startTime, task.endTime))
+                val endTime = task.endTime ?: System.currentTimeMillis()
+                if (isSpanningDays(task.startTime, endTime)) {
+                    DetailItem(label = "Date", value = formatDateRange(task.startTime, endTime))
                 }
                 
                 DetailItem(label = "Started", value = formatDateTime(task.startTime))
-                DetailItem(label = "Stopped", value = formatDateTime(task.endTime))
+                DetailItem(label = "Stopped", value = if (task.endTime != null) formatDateTime(task.endTime!!) else "Running...")
                 DetailItem(label = "Duration", value = formatDetailedDuration(task.duration))
                 
                 Row(
@@ -260,14 +263,6 @@ fun TaskDetailDialog(
                         onCheckedChange = onToggleCalendar
                     )
                     Text("Saved to Calendar")
-                }
-                
-                if (task.savedToCalendar) {
-                    Text(
-                        "Note: Saved tasks will be cleared on app close.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
                 }
             }
         },
@@ -295,20 +290,22 @@ fun DetailItem(label: String, value: String) {
 
 @Composable
 fun RunningTaskCard(
-    task: RunningTask,
+    taskUI: RunningTaskUI,
     onStop: () -> Unit,
     onUpdateName: (String) -> Unit,
     onKindChange: (TaskKind) -> Unit
 ) {
-    val elapsedTime by task.elapsedTime.collectAsState()
+    val elapsedTime by taskUI.elapsedTime.collectAsState()
     var isEditing by remember { mutableStateOf(false) }
-    var currentName by remember { mutableStateOf(task.name) }
+    var currentName by remember { mutableStateOf(taskUI.task.name) }
     var showKindMenu by remember { mutableStateOf(false) }
+
+    val taskColor = Color(taskUI.task.kind.colorValue)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = task.kind.color.copy(alpha = 0.2f))
+        colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -337,7 +334,7 @@ fun RunningTaskCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = task.name,
+                                text = taskUI.task.name,
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium
                             )
@@ -356,11 +353,11 @@ fun RunningTaskCard(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(task.kind.color)
+                                    .background(taskColor)
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = task.kind.displayName,
+                                text = taskUI.task.kind.displayName,
                                 style = MaterialTheme.typography.bodySmall
                             )
                             Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(16.dp))
@@ -378,7 +375,7 @@ fun RunningTaskCard(
                                                 modifier = Modifier
                                                     .size(12.dp)
                                                     .clip(CircleShape)
-                                                    .background(kind.color)
+                                                    .background(Color(kind.colorValue))
                                             )
                                             Spacer(Modifier.width(8.dp))
                                             Text(kind.displayName)
@@ -398,7 +395,7 @@ fun RunningTaskCard(
                     text = formatTime(elapsedTime),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (task.kind.color == Color.White) Color.Black else task.kind.color
+                    color = if (taskColor == Color.White) Color.Black else taskColor
                 )
                 
                 Spacer(Modifier.width(8.dp))
@@ -416,17 +413,18 @@ fun RunningTaskCard(
 
 @Composable
 fun TaskItemCard(
-    task: TrackedTask,
+    task: Task,
     onClick: () -> Unit,
     onToggleCalendar: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val taskColor = Color(task.kind.colorValue)
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = task.kind.color.copy(alpha = 0.1f))
+        colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.1f))
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -436,7 +434,7 @@ fun TaskItemCard(
                 modifier = Modifier
                     .size(12.dp)
                     .clip(CircleShape)
-                    .background(task.kind.color)
+                    .background(taskColor)
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -521,7 +519,7 @@ fun formatDateTime(timestamp: Long): String {
     return "${formatDate(timestamp)} ${timeSdf.format(Date(timestamp))}"
 }
 
-fun addToGoogleCalendar(context: Context, task: TrackedTask) {
+fun addToGoogleCalendar(context: Context, task: Task) {
     val durationStr = formatDetailedDuration(task.duration)
     
     // Google Calendar Event Colors mapping
@@ -540,14 +538,14 @@ fun addToGoogleCalendar(context: Context, task: TrackedTask) {
         .setData(CalendarContract.Events.CONTENT_URI)
         .putExtra(CalendarContract.Events.TITLE, task.name)
         .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, task.startTime)
-        .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, task.endTime)
+        .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, task.endTime ?: (task.startTime + task.duration))
         .putExtra(CalendarContract.Events.DESCRIPTION, description)
         .putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
         // Keep attempting to set color via extras
         .putExtra("eventColorId", googleColorId.toString())
         .putExtra("colorId", googleColorId.toString())
-        .putExtra("eventColor", task.kind.color.toArgb())
-        .putExtra(CalendarContract.Events.EVENT_COLOR, task.kind.color.toArgb())
+        .putExtra("eventColor", Color(task.kind.colorValue).toArgb())
+        .putExtra(CalendarContract.Events.EVENT_COLOR, Color(task.kind.colorValue).toArgb())
     
     context.startActivity(intent)
 }

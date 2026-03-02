@@ -7,10 +7,11 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.IBinder
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.TaskKind
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -18,37 +19,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-enum class TaskKind(val displayName: String, val color: Color) {
-    FREE_TIME("Free Time", Color.White),
-    BIG_WASTE("Big Waste", Color(0xFFDC143C)), // Crimson
-    SMALL_WASTE("Small Waste", Color.Red),
-    NEUTRAL_WAITING("Neutral/Waiting", Color.Gray),
-    SMALL_PRODUCTIVE("Small Productive", Color(0xFF006400)), // Dark Green
-    BIG_PRODUCTIVE("Big Productive", Color.Green)
-}
-
-// Represents a completed task
-data class TrackedTask(
-    val id: UUID = UUID.randomUUID(),
-    val name: String,
-    val kind: TaskKind = TaskKind.NEUTRAL_WAITING,
-    val startTime: Long,
-    val endTime: Long,
-    val duration: Long,
-    val savedToCalendar: Boolean = false
-)
-
-// Represents a task that is currently being timed
-data class RunningTask(
-    val id: UUID = UUID.randomUUID(),
-    var name: String,
-    var kind: TaskKind = TaskKind.NEUTRAL_WAITING,
-    val startTime: Long = System.currentTimeMillis(),
+// UI wrapper for running tasks to manage local timer state
+data class RunningTaskUI(
+    val task: Task,
     val elapsedTime: MutableStateFlow<Long> = MutableStateFlow(0L),
     var timerJob: Job? = null,
     var isEditingName: Boolean = false
@@ -61,10 +40,10 @@ class TaskTrackerViewModel @Inject constructor(
 ) : ViewModel() {
 
     private var taskCounter = 1
-    val runningTasks = mutableStateListOf<RunningTask>()
+    val runningTasks = mutableStateListOf<RunningTaskUI>()
 
-    private val _completedTasks = MutableStateFlow<List<TrackedTask>>(emptyList())
-    val completedTasks: StateFlow<List<TrackedTask>> = _completedTasks.asStateFlow()
+    private val _completedTasks = MutableStateFlow<List<Task>>(emptyList())
+    val completedTasks: StateFlow<List<Task>> = _completedTasks.asStateFlow()
 
     private var timerService: TaskTimerService? = null
     private var isBound = false
@@ -79,15 +58,15 @@ class TaskTrackerViewModel @Inject constructor(
             viewModelScope.launch {
                 timerService?.taskUpdates?.collect { updates ->
                     updates.forEach { (id, elapsed) ->
-                        runningTasks.find { it.id == id }?.elapsedTime?.value = elapsed
+                        runningTasks.find { it.task.id == id }?.elapsedTime?.value = elapsed
                     }
                 }
             }
             
-            // After binding, make sure the service knows about loaded tasks and their names
-            runningTasks.forEach { task ->
-                timerService?.startTask(task.id, task.startTime)
-                timerService?.updateTaskName(task.id, task.name)
+            // Sync current running tasks to service
+            runningTasks.forEach { uiTask ->
+                timerService?.startTask(uiTask.task.id, uiTask.task.startTime)
+                timerService?.updateTaskName(uiTask.task.id, uiTask.task.name)
             }
         }
 
@@ -98,40 +77,61 @@ class TaskTrackerViewModel @Inject constructor(
     }
 
     init {
-        // Load persisted running tasks
-        val persistedRunningTasks = repository.loadRunningTasks()
-        persistedRunningTasks.forEach { serializable ->
-            val task = RunningTask(
-                id = serializable.id,
-                name = serializable.name,
-                kind = serializable.kind ?: TaskKind.NEUTRAL_WAITING,
-                startTime = serializable.startTime
-            )
-            startLocalTimer(task)
-            runningTasks.add(task)
-            
-            // Extract the counter from the last task name if it follows the pattern
-            if (task.name.startsWith("Task ")) {
-                val num = task.name.substringAfter("Task ").toIntOrNull()
-                if (num != null && num >= taskCounter) {
-                    taskCounter = num + 1
+        // Observe running tasks from repository
+        viewModelScope.launch {
+            repository.getRunningTasks().collectLatest { tasks ->
+                // Update local list while preserving timer jobs
+                val currentIds = runningTasks.map { it.task.id }.toSet()
+                val newIds = tasks.map { it.id }.toSet()
+
+                // Remove tasks no longer running
+                runningTasks.removeAll { it.task.id !in newIds }
+
+                // Add or update tasks
+                tasks.forEach { task ->
+                    val existing = runningTasks.find { it.task.id == task.id }
+                    if (existing == null) {
+                        val uiTask = RunningTaskUI(task = task)
+                        startLocalTimer(uiTask)
+                        runningTasks.add(uiTask)
+                        timerService?.startTask(task.id, task.startTime)
+                        timerService?.updateTaskName(task.id, task.name)
+                    } else if (existing.task != task) {
+                        // Update the task data but keep the timer job
+                        val index = runningTasks.indexOf(existing)
+                        runningTasks[index] = existing.copy(task = task)
+                    }
+                }
+                
+                // Update counter based on existing task names
+                tasks.forEach { task ->
+                    if (task.name.startsWith("Task ")) {
+                        val num = task.name.substringAfter("Task ").toIntOrNull()
+                        if (num != null && num >= taskCounter) {
+                            taskCounter = num + 1
+                        }
+                    }
                 }
             }
         }
 
-        // Load persisted completed tasks (only those not saved to calendar)
-        _completedTasks.value = repository.loadCompletedTasks()
+        // Observe completed tasks from repository
+        viewModelScope.launch {
+            repository.getCompletedTasks().collect { tasks ->
+                _completedTasks.value = tasks
+            }
+        }
 
         Intent(context, TaskTimerService::class.java).also { intent ->
             context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         }
     }
 
-    private fun startLocalTimer(task: RunningTask) {
-        task.timerJob?.cancel()
-        task.timerJob = viewModelScope.launch {
+    private fun startLocalTimer(uiTask: RunningTaskUI) {
+        uiTask.timerJob?.cancel()
+        uiTask.timerJob = viewModelScope.launch {
             while (isActive) {
-                task.elapsedTime.value = System.currentTimeMillis() - task.startTime
+                uiTask.elapsedTime.value = System.currentTimeMillis() - uiTask.task.startTime
                 delay(100)
             }
         }
@@ -140,89 +140,75 @@ class TaskTrackerViewModel @Inject constructor(
     fun addNewTask() {
         if (runningTasks.size >= 5) return
 
-        val newTask = RunningTask(name = "Task ${taskCounter++}")
-        
-        // Start foreground service if not already running
-        val intent = Intent(context, TaskTimerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
-        
-        // Register task with service for background tracking
-        timerService?.startTask(newTask.id, newTask.startTime)
-        timerService?.updateTaskName(newTask.id, newTask.name)
-
-        startLocalTimer(newTask)
-        runningTasks.add(newTask)
-        repository.saveRunningTasks(runningTasks)
-    }
-
-    fun stopTask(task: RunningTask) {
-        task.timerJob?.cancel()
-        timerService?.stopTask(task.id)
-        runningTasks.remove(task)
-        repository.saveRunningTasks(runningTasks)
-
-        val newCompletedTask = TrackedTask(
-            name = task.name,
-            kind = task.kind,
-            startTime = task.startTime,
-            endTime = System.currentTimeMillis(),
-            duration = task.elapsedTime.value
+        val newTask = Task(
+            id = UUID.randomUUID().toString(),
+            name = "Task ${taskCounter++}",
+            startTime = System.currentTimeMillis(),
+            isRunning = true
         )
+        
+        viewModelScope.launch {
+            repository.insertTask(newTask)
+            
+            // Start foreground service
+            val intent = Intent(context, TaskTimerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+    }
 
-        val updatedList = _completedTasks.value.toMutableList().apply { add(0, newCompletedTask) }
-        _completedTasks.value = updatedList
-        repository.saveCompletedTasks(updatedList)
+    fun stopTask(uiTask: RunningTaskUI) {
+        uiTask.timerJob?.cancel()
+        timerService?.stopTask(uiTask.task.id)
+        
+        val completedTask = uiTask.task.copy(
+            isRunning = false,
+            endTime = System.currentTimeMillis(),
+            duration = uiTask.elapsedTime.value
+        )
+        
+        viewModelScope.launch {
+            repository.updateTask(completedTask)
+        }
     }
     
-    fun updateTaskName(task: RunningTask, newName: String) {
-        val index = runningTasks.indexOf(task)
-        if (index != -1) {
-            runningTasks[index] = runningTasks[index].copy(name = newName, isEditingName = false)
-            timerService?.updateTaskName(task.id, newName)
-            repository.saveRunningTasks(runningTasks)
+    fun updateTaskName(uiTask: RunningTaskUI, newName: String) {
+        viewModelScope.launch {
+            repository.updateTask(uiTask.task.copy(name = newName))
         }
     }
 
-    fun updateTaskKind(task: RunningTask, newKind: TaskKind) {
-        val index = runningTasks.indexOf(task)
-        if (index != -1) {
-            runningTasks[index] = runningTasks[index].copy(kind = newKind)
-            repository.saveRunningTasks(runningTasks)
+    fun updateTaskKind(uiTask: RunningTaskUI, newKind: TaskKind) {
+        viewModelScope.launch {
+            repository.updateTask(uiTask.task.copy(kind = newKind))
         }
     }
 
-    fun updateCompletedTaskName(task: TrackedTask, newName: String) {
-        val updatedList = _completedTasks.value.map {
-            if (it.id == task.id) it.copy(name = newName) else it
+    fun updateCompletedTaskName(task: Task, newName: String) {
+        viewModelScope.launch {
+            repository.updateTask(task.copy(name = newName))
         }
-        _completedTasks.value = updatedList
-        repository.saveCompletedTasks(updatedList)
     }
 
-    fun updateCompletedTaskKind(task: TrackedTask, newKind: TaskKind) {
-        val updatedList = _completedTasks.value.map {
-            if (it.id == task.id) it.copy(kind = newKind) else it
+    fun updateCompletedTaskKind(task: Task, newKind: TaskKind) {
+        viewModelScope.launch {
+            repository.updateTask(task.copy(kind = newKind))
         }
-        _completedTasks.value = updatedList
-        repository.saveCompletedTasks(updatedList)
     }
 
-    fun setCompletedTaskCalendarStatus(task: TrackedTask, isSaved: Boolean) {
-        val updatedList = _completedTasks.value.map {
-            if (it.id == task.id) it.copy(savedToCalendar = isSaved) else it
+    fun setCompletedTaskCalendarStatus(task: Task, isSaved: Boolean) {
+        viewModelScope.launch {
+            repository.updateTask(task.copy(savedToCalendar = isSaved))
         }
-        _completedTasks.value = updatedList
-        repository.saveCompletedTasks(updatedList)
     }
     
-    fun clearCompletedTask(task: TrackedTask) {
-        val updatedList = _completedTasks.value.toMutableList().apply { remove(task) }
-        _completedTasks.value = updatedList
-        repository.saveCompletedTasks(updatedList)
+    fun clearCompletedTask(task: Task) {
+        viewModelScope.launch {
+            repository.deleteTask(task)
+        }
     }
 
     override fun onCleared() {

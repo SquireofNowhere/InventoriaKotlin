@@ -10,7 +10,6 @@ import androidx.core.app.NotificationCompat
 import com.inventoria.app.ui.main.MainActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import java.util.*
 import java.util.concurrent.TimeUnit
 
 class TaskTimerService : Service() {
@@ -18,13 +17,12 @@ class TaskTimerService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val binder = TimerBinder()
     
-    // Using a simple map to track multiple running tasks in the service
-    private val runningTasks = mutableMapOf<UUID, Long>()
-    private val _taskUpdates = MutableStateFlow<Map<UUID, Long>>(emptyMap())
+    // Using String ID for persistence and cross-device sync
+    private val runningTasks = mutableMapOf<String, Long>()
+    private val _taskUpdates = MutableStateFlow<Map<String, Long>>(emptyMap())
     val taskUpdates = _taskUpdates
     
-    // Helper to keep track of task names for notification display
-    private val taskNames = mutableMapOf<UUID, String>()
+    private val taskNames = mutableMapOf<String, String>()
     
     private var isServiceRunning = false
 
@@ -60,19 +58,18 @@ class TaskTimerService : Service() {
         }
     }
 
-    fun startTask(id: UUID, startTime: Long) {
+    fun startTask(id: String, startTime: Long) {
         runningTasks[id] = startTime
-        // Try to find the name if it's already known, otherwise default to "Task"
         if (!taskNames.containsKey(id)) {
             taskNames[id] = "Task"
         }
     }
     
-    fun updateTaskName(id: UUID, name: String) {
+    fun updateTaskName(id: String, name: String) {
         taskNames[id] = name
     }
 
-    fun stopTask(id: UUID) {
+    fun stopTask(id: String) {
         runningTasks.remove(id)
         taskNames.remove(id)
         if (runningTasks.isEmpty()) {
@@ -94,7 +91,7 @@ class TaskTimerService : Service() {
         }
     }
 
-    private fun updateNotification(updates: Map<UUID, Long>) {
+    private fun updateNotification(updates: Map<String, Long>) {
         val count = runningTasks.size
         if (count > 0) {
             val notification = createNotification("$count active task(s) being tracked", updates)
@@ -103,7 +100,7 @@ class TaskTimerService : Service() {
         }
     }
 
-    private fun createNotification(content: String, updates: Map<UUID, Long>): Notification {
+    private fun createNotification(content: String, updates: Map<String, Long>): Notification {
         val pendingIntent = Intent(this, MainActivity::class.java).let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
         }
@@ -116,7 +113,6 @@ class TaskTimerService : Service() {
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
-        // Add InboxStyle for expanded view showing individual timers
         if (updates.isNotEmpty()) {
             val inboxStyle = NotificationCompat.InboxStyle()
             updates.forEach { (id, elapsed) ->

@@ -3,7 +3,9 @@ package com.inventoria.app.data.repository
 import android.util.Log
 import com.google.firebase.database.*
 import com.inventoria.app.data.local.InventoryDao
+import com.inventoria.app.data.local.TaskDao
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.model.Task
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
@@ -20,6 +22,7 @@ sealed class SyncStatus {
 @Singleton
 class FirebaseSyncRepository @Inject constructor(
     private val inventoryDao: InventoryDao,
+    private val taskDao: TaskDao,
     private val firebaseDatabase: FirebaseDatabase,
     private val authRepository: FirebaseAuthRepository
 ) {
@@ -43,8 +46,8 @@ class FirebaseSyncRepository @Inject constructor(
         }
 
         Log.d(TAG, "Starting sync for user: $userId")
-        val ref = firebaseDatabase.getReference("users").child(userId).child("inventory")
-        userRef = ref
+        val rootRef = firebaseDatabase.getReference("users").child(userId)
+        userRef = rootRef
 
         // Check if database is connected
         val connectedRef = firebaseDatabase.getReference(".info/connected")
@@ -56,32 +59,49 @@ class FirebaseSyncRepository @Inject constructor(
             override fun onCancelled(error: DatabaseError) {}
         })
 
-        // 1. Push Local Changes to Firebase
+        // 1. Inventory Sync
+        val inventoryRef = rootRef.child("inventory")
         repositoryScope.launch {
             inventoryDao.getAllItems()
                 .distinctUntilChanged()
                 .collect { items ->
                     if (!isUpdatingFromFirebase) {
-                        Log.d(TAG, "Local change detected. Items count: ${items.size}. Pushing to cloud...")
-                        pushToFirebase(ref, items)
-                    } else {
-                        Log.d(TAG, "Local change ignored (currently pulling from cloud)")
+                        pushItemsToFirebase(inventoryRef, items)
                     }
                 }
         }
 
-        // 2. Pull Cloud Changes to Local Room
-        ref.addValueEventListener(object : ValueEventListener {
+        inventoryRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                Log.d(TAG, "Cloud data changed. Snapshot size: ${snapshot.childrenCount} items")
                 repositoryScope.launch {
-                    pullFromFirebase(snapshot)
+                    pullItemsFromFirebase(snapshot)
                 }
             }
-
             override fun onCancelled(error: DatabaseError) {
                 _syncStatus.value = SyncStatus.Error(error.message)
-                Log.e(TAG, "Firebase pull error: ${error.message} (Code: ${error.code})")
+            }
+        })
+
+        // 2. Task Sync
+        val tasksRef = rootRef.child("tasks")
+        repositoryScope.launch {
+            taskDao.getAllTasks()
+                .distinctUntilChanged()
+                .collect { tasks ->
+                    if (!isUpdatingFromFirebase) {
+                        pushTasksToFirebase(tasksRef, tasks)
+                    }
+                }
+        }
+
+        tasksRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                repositoryScope.launch {
+                    pullTasksFromFirebase(snapshot)
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {
+                _syncStatus.value = SyncStatus.Error(error.message)
             }
         })
     }
@@ -95,11 +115,18 @@ class FirebaseSyncRepository @Inject constructor(
         repositoryScope.launch {
             try {
                 _syncStatus.value = SyncStatus.Syncing
-                val snapshot = ref.get().await()
-                pullFromFirebase(snapshot)
                 
+                // Inventory
+                val invSnapshot = ref.child("inventory").get().await()
+                pullItemsFromFirebase(invSnapshot)
                 val localItems = inventoryDao.getAllItems().first()
-                pushToFirebase(ref, localItems)
+                pushItemsToFirebase(ref.child("inventory"), localItems)
+                
+                // Tasks
+                val tasksSnapshot = ref.child("tasks").get().await()
+                pullTasksFromFirebase(tasksSnapshot)
+                val localTasks = taskDao.getAllTasks().first()
+                pushTasksToFirebase(ref.child("tasks"), localTasks)
                 
                 _syncStatus.value = SyncStatus.Synced
             } catch (e: Exception) {
@@ -108,26 +135,23 @@ class FirebaseSyncRepository @Inject constructor(
         }
     }
 
-    private suspend fun pushToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
+    private suspend fun pushItemsToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
         try {
             _syncStatus.value = SyncStatus.Syncing
             val itemsMap = items.associateBy { it.id.toString() }
             ref.setValue(itemsMap).await()
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
-            _syncStatus.value = SyncStatus.Error(e.message ?: "Push failed")
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Push items failed")
         }
     }
 
-    private suspend fun pullFromFirebase(snapshot: DataSnapshot) {
+    private suspend fun pullItemsFromFirebase(snapshot: DataSnapshot) {
         try {
             _syncStatus.value = SyncStatus.Syncing
             val cloudItems = mutableListOf<InventoryItem>()
-            
             snapshot.children.forEach { child ->
-                child.getValue(InventoryItem::class.java)?.let { item ->
-                    cloudItems.add(item)
-                }
+                child.getValue(InventoryItem::class.java)?.let { cloudItems.add(it) }
             }
 
             if (cloudItems.isNotEmpty()) {
@@ -136,10 +160,40 @@ class FirebaseSyncRepository @Inject constructor(
                 delay(800)
                 isUpdatingFromFirebase = false
             }
-            
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
-            _syncStatus.value = SyncStatus.Error(e.message ?: "Pull failed")
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Pull items failed")
+        }
+    }
+
+    private suspend fun pushTasksToFirebase(ref: DatabaseReference, tasks: List<Task>) {
+        try {
+            _syncStatus.value = SyncStatus.Syncing
+            val tasksMap = tasks.associateBy { it.id }
+            ref.setValue(tasksMap).await()
+            _syncStatus.value = SyncStatus.Synced
+        } catch (e: Exception) {
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Push tasks failed")
+        }
+    }
+
+    private suspend fun pullTasksFromFirebase(snapshot: DataSnapshot) {
+        try {
+            _syncStatus.value = SyncStatus.Syncing
+            val cloudTasks = mutableListOf<Task>()
+            snapshot.children.forEach { child ->
+                child.getValue(Task::class.java)?.let { cloudTasks.add(it) }
+            }
+
+            if (cloudTasks.isNotEmpty()) {
+                isUpdatingFromFirebase = true
+                taskDao.insertTasks(cloudTasks)
+                delay(800)
+                isUpdatingFromFirebase = false
+            }
+            _syncStatus.value = SyncStatus.Synced
+        } catch (e: Exception) {
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Pull tasks failed")
         }
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.InventoryDatabase
+import com.inventoria.app.data.local.TaskDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,8 +30,6 @@ object DatabaseModule {
             InventoryDatabase.DATABASE_NAME
         )
             // Enabling destructive migration to "reset" the local database.
-            // This resolves the "Migration from 2 to 5 not found" crash by 
-            // rebuilding the database with the new schema (Long timestamps, isEquipped).
             // Data will be re-synced from Firebase if available.
             .fallbackToDestructiveMigration()
             .build()
@@ -40,5 +39,11 @@ object DatabaseModule {
     @Singleton
     fun provideInventoryDao(database: InventoryDatabase): InventoryDao {
         return database.inventoryDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTaskDao(database: InventoryDatabase): TaskDao {
+        return database.taskDao()
     }
 }
