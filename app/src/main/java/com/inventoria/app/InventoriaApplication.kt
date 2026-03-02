@@ -1,6 +1,8 @@
 package com.inventoria.app
 
 import android.app.Application
+import android.util.Log
+import com.google.firebase.database.FirebaseDatabase
 import dagger.hilt.android.HiltAndroidApp
 import org.osmdroid.config.Configuration
 
@@ -14,8 +16,24 @@ class InventoriaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         
-        // OSMDroid configuration
-        // The user agent should be a unique identifier for your app
+        // 1. Setup global crash logging to catch silent startup crashes
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e("InventoriaApp", "CRITICAL CRASH in thread ${thread.name}", throwable)
+            // Still allow the app to crash after logging
+            System.exit(1)
+        }
+
+        // 2. OSMDroid configuration
         Configuration.getInstance().userAgentValue = BuildConfig.APPLICATION_ID
+
+        // 3. Unified Firebase Initialization
+        try {
+            val url = "https://inventoria-18b97-default-rtdb.europe-west1.firebasedatabase.app/"
+            // Set persistence on the specific regional instance we use everywhere
+            FirebaseDatabase.getInstance(url).setPersistenceEnabled(true)
+            Log.d("InventoriaApp", "Firebase Database initialized with persistence.")
+        } catch (e: Exception) {
+            Log.e("InventoriaApp", "Firebase initialization failed", e)
+        }
     }
 }

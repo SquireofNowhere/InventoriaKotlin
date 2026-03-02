@@ -28,7 +28,15 @@ class ItemDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
 
-    private val itemId: Long = savedStateHandle.get<Long>("itemId") ?: 0L
+    // Robust itemId retrieval handling both Long and String from navigation
+    private val itemId: Long = run {
+        val rawId = savedStateHandle.get<Any>("itemId")
+        when (rawId) {
+            is Long -> rawId
+            is String -> rawId.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+    }
 
     init {
         if (itemId != 0L) {
@@ -43,8 +51,10 @@ class ItemDetailViewModel @Inject constructor(
             repository.getItemByIdFlow(itemId).collect { item ->
                 if (item != null) {
                     var parentItem: InventoryItem? = null
-                    if (item.parentId != null) {
-                        parentItem = repository.getItemById(item.parentId)
+                    // Fix: Use local variable to allow smart cast since parentId is mutable (var)
+                    val pId = item.parentId
+                    if (pId != null) {
+                        parentItem = repository.getItemById(pId)
                     }
                     _uiState.value = ItemDetailUiState(
                         item = item, 
@@ -61,7 +71,8 @@ class ItemDetailViewModel @Inject constructor(
     fun toggleEquip() {
         viewModelScope.launch {
             val currentItem = _uiState.value.item ?: return@launch
-            val updatedItem = currentItem.copy(isEquipped = !currentItem.isEquipped)
+            // Updated to use renamed 'equipped' field
+            val updatedItem = currentItem.copy(equipped = !currentItem.equipped)
             repository.updateItem(updatedItem)
         }
     }

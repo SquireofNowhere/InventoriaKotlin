@@ -7,11 +7,11 @@ import com.inventoria.app.data.model.InventoryItem
 
 /**
  * Room database for Inventoria.
- * Version incremented to 5 due to adding isEquipped field to InventoryItem.
+ * Version 6: Updated schema with cloud-safe field names (storage, equipped).
  */
 @Database(
     entities = [InventoryItem::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

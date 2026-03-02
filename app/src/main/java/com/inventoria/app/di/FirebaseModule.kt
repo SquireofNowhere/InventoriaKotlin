@@ -18,7 +18,10 @@ object FirebaseModule {
 
     @Provides
     @Singleton
-    fun provideFirebaseDatabase(): FirebaseDatabase = FirebaseDatabase.getInstance().apply {
-        setPersistenceEnabled(true) // Enable offline support
+    fun provideFirebaseDatabase(): FirebaseDatabase {
+        // Return the regional instance. 
+        // Initial setup (like persistence) is handled in InventoriaApplication.kt
+        val url = "https://inventoria-18b97-default-rtdb.europe-west1.firebasedatabase.app/"
+        return FirebaseDatabase.getInstance(url)
     }
 }

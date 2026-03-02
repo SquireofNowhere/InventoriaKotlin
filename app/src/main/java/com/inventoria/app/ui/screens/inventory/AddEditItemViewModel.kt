@@ -3,6 +3,7 @@ package com.inventoria.app.ui.screens.inventory
 
 import android.content.Context
 import android.location.Geocoder
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -10,6 +11,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.inventoria.app.data.model.InventoryItem
@@ -20,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import java.util.Locale
 import javax.inject.Inject
@@ -43,6 +47,8 @@ class AddEditItemViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    private val TAG = "AddEditItemViewModel"
+
     var name by mutableStateOf("")
     var quantity by mutableStateOf("")
     var price by mutableStateOf("")
@@ -53,7 +59,7 @@ class AddEditItemViewModel @Inject constructor(
     var isEquipped by mutableStateOf(false)
     
     private val _uiState = MutableStateFlow(AddEditItemUiState())
-    val uiState: StateFlow<AddEditItemUiState> = _uiState
+    val uiState: StateFlow<AddEditItemUiState> = _uiState.asStateFlow()
 
     val currentLocationGeoPoint: GeoPoint? 
         get() = _uiState.value.geoPoint
@@ -64,46 +70,34 @@ class AddEditItemViewModel @Inject constructor(
     private val _eventFlow = MutableSharedFlow<UiEvent>()
     val eventFlow = _eventFlow.asSharedFlow()
 
-    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    private val fusedLocationClient by lazy {
+        LocationServices.getFusedLocationProviderClient(context)
+    }
 
     init {
-        val itemId: Long? = savedStateHandle.get<Long>("itemId")
+        Log.d(TAG, "Initializing ViewModel")
+        
+        val itemIdRaw = savedStateHandle.get<Any>("itemId")
+        val itemId: Long? = when (itemIdRaw) {
+            is Long -> itemIdRaw
+            is String -> itemIdRaw.toLongOrNull()
+            else -> null
+        }
+        
+        Log.d(TAG, "itemId determined as: $itemId")
 
-        // Load storage items for parent selection
         viewModelScope.launch {
-            repository.getStorageItems().collect { items ->
-                _uiState.update { it.copy(storageItems = items.filter { it.id != itemId }) }
-            }
+            repository.getStorageItems()
+                .catch { e -> Log.e(TAG, "Error loading storage items", e) }
+                .collect { items ->
+                    _uiState.update { it.copy(storageItems = items.filter { it.id != itemId }) }
+                }
         }
 
         if (itemId != null && itemId != 0L && itemId != -1L) {
-            viewModelScope.launch {
-                repository.getItemById(itemId)?.let { item ->
-                    currentItemId = item.id
-                    name = item.name
-                    quantity = item.quantity.toString()
-                    price = item.price?.toString() ?: ""
-                    category = item.category ?: ""
-                    description = item.description ?: ""
-                    isStorage = item.isStorage
-                    parentId = item.parentId
-                    isEquipped = item.isEquipped
-                    
-                    val geoPoint = if (item.latitude != null && item.longitude != null) {
-                        GeoPoint(item.latitude, item.longitude)
-                    } else {
-                        parseLocation(item.location)
-                    }
-                    
-                    _uiState.update { it.copy(geoPoint = geoPoint, address = item.location) }
-
-                    customFields.clear()
-                    item.customFields.forEach { (key, value) ->
-                        customFields.add(CustomField(key, value))
-                    }
-                }
-            }
+            loadItem(itemId)
         } else {
+            Log.d(TAG, "No valid itemId provided, attempting to get current location")
             getCurrentLocation(isManual = false)
         }
 
@@ -117,11 +111,45 @@ class AddEditItemViewModel @Inject constructor(
         }
     }
 
-    fun updateLocation(geoPoint: GeoPoint) {
-        _uiState.update { it.copy(geoPoint = geoPoint, isResolvingAddress = true) }
+    private fun loadItem(itemId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.getItemById(itemId)?.let { item ->
+                    currentItemId = item.id
+                    name = item.name
+                    quantity = item.quantity.toString()
+                    price = item.price?.toString() ?: ""
+                    category = item.category ?: ""
+                    description = item.description ?: ""
+                    isStorage = item.storage
+                    parentId = item.parentId
+                    isEquipped = item.equipped
+                    
+                    val lat = item.latitude
+                    val lon = item.longitude
+                    val geoPoint = if (lat != null && lon != null) {
+                        GeoPoint(lat, lon)
+                    } else {
+                        parseLocation(item.location)
+                    }
+                    
+                    _uiState.update { it.copy(geoPoint = geoPoint, address = item.location) }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val address = reverseGeocode(geoPoint)
+                    customFields.clear()
+                    item.customFields.forEach { (key, value) ->
+                        customFields.add(CustomField(key, value))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading item", e)
+            }
+        }
+    }
+
+    fun updateLocation(geoPoint: GeoPoint) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(geoPoint = geoPoint, isResolvingAddress = true) }
+            val address = withContext(Dispatchers.IO) { reverseGeocode(geoPoint) }
             _uiState.update { it.copy(address = address, isResolvingAddress = false) }
         }
     }
@@ -131,22 +159,13 @@ class AddEditItemViewModel @Inject constructor(
             val geocoder = Geocoder(context, Locale.getDefault())
             @Suppress("DEPRECATION")
             val addresses = geocoder.getFromLocation(geoPoint.latitude, geoPoint.longitude, 1)
-
             if (!addresses.isNullOrEmpty()) {
                 val addr = addresses[0]
-                listOfNotNull(
-                    addr.subThoroughfare,
-                    addr.thoroughfare,
-                    addr.subLocality,
-                    addr.locality,
-                    addr.countryName
-                ).joinToString(", ")
+                listOfNotNull(addr.subThoroughfare, addr.thoroughfare, addr.subLocality, addr.locality, addr.countryName).joinToString(", ")
             } else {
                 "${geoPoint.latitude}, ${geoPoint.longitude}"
             }
-        } catch (e: Exception) {
-            "${geoPoint.latitude}, ${geoPoint.longitude}"
-        }
+        } catch (e: Exception) { "${geoPoint.latitude}, ${geoPoint.longitude}" }
     }
 
     private fun parseLocation(locationStr: String): GeoPoint? {
@@ -164,17 +183,14 @@ class AddEditItemViewModel @Inject constructor(
     @android.annotation.SuppressLint("MissingPermission")
     fun getCurrentLocation(isManual: Boolean = true) {
         if (!isManual && _uiState.value.address.isNotBlank()) return
+        val googleApiAvailability = GoogleApiAvailability.getInstance()
+        if (googleApiAvailability.isGooglePlayServicesAvailable(context) != ConnectionResult.SUCCESS) return
 
         viewModelScope.launch {
             try {
-                val locationResult = fusedLocationClient.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY, null
-                ).await()
-                
-                locationResult?.let {
-                    updateLocation(GeoPoint(it.latitude, it.longitude))
-                }
-            } catch (e: Exception) { }
+                val locationResult = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+                locationResult?.let { updateLocation(GeoPoint(it.latitude, it.longitude)) }
+            } catch (e: Exception) { Log.e(TAG, "Error fetching location", e) }
         }
     }
 
@@ -192,14 +208,7 @@ class AddEditItemViewModel @Inject constructor(
                     return@launch
                 }
                 
-                // If no parent and not equipped, location is required
-                if (parentId == null && !isEquipped && _uiState.value.address.isBlank()) {
-                    _eventFlow.emit(UiEvent.ShowSnackbar("Location is required if not equipped or in a container"))
-                    return@launch
-                }
-
                 val state = _uiState.value
-                
                 val item = InventoryItem(
                     id = currentItemId ?: 0L,
                     name = name,
@@ -208,9 +217,9 @@ class AddEditItemViewModel @Inject constructor(
                     latitude = state.geoPoint?.latitude,
                     longitude = state.geoPoint?.longitude,
                     price = price.toDoubleOrNull(),
-                    isStorage = isStorage,
+                    storage = isStorage, // Updated to use renamed 'storage' field
                     parentId = parentId,
-                    isEquipped = isEquipped,
+                    equipped = isEquipped, // Updated to use renamed 'equipped' field
                     category = category.ifBlank { null },
                     description = description.ifBlank { null },
                     customFields = customFields.filter { it.key.isNotBlank() }.associate { it.key to it.value }

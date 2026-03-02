@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "480244418323",
+    "firebase_url": "https://inventoria-18b97-default-rtdb.europe-west1.firebasedatabase.app",
     "project_id": "inventoria-18b97",
     "storage_bucket": "inventoria-18b97.firebasestorage.app"
   },
@@ -12,7 +13,20 @@
           "package_name": "com.inventoria.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "480244418323-980a3tsainh34ncl7oqugiokq0kvji4m.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.inventoria.app",
+            "certificate_hash": "e961f69f17e7e83ee5159f75dc4335f3feb2df66"
+          }
+        },
+        {
+          "client_id": "480244418323-9nrmauhg5tt3ls4rpq3nad3o5kgcr30k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBQEdtijHiwJmHuuS7vg1PnG2Ta6ufgyi8"
@@ -20,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "480244418323-9nrmauhg5tt3ls4rpq3nad3o5kgcr30k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

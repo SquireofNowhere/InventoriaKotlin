@@ -88,7 +88,7 @@ fun InventoryMapScreen(
             }
         } catch (e: Exception) {
             Log.e("InventoryMap", "remember: Error creating MapView", e)
-            throw e // Re-throw to see the stack trace in Logcat
+            throw e 
         }
     }
 
@@ -220,17 +220,20 @@ fun InventoryMapScreen(
                     existingMarkers.forEach { it.closeInfoWindow() }
                     mapView.overlays.removeAll(existingMarkers)
                     
-                    val itemsToShow = uiState.filteredItems.filter { !it.isEquipped && it.parentId == null }
+                    val itemsToShow = uiState.filteredItems.filter { !it.equipped && it.parentId == null }
                     Log.d("InventoryMap", "Processing ${itemsToShow.size} markers")
 
                     itemsToShow.forEach { item ->
-                        val coords = if (item.latitude != null && item.longitude != null) {
-                            GeoPoint(item.latitude, item.longitude)
+                        val lat = item.latitude
+                        val lon = item.longitude
+                        val coords = if (lat != null && lon != null) {
+                            GeoPoint(lat, lon)
                         } else {
                             parseLocationToGeoPoint(item.location)
                         }
                         
                         if (coords != null) {
+                            val itemId = item.id
                             val marker = Marker(mapView)
                             marker.position = coords
                             marker.title = item.name
@@ -240,7 +243,7 @@ fun InventoryMapScreen(
                                 override fun onOpen(item: Any?) {
                                     super.onOpen(item)
                                     view.setOnClickListener {
-                                        onItemClick(item as? Long ?: 0L) // Fixed potentially unsafe cast
+                                        onItemClick(itemId)
                                         close()
                                     }
                                 }
@@ -252,7 +255,7 @@ fun InventoryMapScreen(
 
                             marker.setOnMarkerClickListener { m, _ ->
                                 if (m.isInfoWindowShown) {
-                                    onItemClick(item.id)
+                                    onItemClick(itemId)
                                 } else {
                                     m.showInfoWindow()
                                 }

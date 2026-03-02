@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -86,10 +85,11 @@ class FileInventoryRepository @Inject constructor(
 
     suspend fun insertItem(item: InventoryItem): Long {
         val items = readItems().toMutableList()
+        val currentTime = System.currentTimeMillis()
         val newItem = item.copy(
             id = (items.maxOfOrNull { it.id } ?: 0L) + 1, 
-            createdAt = Date(), 
-            updatedAt = Date()
+            createdAt = currentTime, 
+            updatedAt = currentTime
         )
         items.add(newItem)
         writeItems(items)
@@ -104,7 +104,7 @@ class FileInventoryRepository @Inject constructor(
         val items = readItems().toMutableList()
         val index = items.indexOfFirst { it.id == item.id }
         if (index != -1) {
-            items[index] = item.copy(updatedAt = Date())
+            items[index] = item.copy(updatedAt = System.currentTimeMillis())
             writeItems(items)
         }
     }

@@ -6,6 +6,7 @@ import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.model.InventoryItem
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,19 +23,38 @@ class FirebaseSyncRepository @Inject constructor(
     private val firebaseDatabase: FirebaseDatabase,
     private val authRepository: FirebaseAuthRepository
 ) {
+    private val TAG = "FirebaseSync"
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
     private var isUpdatingFromFirebase = false
+    private var userRef: DatabaseReference? = null
 
     /**
      * Starts the bi-directional synchronization process.
      */
     fun startSync() {
-        val userId = authRepository.getCurrentUserId() ?: return
-        val userRef = firebaseDatabase.getReference("users").child(userId).child("inventory")
+        val userId = authRepository.getCurrentUserId()
+        if (userId == null) {
+            Log.w(TAG, "Cannot start sync: User not authenticated")
+            return
+        }
+
+        Log.d(TAG, "Starting sync for user: $userId")
+        val ref = firebaseDatabase.getReference("users").child(userId).child("inventory")
+        userRef = ref
+
+        // Check if database is connected
+        val connectedRef = firebaseDatabase.getReference(".info/connected")
+        connectedRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val connected = snapshot.getValue(Boolean::class.java) ?: false
+                Log.d(TAG, "Firebase Connection Status: ${if (connected) "CONNECTED" else "DISCONNECTED"}")
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
 
         // 1. Push Local Changes to Firebase
         repositoryScope.launch {
@@ -42,14 +62,18 @@ class FirebaseSyncRepository @Inject constructor(
                 .distinctUntilChanged()
                 .collect { items ->
                     if (!isUpdatingFromFirebase) {
-                        pushToFirebase(userRef, items)
+                        Log.d(TAG, "Local change detected. Items count: ${items.size}. Pushing to cloud...")
+                        pushToFirebase(ref, items)
+                    } else {
+                        Log.d(TAG, "Local change ignored (currently pulling from cloud)")
                     }
                 }
         }
 
         // 2. Pull Cloud Changes to Local Room
-        userRef.addValueEventListener(object : ValueEventListener {
+        ref.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
+                Log.d(TAG, "Cloud data changed. Snapshot size: ${snapshot.childrenCount} items")
                 repositoryScope.launch {
                     pullFromFirebase(snapshot)
                 }
@@ -57,21 +81,41 @@ class FirebaseSyncRepository @Inject constructor(
 
             override fun onCancelled(error: DatabaseError) {
                 _syncStatus.value = SyncStatus.Error(error.message)
-                Log.e("FirebaseSync", "Firebase sync cancelled: ${error.message}")
+                Log.e(TAG, "Firebase pull error: ${error.message} (Code: ${error.code})")
             }
         })
+    }
+
+    /**
+     * Manually triggers a full synchronization.
+     */
+    fun triggerFullSync() {
+        Log.d(TAG, "Manual sync triggered")
+        val ref = userRef ?: return
+        repositoryScope.launch {
+            try {
+                _syncStatus.value = SyncStatus.Syncing
+                val snapshot = ref.get().await()
+                pullFromFirebase(snapshot)
+                
+                val localItems = inventoryDao.getAllItems().first()
+                pushToFirebase(ref, localItems)
+                
+                _syncStatus.value = SyncStatus.Synced
+            } catch (e: Exception) {
+                _syncStatus.value = SyncStatus.Error(e.message ?: "Sync failed")
+            }
+        }
     }
 
     private suspend fun pushToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
         try {
             _syncStatus.value = SyncStatus.Syncing
-            // Convert list to map for easier Firebase storage (id as key)
             val itemsMap = items.associateBy { it.id.toString() }
             ref.setValue(itemsMap).await()
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
-            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown push error")
-            Log.e("FirebaseSync", "Error pushing to Firebase", e)
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Push failed")
         }
     }
 
@@ -89,26 +133,13 @@ class FirebaseSyncRepository @Inject constructor(
             if (cloudItems.isNotEmpty()) {
                 isUpdatingFromFirebase = true
                 inventoryDao.insertItems(cloudItems)
-                delay(500) // Small delay to allow Room to settle and avoid immediate re-push
+                delay(800)
                 isUpdatingFromFirebase = false
             }
             
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
-            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown pull error")
-            Log.e("FirebaseSync", "Error pulling from Firebase", e)
-        }
-    }
-
-    private suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T? {
-        return suspendCancellableCoroutine { continuation ->
-            addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    continuation.resume(task.result, null)
-                } else {
-                    continuation.resumeWithException(task.exception ?: Exception("Unknown Firebase error"))
-                }
-            }
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Pull failed")
         }
     }
 }

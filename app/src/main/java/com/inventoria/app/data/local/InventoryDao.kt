@@ -40,8 +40,8 @@ interface InventoryDao {
     @Query("SELECT * FROM inventory_items WHERE parentId = :parentId ORDER BY name ASC")
     fun getItemsByParent(parentId: Long): Flow<List<InventoryItem>>
     
-    // Get all storage containers
-    @Query("SELECT * FROM inventory_items WHERE isStorage = 1 ORDER BY name ASC")
+    // Get all storage containers - Updated column name
+    @Query("SELECT * FROM inventory_items WHERE storage = 1 ORDER BY name ASC")
     fun getStorageItems(): Flow<List<InventoryItem>>
     
     // Get out of stock items

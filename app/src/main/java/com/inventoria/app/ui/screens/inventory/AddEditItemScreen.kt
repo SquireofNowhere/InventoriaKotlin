@@ -1,5 +1,6 @@
 package com.inventoria.app.ui.screens.inventory
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -14,6 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -147,7 +150,6 @@ fun AddEditItemScreen(
                     readOnly = true,
                     label = { Text("Inside Container") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                     modifier = Modifier.menuAnchor().fillMaxWidth()
                 )
 
@@ -177,28 +179,28 @@ fun AddEditItemScreen(
             // Location Section
             Box(modifier = Modifier.fillMaxWidth()) {
                 val isInheritingLocation = viewModel.parentId != null
-                val isEquipped = viewModel.isEquipped
+                val equipped = viewModel.isEquipped
                 
                 OutlinedTextField(
                     value = when {
-                        isEquipped -> "Following your location"
+                        equipped -> "Following your location"
                         isInheritingLocation -> "Inherited from container"
                         else -> uiState.address
                     },
                     onValueChange = { /* Read-only */ },
                     label = { Text("Location") },
                     readOnly = true,
-                    enabled = !isInheritingLocation && !isEquipped,
+                    enabled = !isInheritingLocation && !equipped,
                     modifier = Modifier.fillMaxWidth(),
                     supportingText = {
                         when {
-                            isEquipped -> Text("Item is equipped and will move with you.")
+                            equipped -> Text("Item is equipped and will move with you.")
                             isInheritingLocation -> Text("Location is inherited from the container it's inside.")
                             uiState.address.isBlank() -> Text("Location is required *", color = MaterialTheme.colorScheme.error)
                         }
                     },
                     trailingIcon = {
-                        if (!isInheritingLocation && !isEquipped) {
+                        if (!isInheritingLocation && !equipped) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (uiState.isResolvingAddress) {
                                     CircularProgressIndicator(

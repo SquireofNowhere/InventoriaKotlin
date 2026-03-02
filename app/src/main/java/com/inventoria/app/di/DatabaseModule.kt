@@ -28,8 +28,11 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            // Removed fallbackToDestructiveMigration to prevent data loss on schema changes.
-            // Future schema changes will now require explicit Migrations.
+            // Enabling destructive migration to "reset" the local database.
+            // This resolves the "Migration from 2 to 5 not found" crash by 
+            // rebuilding the database with the new schema (Long timestamps, isEquipped).
+            // Data will be re-synced from Firebase if available.
+            .fallbackToDestructiveMigration()
             .build()
     }
     

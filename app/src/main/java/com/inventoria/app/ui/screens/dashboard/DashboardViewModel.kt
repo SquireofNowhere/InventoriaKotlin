@@ -3,6 +3,7 @@ package com.inventoria.app.ui.screens.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,7 +23,8 @@ data class DashboardUiState(
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repository: InventoryRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -33,7 +35,6 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun observeDashboardData() {
-        // combine for 6+ flows uses an Array parameter instead of individual arguments
         combine(
             repository.getItemCount(),
             repository.getTotalValue(),
@@ -67,7 +68,6 @@ class DashboardViewModel @Inject constructor(
             _uiState.value = state
         }
         .catch { e ->
-            // Prevent crash if database is in a transient state
             _uiState.value = _uiState.value.copy(isLoading = false)
         }
         .launchIn(viewModelScope)
@@ -75,5 +75,6 @@ class DashboardViewModel @Inject constructor(
     
     fun refresh() {
         _uiState.value = _uiState.value.copy(isLoading = true)
+        syncRepository.triggerFullSync()
     }
 }

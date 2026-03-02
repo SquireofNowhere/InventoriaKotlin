@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -60,7 +59,9 @@ class InventoryRepository @Inject constructor(
     /**
      * Retrieves a single item by its ID.
      */
-    suspend fun getItemById(id: Long): InventoryItem? = inventoryDao.getItemById(id)
+    suspend fun getItemById(id: Long): InventoryItem? = withContext(Dispatchers.IO) {
+        inventoryDao.getItemById(id)
+    }
     
     /**
      * Returns a Flow of a single item by its ID for real-time updates.
@@ -116,10 +117,8 @@ class InventoryRepository @Inject constructor(
             val resolvedCache = mutableMapOf<Long, Triple<Double?, Double?, String>>()
 
             fun getResolvedLocation(item: InventoryItem, visited: Set<Long> = emptySet()): Triple<Double?, Double?, String> {
-                // If we've already resolved this item in this pass, return cached result
                 resolvedCache[item.id]?.let { return it }
 
-                // Check for circular dependency
                 if (visited.contains(item.id)) {
                     Log.w("InventoryRepository", "Circular dependency detected for item ${item.id}")
                     return Triple(item.latitude, item.longitude, item.location)
@@ -128,7 +127,7 @@ class InventoryRepository @Inject constructor(
                 val currentVisited = visited + item.id
 
                 val result = when {
-                    item.isEquipped && userLoc != null -> {
+                    item.equipped && userLoc != null -> {
                         Triple(userLoc.first, userLoc.second, "With You")
                     }
                     item.parentId != null -> {
@@ -162,38 +161,37 @@ class InventoryRepository @Inject constructor(
     /**
      * Inserts a new item into the database.
      */
-    suspend fun insertItem(item: InventoryItem): Long {
-        val finalItem = if (item.isEquipped) {
+    suspend fun insertItem(item: InventoryItem): Long = withContext(Dispatchers.IO) {
+        val finalItem = if (item.equipped) {
             item.copy(parentId = null)
         } else item
         
-        return inventoryDao.insertItem(finalItem.copy(createdAt = Date(), updatedAt = Date()))
+        val currentTime = System.currentTimeMillis()
+        inventoryDao.insertItem(finalItem.copy(createdAt = currentTime, updatedAt = currentTime))
     }
     
     /**
      * Updates an existing item in the database with logic for equipped/storage status.
      */
-    suspend fun updateItem(item: InventoryItem) {
-        val currentItem = inventoryDao.getItemById(item.id)
-        var updatedItem = item.copy(updatedAt = Date())
+    suspend fun updateItem(item: InventoryItem) = withContext(Dispatchers.IO) {
+        val currentItem = inventoryDao.getItemById(item.id) ?: return@withContext
+        var updatedItem = item.copy(updatedAt = System.currentTimeMillis())
 
-        if (currentItem != null) {
-            // Logic: if being EQUIPPED now (wasn't before)
-            if (updatedItem.isEquipped && !currentItem.isEquipped) {
-                updatedItem = updatedItem.copy(parentId = null)
-            }
-            
-            // Logic: if being UNEQUIPPED now (was before)
-            if (!updatedItem.isEquipped && currentItem.isEquipped) {
-                val userLoc = _userLocation.value
-                if (userLoc != null) {
-                    val address = reverseGeocode(userLoc.first, userLoc.second)
-                    updatedItem = updatedItem.copy(
-                        latitude = userLoc.first,
-                        longitude = userLoc.second,
-                        location = address
-                    )
-                }
+        // Logic: if being EQUIPPED now (wasn't before)
+        if (updatedItem.equipped && !currentItem.equipped) {
+            updatedItem = updatedItem.copy(parentId = null)
+        }
+        
+        // Logic: if being UNEQUIPPED now (was before)
+        if (!updatedItem.equipped && currentItem.equipped) {
+            val userLoc = _userLocation.value
+            if (userLoc != null) {
+                val address = reverseGeocode(userLoc.first, userLoc.second)
+                updatedItem = updatedItem.copy(
+                    latitude = userLoc.first,
+                    longitude = userLoc.second,
+                    location = address
+                )
             }
         }
 
@@ -226,14 +224,14 @@ class InventoryRepository @Inject constructor(
     /**
      * Deletes an item by its ID.
      */
-    suspend fun deleteItemById(id: Long) {
+    suspend fun deleteItemById(id: Long) = withContext(Dispatchers.IO) {
         inventoryDao.deleteItemById(id)
     }
 
     /**
      * Updates only the quantity of an item.
      */
-    suspend fun updateQuantity(id: Long, newQuantity: Int) {
+    suspend fun updateQuantity(id: Long, newQuantity: Int) = withContext(Dispatchers.IO) {
         inventoryDao.updateQuantity(id, newQuantity)
     }
 }

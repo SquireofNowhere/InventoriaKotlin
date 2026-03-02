@@ -1,4 +1,3 @@
-
 package com.inventoria.app.ui.screens.dashboard
 
 import androidx.compose.animation.core.*
@@ -250,7 +249,7 @@ fun RecentItemCard(item: InventoryItem, onClick: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    if (item.isEquipped) {
+                    if (item.equipped) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(
                             painter = painterResource(R.drawable.mobile_theft_24px),

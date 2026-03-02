@@ -54,8 +54,8 @@ fun ItemDetailScreen(
                     if (item != null) {
                         IconButton(onClick = viewModel::toggleEquip) {
                             Icon(
-                                painter = if (item.isEquipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
-                                contentDescription = if (item.isEquipped) "Unequip" else "Equip"
+                                painter = if (item.equipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
+                                contentDescription = if (item.equipped) "Unequip" else "Equip"
                             )
                         }
                         IconButton(onClick = { onEditItem(item.id) }) {
@@ -99,7 +99,7 @@ fun ItemDetailScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            if (item.isStorage) Icons.Default.Inventory else Icons.Default.Category,
+                            if (item.storage) Icons.Default.Inventory else Icons.Default.Category,
                             contentDescription = null,
                             tint = PurplePrimary,
                             modifier = Modifier.size(40.dp)
@@ -139,7 +139,7 @@ fun ItemDetailScreen(
                 }
 
                 // Location Row
-                if (item.isEquipped) {
+                if (item.equipped) {
                     DetailItemRow(
                         label = "Location", 
                         value = "Equipped (With You)", 
@@ -152,15 +152,19 @@ fun ItemDetailScreen(
                         icon = Icons.Default.Inventory,
                         onClick = { onNavigateToItemDetail(parentItem.id) }
                     )
-                } else if (item.latitude != null && item.longitude != null) {
-                    DetailItemRow(
-                        label = "Location", 
-                        value = item.location, 
-                        icon = Icons.Default.LocationOn,
-                        onClick = { onLocationClick(item.latitude, item.longitude) }
-                    )
                 } else {
-                    DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
+                    val lat = item.latitude
+                    val lon = item.longitude
+                    if (lat != null && lon != null) {
+                        DetailItemRow(
+                            label = "Location", 
+                            value = item.location, 
+                            icon = Icons.Default.LocationOn,
+                            onClick = { onLocationClick(lat, lon) }
+                        )
+                    } else {
+                        DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
+                    }
                 }
                 
                 item.description?.let {
