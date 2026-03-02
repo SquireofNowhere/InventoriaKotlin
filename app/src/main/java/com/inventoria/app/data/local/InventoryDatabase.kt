@@ -6,11 +6,12 @@ import androidx.room.TypeConverters
 import com.inventoria.app.data.model.InventoryItem
 
 /**
- * Room database for Inventoria
+ * Room database for Inventoria.
+ * Version 6: Updated schema with cloud-safe field names (storage, equipped).
  */
 @Database(
     entities = [InventoryItem::class],
-    version = 1,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

@@ -14,6 +14,7 @@ import javax.inject.Inject
 
 data class ItemDetailUiState(
     val item: InventoryItem? = null,
+    val parentItem: InventoryItem? = null,
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -27,17 +28,39 @@ class ItemDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ItemDetailUiState())
     val uiState: StateFlow<ItemDetailUiState> = _uiState.asStateFlow()
 
-    private val itemId: Long = checkNotNull(savedStateHandle["itemId"])
+    // Robust itemId retrieval handling both Long and String from navigation
+    private val itemId: Long = run {
+        val rawId = savedStateHandle.get<Any>("itemId")
+        when (rawId) {
+            is Long -> rawId
+            is String -> rawId.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+    }
 
     init {
-        loadItem()
+        if (itemId != 0L) {
+            loadItem()
+        } else {
+            _uiState.value = ItemDetailUiState(isLoading = false, error = "Invalid Item ID")
+        }
     }
 
     private fun loadItem() {
         viewModelScope.launch {
             repository.getItemByIdFlow(itemId).collect { item ->
                 if (item != null) {
-                    _uiState.value = ItemDetailUiState(item = item, isLoading = false)
+                    var parentItem: InventoryItem? = null
+                    // Fix: Use local variable to allow smart cast since parentId is mutable (var)
+                    val pId = item.parentId
+                    if (pId != null) {
+                        parentItem = repository.getItemById(pId)
+                    }
+                    _uiState.value = ItemDetailUiState(
+                        item = item, 
+                        parentItem = parentItem,
+                        isLoading = false
+                    )
                 } else {
                     _uiState.value = ItemDetailUiState(isLoading = false, error = "Item not found")
                 }
@@ -45,9 +68,20 @@ class ItemDetailViewModel @Inject constructor(
         }
     }
 
+    fun toggleEquip() {
+        viewModelScope.launch {
+            val currentItem = _uiState.value.item ?: return@launch
+            // Updated to use renamed 'equipped' field
+            val updatedItem = currentItem.copy(equipped = !currentItem.equipped)
+            repository.updateItem(updatedItem)
+        }
+    }
+
     fun deleteItem(onDeleted: () -> Unit) {
         viewModelScope.launch {
-            repository.deleteItemById(itemId)
+            if (itemId != 0L) {
+                repository.deleteItemById(itemId)
+            }
             onDeleted()
         }
     }

@@ -1,4 +1,3 @@
-
 package com.inventoria.app.ui.screens.dashboard
 
 import androidx.compose.animation.core.*
@@ -22,10 +21,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.ui.theme.*
 import java.text.NumberFormat
@@ -154,41 +155,22 @@ fun GradientHeaderCard() {
 
 @Composable
 fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "Total Items",
-                value = uiState.totalItems.toString(),
-                icon = Icons.Default.Inventory,
-                color = PurplePrimary,
-                shimmerOffset = shimmerOffset
-            )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        StatCard(
+            modifier = Modifier.weight(1f),
+            title = "Total Items",
+            value = uiState.totalItems.toString(),
+            icon = Icons.Default.Inventory,
+            color = PurplePrimary,
+            shimmerOffset = shimmerOffset
+        )
+        if (uiState.showTotalValue) {
             StatCard(
                 modifier = Modifier.weight(1f),
                 title = "Total Value",
                 value = NumberFormat.getCurrencyInstance().format(uiState.totalValue),
                 icon = Icons.Default.AttachMoney,
                 color = Success,
-                shimmerOffset = shimmerOffset
-            )
-        }
-        
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "Low Stock",
-                value = uiState.lowStockCount.toString(),
-                icon = Icons.Default.Warning,
-                color = Warning,
-                shimmerOffset = shimmerOffset
-            )
-            StatCard(
-                modifier = Modifier.weight(1f),
-                title = "Out of Stock",
-                value = uiState.outOfStockCount.toString(),
-                icon = Icons.Default.Error,
-                color = Error,
                 shimmerOffset = shimmerOffset
             )
         }
@@ -265,10 +247,23 @@ fun RecentItemCard(item: InventoryItem, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    if (item.equipped) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            painter = painterResource(R.drawable.mobile_theft_24px),
+                            contentDescription = "Equipped",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
                 Text(text = item.location, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(text = "Qty: ${item.quantity}", fontWeight = FontWeight.Medium)
+            if (item.quantity != 1) {
+                Text(text = "Qty: ${item.quantity}", fontWeight = FontWeight.Medium)
+            }
         }
     }
 }

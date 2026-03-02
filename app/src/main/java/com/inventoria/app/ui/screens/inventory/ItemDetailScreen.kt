@@ -1,6 +1,7 @@
 package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,10 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
@@ -30,6 +33,8 @@ import java.text.NumberFormat
 fun ItemDetailScreen(
     onNavigateBack: () -> Unit,
     onEditItem: (Long) -> Unit,
+    onLocationClick: (Double, Double) -> Unit,
+    onNavigateToItemDetail: (Long) -> Unit, 
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -45,11 +50,20 @@ fun ItemDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { uiState.item?.id?.let { onEditItem(it) } }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit")
-                    }
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete")
+                    val item = uiState.item
+                    if (item != null) {
+                        IconButton(onClick = viewModel::toggleEquip) {
+                            Icon(
+                                painter = if (item.equipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
+                                contentDescription = if (item.equipped) "Unequip" else "Equip"
+                            )
+                        }
+                        IconButton(onClick = { onEditItem(item.id) }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                        }
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        }
                     }
                 }
             )
@@ -65,6 +79,8 @@ fun ItemDetailScreen(
             }
         } else {
             val item = uiState.item!!
+            val parentItem = uiState.parentItem
+            
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -73,7 +89,7 @@ fun ItemDetailScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Header section with big name and category
+                // Header section
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Box(
                         modifier = Modifier
@@ -83,7 +99,7 @@ fun ItemDetailScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.Inventory2,
+                            if (item.storage) Icons.Default.Inventory else Icons.Default.Category,
                             contentDescription = null,
                             tint = PurplePrimary,
                             modifier = Modifier.size(40.dp)
@@ -111,7 +127,7 @@ fun ItemDetailScreen(
                         label = "Quantity",
                         value = item.quantity.toString(),
                         icon = Icons.Default.ProductionQuantityLimits,
-                        color = if (item.quantity <= (item.minimumQuantity ?: 0)) Warning else Success
+                        color = if (item.quantity <= 0) Warning else Success
                     )
                     DetailInfoCard(
                         modifier = Modifier.weight(1f),
@@ -122,11 +138,35 @@ fun ItemDetailScreen(
                     )
                 }
 
-                // Additional Details
-                DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
-                item.minimumQuantity?.let {
-                    DetailItemRow(label = "Minimum Stock Level", value = it.toString(), icon = Icons.Default.NotificationsActive)
+                // Location Row
+                if (item.equipped) {
+                    DetailItemRow(
+                        label = "Location", 
+                        value = "Equipped (With You)", 
+                        iconPainter = painterResource(R.drawable.mobile_theft_24px)
+                    )
+                } else if (parentItem != null) {
+                    DetailItemRow(
+                        label = "Inside Container", 
+                        value = parentItem.name, 
+                        icon = Icons.Default.Inventory,
+                        onClick = { onNavigateToItemDetail(parentItem.id) }
+                    )
+                } else {
+                    val lat = item.latitude
+                    val lon = item.longitude
+                    if (lat != null && lon != null) {
+                        DetailItemRow(
+                            label = "Location", 
+                            value = item.location, 
+                            icon = Icons.Default.LocationOn,
+                            onClick = { onLocationClick(lat, lon) }
+                        )
+                    } else {
+                        DetailItemRow(label = "Location", value = item.location, icon = Icons.Default.LocationOn)
+                    }
                 }
+                
                 item.description?.let {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Description", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -134,7 +174,20 @@ fun ItemDetailScreen(
                     }
                 }
 
-                Spacer(Modifier.weight(1f))
+                // Custom Fields Section
+                if (item.customFields.isNotEmpty()) {
+                    Divider()
+                    Text(
+                        text = "Custom Information",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    item.customFields.forEach { (key, value) ->
+                        DetailItemRow(label = key, value = value, icon = Icons.Default.Label)
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
 
                 Button(
                     onClick = { onEditItem(item.id) },
@@ -194,16 +247,36 @@ fun DetailInfoCard(
 }
 
 @Composable
-fun DetailItemRow(label: String, value: String, icon: ImageVector) {
+fun DetailItemRow(
+    label: String, 
+    value: String, 
+    icon: ImageVector? = null,
+    iconPainter: androidx.compose.ui.graphics.painter.Painter? = null,
+    onClick: (() -> Unit)? = null
+) {
+    val rowModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
+    
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = rowModifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        } else if (iconPainter != null) {
+            Icon(iconPainter, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        }
         Spacer(Modifier.width(16.dp))
         Column {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        }
+        if (onClick != null) {
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.Default.ChevronRight, contentDescription = "Action", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

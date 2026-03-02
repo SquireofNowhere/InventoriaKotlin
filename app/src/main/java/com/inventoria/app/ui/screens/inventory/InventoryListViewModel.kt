@@ -1,10 +1,13 @@
 
 package com.inventoria.app.ui.screens.inventory
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
+import com.inventoria.app.data.repository.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -13,18 +16,23 @@ import javax.inject.Inject
 data class InventoryUiState(
     val items: List<InventoryItem> = emptyList(),
     val filteredItems: List<InventoryItem> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val error: String? = null
 )
 
 @HiltViewModel
 class InventoryListViewModel @Inject constructor(
-    private val repository: InventoryRepository
+    private val repository: InventoryRepository,
+    private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(InventoryUiState())
     val uiState: StateFlow<InventoryUiState> = _uiState.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
+    
+    // Expose sync status for UI components
+    val syncStatus: StateFlow<SyncStatus> = syncRepository.syncStatus
 
     init {
         observeItems()
@@ -32,24 +40,86 @@ class InventoryListViewModel @Inject constructor(
 
     private fun observeItems() {
         viewModelScope.launch {
-            combine(repository.getAllItems(), _searchQuery) { items, query ->
-                val filtered = if (query.isBlank()) {
-                    items
-                } else {
-                    items.filter { it.name.contains(query, ignoreCase = true) }
+            repository.getAllItemsWithResolvedLocations()
+                .combine(_searchQuery) { items, query ->
+                    val filtered = if (query.isBlank()) {
+                        items
+                    } else {
+                        items.filter { it.name.contains(query, ignoreCase = true) }
+                    }
+                    InventoryUiState(
+                        items = items,
+                        filteredItems = filtered,
+                        isLoading = false
+                    )
                 }
-                InventoryUiState(
-                    items = items,
-                    filteredItems = filtered,
-                    isLoading = false
-                )
-            }.collect { newState ->
-                _uiState.value = newState
-            }
+                .catch { e ->
+                    Log.e("InventoryListViewModel", "Error observing items", e)
+                    _uiState.value = InventoryUiState(isLoading = false, error = e.message)
+                }
+                .collect { newState ->
+                    _uiState.value = newState
+                }
         }
     }
 
     fun search(query: String) {
         _searchQuery.value = query
+    }
+
+    fun updateUserLocation(latitude: Double, longitude: Double) {
+        viewModelScope.launch {
+            try {
+                repository.updateUserLocation(latitude, longitude)
+            } catch (e: Exception) {
+                Log.e("InventoryListViewModel", "Error updating location", e)
+            }
+        }
+    }
+
+    fun moveItem(itemId: Long, newParentId: Long?) {
+        viewModelScope.launch {
+            try {
+                val allItems = _uiState.value.items
+                val itemToMove = allItems.find { it.id == itemId } ?: return@launch
+                
+                // 1. Prevent moving an item into itself
+                if (itemId == newParentId) return@launch
+                
+                val oldParentId = itemToMove.parentId
+
+                // 2. Update the item being moved
+                val updatedItem = itemToMove.copy(
+                    parentId = newParentId,
+                    // If moved into a container, it shouldn't be "equipped" anymore
+                    equipped = if (newParentId != null) false else itemToMove.equipped,
+                    updatedAt = System.currentTimeMillis()
+                )
+                repository.updateItem(updatedItem)
+
+                // 3. Auto-Container: If dropped into a target, make target a container
+                if (newParentId != null) {
+                    allItems.find { it.id == newParentId }?.let { target ->
+                        if (!target.storage) {
+                            repository.updateItem(target.copy(storage = true, updatedAt = System.currentTimeMillis()))
+                        }
+                    }
+                }
+
+                // 4. Auto-Revert: If old parent is now empty, it stops being a container
+                if (oldParentId != null) {
+                    val remainingChildren = allItems.filter { it.parentId == oldParentId && it.id != itemId }
+                    if (remainingChildren.isEmpty()) {
+                        allItems.find { it.id == oldParentId }?.let { oldParent ->
+                            repository.updateItem(oldParent.copy(storage = false, updatedAt = System.currentTimeMillis()))
+                        }
+                    }
+                }
+
+                Log.d("InventoryListViewModel", "Moved item $itemId. New parent: $newParentId, Old parent: $oldParentId")
+            } catch (e: Exception) {
+                Log.e("InventoryListViewModel", "Failed to move item", e)
+            }
+        }
     }
 }

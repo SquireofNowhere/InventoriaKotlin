@@ -3,6 +3,7 @@ package com.inventoria.app.data.model
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
+import com.google.firebase.database.PropertyName
 import com.inventoria.app.data.local.Converters
 import java.util.Date
 
@@ -13,45 +14,86 @@ import java.util.Date
 @TypeConverters(Converters::class)
 data class InventoryItem(
     @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
+    @get:PropertyName("id")
+    @set:PropertyName("id")
+    var id: Long = 0,
     
-    val name: String,
-    val quantity: Int,
-    val location: String,
-    val price: Double? = null,
+    @get:PropertyName("name")
+    @set:PropertyName("name")
+    var name: String = "",
     
-    // Additional fields stored as key-value pairs
-    val customFields: Map<String, String> = emptyMap(),
+    @get:PropertyName("quantity")
+    @set:PropertyName("quantity")
+    var quantity: Int = 0,
     
-    // Metadata
-    val createdAt: Date = Date(),
-    val updatedAt: Date = Date(),
+    @get:PropertyName("location")
+    @set:PropertyName("location")
+    var location: String = "",
     
-    // Categories and tags
-    val category: String? = null,
-    val tags: List<String> = emptyList(),
+    @get:PropertyName("latitude")
+    @set:PropertyName("latitude")
+    var latitude: Double? = null,
     
-    // Status tracking
-    val isLowStock: Boolean = false,
-    val minimumQuantity: Int? = null,
+    @get:PropertyName("longitude")
+    @set:PropertyName("longitude")
+    var longitude: Double? = null,
     
-    // Optional fields
-    val description: String? = null,
-    val imageUrl: String? = null,
-    val barcode: String? = null,
-    val sku: String? = null
+    @get:PropertyName("price")
+    @set:PropertyName("price")
+    var price: Double? = null,
+    
+    @get:PropertyName("storage")
+    @set:PropertyName("storage")
+    var storage: Boolean = false,
+    
+    @get:PropertyName("parentId")
+    @set:PropertyName("parentId")
+    var parentId: Long? = null,
+    
+    @get:PropertyName("equipped")
+    @set:PropertyName("equipped")
+    var equipped: Boolean = false,
+    
+    @get:PropertyName("customFields")
+    @set:PropertyName("customFields")
+    var customFields: Map<String, String> = emptyMap(),
+    
+    @get:PropertyName("createdAt")
+    @set:PropertyName("createdAt")
+    var createdAt: Long = System.currentTimeMillis(),
+    
+    @get:PropertyName("updatedAt")
+    @set:PropertyName("updatedAt")
+    var updatedAt: Long = System.currentTimeMillis(),
+    
+    @get:PropertyName("category")
+    @set:PropertyName("category")
+    var category: String? = null,
+    
+    @get:PropertyName("tags")
+    @set:PropertyName("tags")
+    var tags: List<String> = emptyList(),
+    
+    @get:PropertyName("description")
+    @set:PropertyName("description")
+    var description: String? = null,
+    
+    @get:PropertyName("imageUrl")
+    @set:PropertyName("imageUrl")
+    var imageUrl: String? = null,
+    
+    @get:PropertyName("barcode")
+    @set:PropertyName("barcode")
+    var barcode: String? = null,
+    
+    @get:PropertyName("sku")
+    @set:PropertyName("sku")
+    var sku: String? = null
 ) {
     /**
      * Check if the item is currently in stock
      */
     fun isInStock(): Boolean = quantity > 0
-    
-    /**
-     * Check if item needs restocking
-     */
-    fun needsRestock(): Boolean {
-        return minimumQuantity?.let { min -> quantity <= min } ?: false
-    }
     
     /**
      * Get display name with quantity
@@ -62,44 +104,4 @@ data class InventoryItem(
      * Calculate total value if price is available
      */
     fun getTotalValue(): Double? = price?.let { it * quantity }
-}
-
-/**
- * UI state for inventory items
- */
-data class InventoryItemUiState(
-    val item: InventoryItem,
-    val isSelected: Boolean = false,
-    val isExpanded: Boolean = false
-)
-
-/**
- * Data class for creating/updating inventory items
- */
-data class InventoryItemInput(
-    val name: String,
-    val quantity: Int,
-    val location: String,
-    val price: Double? = null,
-    val customFields: Map<String, String> = emptyMap(),
-    val category: String? = null,
-    val tags: List<String> = emptyList(),
-    val description: String? = null,
-    val minimumQuantity: Int? = null
-) {
-    fun toInventoryItem(id: Long = 0): InventoryItem {
-        return InventoryItem(
-            id = id,
-            name = name,
-            quantity = quantity,
-            location = location,
-            price = price,
-            customFields = customFields,
-            category = category,
-            tags = tags,
-            description = description,
-            minimumQuantity = minimumQuantity,
-            isLowStock = minimumQuantity?.let { quantity <= it } ?: false
-        )
-    }
 }

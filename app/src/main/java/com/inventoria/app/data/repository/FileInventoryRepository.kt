@@ -1,4 +1,3 @@
-
 package com.inventoria.app.data.repository
 
 import android.content.Context
@@ -11,7 +10,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,8 +35,7 @@ class FileInventoryRepository @Inject constructor(
                         location = parts[3],
                         price = parts.getOrNull(4)?.toDoubleOrNull(),
                         category = parts.getOrNull(5),
-                        description = parts.getOrNull(6),
-                        minimumQuantity = parts.getOrNull(7)?.toIntOrNull()
+                        description = parts.getOrNull(6)
                     )
                 } catch (e: Exception) {
                     null 
@@ -60,8 +57,7 @@ class FileInventoryRepository @Inject constructor(
                     item.location,
                     item.price ?: "",
                     item.category ?: "",
-                    item.description ?: "",
-                    item.minimumQuantity ?: ""
+                    item.description ?: ""
                 ).joinToString(";")
                 writer.write(line)
                 writer.newLine()
@@ -79,10 +75,6 @@ class FileInventoryRepository @Inject constructor(
         items.sumOf { (it.price ?: 0.0) * it.quantity }
     }
 
-    fun getLowStockItems(): Flow<List<InventoryItem>> = getAllItems().map { items ->
-        items.filter { it.quantity <= (it.minimumQuantity ?: 0) }
-    }
-
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = getAllItems().map { items ->
         items.filter { it.quantity <= 0 }
     }
@@ -93,10 +85,11 @@ class FileInventoryRepository @Inject constructor(
 
     suspend fun insertItem(item: InventoryItem): Long {
         val items = readItems().toMutableList()
+        val currentTime = System.currentTimeMillis()
         val newItem = item.copy(
             id = (items.maxOfOrNull { it.id } ?: 0L) + 1, 
-            createdAt = Date(), 
-            updatedAt = Date()
+            createdAt = currentTime, 
+            updatedAt = currentTime
         )
         items.add(newItem)
         writeItems(items)
@@ -111,7 +104,7 @@ class FileInventoryRepository @Inject constructor(
         val items = readItems().toMutableList()
         val index = items.indexOfFirst { it.id == item.id }
         if (index != -1) {
-            items[index] = item.copy(updatedAt = Date())
+            items[index] = item.copy(updatedAt = System.currentTimeMillis())
             writeItems(items)
         }
     }
