@@ -17,8 +17,8 @@ class TaskTimerService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val binder = TimerBinder()
     
-    // Using String ID for persistence and cross-device sync
-    private val runningTasks = mutableMapOf<String, Long>()
+    // Track start time AND previous duration for each task
+    private val runningTasks = mutableMapOf<String, Pair<Long, Long>>() 
     private val _taskUpdates = MutableStateFlow<Map<String, Long>>(emptyMap())
     val taskUpdates = _taskUpdates
     
@@ -50,7 +50,10 @@ class TaskTimerService : Service() {
         serviceScope.launch {
             while (isActive) {
                 val now = System.currentTimeMillis()
-                val updates = runningTasks.mapValues { now - it.value }
+                val updates = runningTasks.mapValues { (_, data) -> 
+                    val (startTime, prevDuration) = data
+                    prevDuration + (now - startTime)
+                }
                 _taskUpdates.value = updates
                 updateNotification(updates)
                 delay(1000)
@@ -58,8 +61,8 @@ class TaskTimerService : Service() {
         }
     }
 
-    fun startTask(id: String, startTime: Long) {
-        runningTasks[id] = startTime
+    fun startTask(id: String, startTime: Long, prevDuration: Long = 0L) {
+        runningTasks[id] = startTime to prevDuration
         if (!taskNames.containsKey(id)) {
             taskNames[id] = "Task"
         }

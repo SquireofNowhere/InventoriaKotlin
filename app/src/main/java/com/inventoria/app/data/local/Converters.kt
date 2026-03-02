@@ -3,6 +3,7 @@ package com.inventoria.app.data.local
 import androidx.room.TypeConverter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.inventoria.app.data.model.TaskKind
 import java.util.Date
 
 /**
@@ -43,5 +44,28 @@ class Converters {
         if (value == null) return emptyList()
         val listType = object : TypeToken<List<String>>() {}.type
         return gson.fromJson(value, listType) ?: emptyList()
+    }
+
+    @TypeConverter
+    fun fromTaskKind(kind: TaskKind): String {
+        return kind.name
+    }
+
+    @TypeConverter
+    fun toTaskKind(value: String): TaskKind {
+        return try {
+            TaskKind.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            // Fallback mapping for old enum values
+            when (value) {
+                "BIG_PRODUCTIVE" -> TaskKind.PEACOCK
+                "SMALL_PRODUCTIVE" -> TaskKind.LAVENDER
+                "NEUTRAL_WAITING" -> TaskKind.GRAPHITE
+                "FREE_TIME" -> TaskKind.GRAPE
+                "SMALL_WASTE" -> TaskKind.TANGERINE
+                "BIG_WASTE" -> TaskKind.TOMATO
+                else -> TaskKind.GRAPHITE
+            }
+        }
     }
 }

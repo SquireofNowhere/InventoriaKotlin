@@ -12,25 +12,30 @@ import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskCategory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-// UI wrapper for running tasks to manage local timer state
+// UI wrapper for a session (group of task segments)
+data class TaskSessionUI(
+    val groupId: String,
+    val segments: List<Task>,
+    val isExpanded: MutableStateFlow<Boolean> = MutableStateFlow(false),
+    val activeSegment: RunningTaskUI? = null
+)
+
+// UI wrapper for a running segment to manage local timer state
 data class RunningTaskUI(
     val task: Task,
     val elapsedTime: MutableStateFlow<Long> = MutableStateFlow(0L),
-    var timerJob: Job? = null,
-    var isEditingName: Boolean = false
+    var timerJob: Job? = null
 )
 
 @HiltViewModel
@@ -40,10 +45,25 @@ class TaskTrackerViewModel @Inject constructor(
 ) : ViewModel() {
 
     private var taskCounter = 1
-    val runningTasks = mutableStateListOf<RunningTaskUI>()
+    
+    // Active sessions being tracked
+    private val _activeSessions = MutableStateFlow<List<TaskSessionUI>>(emptyList())
+    val activeSessions: StateFlow<List<TaskSessionUI>> = _activeSessions.asStateFlow()
 
-    private val _completedTasks = MutableStateFlow<List<Task>>(emptyList())
-    val completedTasks: StateFlow<List<Task>> = _completedTasks.asStateFlow()
+    // Completed sessions (grouped by groupId)
+    private val _completedSessions = MutableStateFlow<List<List<Task>>>(emptyList())
+    val completedSessions: StateFlow<List<List<Task>>> = _completedSessions.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    
+    val personalScore = _completedSessions.map { sessions ->
+        sessions.flatten().filter { it.kind.category == TaskCategory.PERSONAL }.sumOf { it.score }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val socialScore = _completedSessions.map { sessions ->
+        sessions.flatten().filter { it.kind.category == TaskCategory.SOCIAL }.sumOf { it.score }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private var timerService: TaskTimerService? = null
     private var isBound = false
@@ -54,19 +74,26 @@ class TaskTrackerViewModel @Inject constructor(
             timerService = binder.getService()
             isBound = true
             
-            // Sync service updates to UI
             viewModelScope.launch {
                 timerService?.taskUpdates?.collect { updates ->
                     updates.forEach { (id, elapsed) ->
-                        runningTasks.find { it.task.id == id }?.elapsedTime?.value = elapsed
+                        _activeSessions.value.forEach { session ->
+                            if (session.activeSegment?.task?.id == id) {
+                                session.activeSegment.elapsedTime.value = elapsed
+                            }
+                        }
                     }
                 }
             }
             
-            // Sync current running tasks to service
-            runningTasks.forEach { uiTask ->
-                timerService?.startTask(uiTask.task.id, uiTask.task.startTime)
-                timerService?.updateTaskName(uiTask.task.id, uiTask.task.name)
+            // Re-sync active segments to service
+            _activeSessions.value.forEach { session ->
+                session.activeSegment?.let { ui ->
+                    if (ui.task.isRunning) {
+                        timerService?.startTask(ui.task.id, ui.task.startTime, 0L)
+                        timerService?.updateTaskName(ui.task.id, ui.task.name)
+                    }
+                }
             }
         }
 
@@ -77,34 +104,46 @@ class TaskTrackerViewModel @Inject constructor(
     }
 
     init {
-        // Observe running tasks from repository
+        // Observe all tasks and group them into sessions
         viewModelScope.launch {
-            repository.getRunningTasks().collectLatest { tasks ->
-                // Update local list while preserving timer jobs
-                val currentIds = runningTasks.map { it.task.id }.toSet()
-                val newIds = tasks.map { it.id }.toSet()
-
-                // Remove tasks no longer running
-                runningTasks.removeAll { it.task.id !in newIds }
-
-                // Add or update tasks
-                tasks.forEach { task ->
-                    val existing = runningTasks.find { it.task.id == task.id }
-                    if (existing == null) {
-                        val uiTask = RunningTaskUI(task = task)
-                        startLocalTimer(uiTask)
-                        runningTasks.add(uiTask)
-                        timerService?.startTask(task.id, task.startTime)
-                        timerService?.updateTaskName(task.id, task.name)
-                    } else if (existing.task != task) {
-                        // Update the task data but keep the timer job
-                        val index = runningTasks.indexOf(existing)
-                        runningTasks[index] = existing.copy(task = task)
-                    }
-                }
+            repository.getAllTasks().collect { allTasks ->
+                val groups = allTasks.groupBy { it.groupId }
                 
-                // Update counter based on existing task names
-                tasks.forEach { task ->
+                // Active Sessions: At least one segment has isSessionActive = true
+                val active = groups.filter { (_, segments) -> segments.any { it.isSessionActive } }
+                    .map { (groupId, segments) ->
+                        val runningSegment = segments.find { it.isRunning }
+                        val activeUI = runningSegment?.let { segment ->
+                            val existing = _activeSessions.value.find { it.groupId == groupId }?.activeSegment
+                            if (existing != null && existing.task.id == segment.id) {
+                                // Keep existing UI wrapper to preserve timer job
+                                existing.copy(task = segment)
+                            } else {
+                                val ui = RunningTaskUI(task = segment)
+                                startLocalTimer(ui)
+                                timerService?.startTask(segment.id, segment.startTime, 0L)
+                                timerService?.updateTaskName(segment.id, segment.name)
+                                ui
+                            }
+                        }
+                        
+                        val existingSession = _activeSessions.value.find { it.groupId == groupId }
+                        TaskSessionUI(
+                            groupId = groupId,
+                            segments = segments.filter { !it.isRunning }.sortedByDescending { it.endTime },
+                            isExpanded = existingSession?.isExpanded ?: MutableStateFlow(false),
+                            activeSegment = activeUI
+                        )
+                    }
+                _activeSessions.value = active
+
+                // Completed Sessions: All segments have isSessionActive = false
+                val completed = groups.filter { (_, segments) -> segments.all { !it.isSessionActive } }
+                    .values.toList().sortedByDescending { it.maxOfOrNull { t -> t.endTime ?: 0L } }
+                _completedSessions.value = completed
+                
+                // Update counter based on highest task number
+                allTasks.forEach { task ->
                     if (task.name.startsWith("Task ")) {
                         val num = task.name.substringAfter("Task ").toIntOrNull()
                         if (num != null && num >= taskCounter) {
@@ -112,18 +151,33 @@ class TaskTrackerViewModel @Inject constructor(
                         }
                     }
                 }
+                
+                checkAndCleanupSavedTasks(allTasks)
             }
         }
 
-        // Observe completed tasks from repository
         viewModelScope.launch {
-            repository.getCompletedTasks().collect { tasks ->
-                _completedTasks.value = tasks
+            while (isActive) {
+                checkAndCleanupSavedTasks(emptyList()) // Will use repo or state inside
+                delay(60000)
             }
         }
 
         Intent(context, TaskTimerService::class.java).also { intent ->
             context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        }
+    }
+    
+    private suspend fun checkAndCleanupSavedTasks(tasks: List<Task>) {
+        val now = System.currentTimeMillis()
+        val twentyFourHours = 24 * 60 * 60 * 1000L
+        
+        tasks.forEach { task ->
+            if (task.savedToCalendar && task.savedToCalendarAt != null) {
+                if (now - task.savedToCalendarAt!! >= twentyFourHours) {
+                    repository.deleteTask(task)
+                }
+            }
         }
     }
 
@@ -138,19 +192,23 @@ class TaskTrackerViewModel @Inject constructor(
     }
 
     fun addNewTask() {
-        if (runningTasks.size >= 5) return
+        if (_activeSessions.value.size >= 5) return
 
+        val groupId = UUID.randomUUID().toString()
+        val name = "Task ${taskCounter++}"
         val newTask = Task(
             id = UUID.randomUUID().toString(),
-            name = "Task ${taskCounter++}",
+            groupId = groupId,
+            name = name,
             startTime = System.currentTimeMillis(),
-            isRunning = true
+            isRunning = true,
+            isSessionActive = true,
+            kind = TaskKind.GRAPHITE
         )
         
         viewModelScope.launch {
             repository.insertTask(newTask)
             
-            // Start foreground service
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -160,52 +218,141 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    fun stopTask(uiTask: RunningTaskUI) {
-        uiTask.timerJob?.cancel()
-        timerService?.stopTask(uiTask.task.id)
-        
-        val completedTask = uiTask.task.copy(
-            isRunning = false,
-            endTime = System.currentTimeMillis(),
-            duration = uiTask.elapsedTime.value
-        )
-        
+    fun pauseResumeTask(session: TaskSessionUI) {
         viewModelScope.launch {
-            repository.updateTask(completedTask)
+            if (session.activeSegment != null) {
+                // Pause: End current running segment
+                val currentTask = session.activeSegment.task
+                val duration = System.currentTimeMillis() - currentTask.startTime
+                val pausedTask = currentTask.copy(
+                    isRunning = false,
+                    isPaused = true,
+                    endTime = System.currentTimeMillis(),
+                    duration = duration,
+                    updatedAt = System.currentTimeMillis()
+                )
+                timerService?.stopTask(currentTask.id)
+                repository.updateTask(pausedTask)
+            } else {
+                // Resume: Create a new segment for the session
+                val firstSegment = session.segments.lastOrNull() ?: session.activeSegment?.task 
+                if (firstSegment != null) {
+                    val newSegment = Task(
+                        id = UUID.randomUUID().toString(),
+                        groupId = session.groupId,
+                        name = firstSegment.name,
+                        kind = firstSegment.kind,
+                        startTime = System.currentTimeMillis(),
+                        isRunning = true,
+                        isPaused = false,
+                        isSessionActive = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    repository.insertTask(newSegment)
+                }
+            }
+        }
+    }
+
+    fun stopTask(session: TaskSessionUI) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val now = System.currentTimeMillis()
+            
+            // 1. First, handle the active segment if it exists
+            session.activeSegment?.let { ui ->
+                val currentTask = ui.task
+                val duration = now - currentTask.startTime
+                val completedTask = currentTask.copy(
+                    isRunning = false,
+                    isPaused = false,
+                    isSessionActive = false,
+                    endTime = now,
+                    duration = duration,
+                    updatedAt = now
+                )
+                timerService?.stopTask(currentTask.id)
+                repository.updateTask(completedTask)
+            }
+            
+            // 2. Mark the entire session as inactive using a bulk database operation
+            repository.endSession(session.groupId)
+            
+            _isLoading.value = false
         }
     }
     
-    fun updateTaskName(uiTask: RunningTaskUI, newName: String) {
+    fun updateSessionName(groupId: String, newName: String) {
         viewModelScope.launch {
-            repository.updateTask(uiTask.task.copy(name = newName))
+            _isLoading.value = true
+            // Perform bulk update in Room to ensure atomicity and single Flow emission
+            repository.updateSessionName(groupId, newName)
+            _isLoading.value = false
         }
     }
 
-    fun updateTaskKind(uiTask: RunningTaskUI, newKind: TaskKind) {
+    fun updateSessionKind(groupId: String, newKind: TaskKind) {
         viewModelScope.launch {
-            repository.updateTask(uiTask.task.copy(kind = newKind))
+            _isLoading.value = true
+            // Perform bulk update in Room to ensure atomicity and single Flow emission
+            repository.updateSessionKind(groupId, newKind)
+            _isLoading.value = false
         }
     }
 
+    // Explicitly adding these for TaskDetailDialog compatibility
     fun updateCompletedTaskName(task: Task, newName: String) {
         viewModelScope.launch {
-            repository.updateTask(task.copy(name = newName))
+            repository.updateTask(task.copy(name = newName, isNameCustom = true, updatedAt = System.currentTimeMillis()))
         }
     }
 
     fun updateCompletedTaskKind(task: Task, newKind: TaskKind) {
         viewModelScope.launch {
-            repository.updateTask(task.copy(kind = newKind))
+            repository.updateTask(task.copy(kind = newKind, isKindCustom = true, updatedAt = System.currentTimeMillis()))
         }
     }
 
-    fun setCompletedTaskCalendarStatus(task: Task, isSaved: Boolean) {
+    fun updateSegment(task: Task) {
         viewModelScope.launch {
-            repository.updateTask(task.copy(savedToCalendar = isSaved))
+            repository.updateTask(task.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun updateSegmentTime(task: Task, startTime: Long, endTime: Long) {
+        val duration = endTime - startTime
+        viewModelScope.launch {
+            repository.updateTask(
+                task.copy(
+                    startTime = startTime,
+                    endTime = endTime,
+                    duration = if (duration > 0) duration else 0
+                )
+            )
+        }
+    }
+
+    fun setSegmentCalendarStatus(task: Task, isSaved: Boolean) {
+        viewModelScope.launch {
+            repository.updateTask(
+                task.copy(
+                    savedToCalendar = isSaved,
+                    savedToCalendarAt = if (isSaved) System.currentTimeMillis() else null
+                )
+            )
         }
     }
     
-    fun clearCompletedTask(task: Task) {
+    fun clearSession(groupId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            // Batch delete the session to trigger only one sync
+            repository.deleteSession(groupId)
+            _isLoading.value = false
+        }
+    }
+    
+    fun clearSegment(task: Task) {
         viewModelScope.launch {
             repository.deleteTask(task)
         }

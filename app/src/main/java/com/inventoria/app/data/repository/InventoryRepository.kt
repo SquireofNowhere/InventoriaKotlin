@@ -1,19 +1,20 @@
 package com.inventoria.app.data.repository
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Geocoder
 import android.util.Log
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.model.InventoryItem
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.tasks.await
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +31,7 @@ class InventoryRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
 
     // Current user location to be used for equipped items
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
@@ -45,10 +47,39 @@ class InventoryRepository @Inject constructor(
                 Log.e("InventoryRepository", "Failed to initialize Firebase sync", e)
             }
         }
+        
+        // Get initial location fix
+        repositoryScope.launch {
+            val loc = getFreshLocation()
+            if (loc != null) {
+                _userLocation.value = loc
+            }
+        }
     }
 
     fun updateUserLocation(latitude: Double, longitude: Double) {
         _userLocation.value = latitude to longitude
+    }
+
+    /**
+     * Attempts to get a fresh, accurate location fix.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun getFreshLocation(): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+        try {
+            // Prefer current accurate location
+            val currentLoc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+            if (currentLoc != null) return@withContext currentLoc.latitude to currentLoc.longitude
+            
+            // Fallback to last known
+            val lastLoc = fusedLocationClient.lastLocation.await()
+            if (lastLoc != null) return@withContext lastLoc.latitude to lastLoc.longitude
+            
+            null
+        } catch (e: Exception) {
+            Log.e("InventoryRepository", "Error fetching fresh location", e)
+            null
+        }
     }
 
     /**
@@ -186,20 +217,60 @@ class InventoryRepository @Inject constructor(
     suspend fun updateItem(item: InventoryItem) = withContext(Dispatchers.IO) {
         val currentItem = inventoryDao.getItemById(item.id) ?: return@withContext
         var updatedItem = item.copy(updatedAt = System.currentTimeMillis())
+        
+        // Identify transitions that require a fresh location fix
+        val isUnequipping = !updatedItem.equipped && currentItem.equipped
+        val parentItem = updatedItem.parentId?.let { inventoryDao.getItemById(it) }
+        val isMovingToEquippedParent = parentItem?.equipped == true && 
+                (updatedItem.parentId != currentItem.parentId || updatedItem.equipped != currentItem.equipped)
+        val isMovingToOpenSpace = updatedItem.parentId == null && currentItem.parentId != null && !updatedItem.equipped
 
-        // Logic: if being EQUIPPED now (wasn't before)
+        // Get fresh location if transition requires it
+        var locationToUse = _userLocation.value
+        if (isUnequipping || isMovingToEquippedParent || isMovingToOpenSpace) {
+            val freshLoc = getFreshLocation()
+            if (freshLoc != null) {
+                locationToUse = freshLoc
+                _userLocation.value = freshLoc
+            }
+        }
+
+        // 1. Handle Equipping: if being EQUIPPED now (wasn't before)
         if (updatedItem.equipped && !currentItem.equipped) {
             updatedItem = updatedItem.copy(parentId = null)
         }
         
-        // Logic: if being UNEQUIPPED now (was before)
-        if (!updatedItem.equipped && currentItem.equipped) {
-            val userLoc = _userLocation.value
-            if (userLoc != null) {
-                val address = reverseGeocode(userLoc.first, userLoc.second)
+        // 2. Handle Moving to Storage (Bag/Container)
+        if (updatedItem.parentId != null && (updatedItem.parentId != currentItem.parentId || updatedItem.equipped != currentItem.equipped)) {
+            if (parentItem != null) {
+                // If parent is equipped, the item inherits the user's current physical location
+                if (parentItem.equipped && locationToUse != null) {
+                    val address = reverseGeocode(locationToUse.first, locationToUse.second)
+                    updatedItem = updatedItem.copy(
+                        latitude = locationToUse.first,
+                        longitude = locationToUse.second,
+                        location = address,
+                        equipped = false
+                    )
+                } else {
+                    // Inherit parent's stored coordinates
+                    updatedItem = updatedItem.copy(
+                        latitude = parentItem.latitude,
+                        longitude = parentItem.longitude,
+                        location = parentItem.location,
+                        equipped = false
+                    )
+                }
+            }
+        }
+
+        // 3. Handle Unequipping or Moving to Open Space: if it's now "loose" and not equipped
+        if (!updatedItem.equipped && (isUnequipping || isMovingToOpenSpace) && updatedItem.parentId == null) {
+            if (locationToUse != null) {
+                val address = reverseGeocode(locationToUse.first, locationToUse.second)
                 updatedItem = updatedItem.copy(
-                    latitude = userLoc.first,
-                    longitude = userLoc.second,
+                    latitude = locationToUse.first,
+                    longitude = locationToUse.second,
                     location = address
                 )
             }

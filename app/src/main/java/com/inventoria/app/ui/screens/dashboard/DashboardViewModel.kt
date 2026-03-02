@@ -40,7 +40,7 @@ class DashboardViewModel @Inject constructor(
             repository.getItemCount(),
             repository.getTotalValue(),
             repository.getOutOfStockItems(),
-            repository.getAllItems(),
+            repository.getAllItemsWithResolvedLocations(),
             repository.getAllCategories(),
             settingsRepository.showValueOnDashboard
         ) { args: Array<Any?> ->

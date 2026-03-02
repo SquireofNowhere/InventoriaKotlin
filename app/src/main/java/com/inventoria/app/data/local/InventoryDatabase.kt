@@ -8,11 +8,11 @@ import com.inventoria.app.data.model.Task
 
 /**
  * Room database for Inventoria.
- * Version 7: Added Task entity for synchronized task tracking.
+ * Version 12: Added isNameCustom and isKindCustom fields to Task for group override support.
  */
 @Database(
     entities = [InventoryItem::class, Task::class],
-    version = 7,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
