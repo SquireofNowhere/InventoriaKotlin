@@ -3,6 +3,7 @@ package com.inventoria.app.ui.main
 import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Map
@@ -25,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.inventoria.app.data.repository.SyncStatus
 import com.inventoria.app.ui.components.SyncStatusIndicator
+import com.inventoria.app.ui.screens.collections.*
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
 import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
@@ -34,6 +36,7 @@ import com.inventoria.app.ui.screens.task.TaskTrackerScreen
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
     object Inventory : Screen("inventory", "Inventory", Icons.Default.Inventory)
+    object Collections : Screen("collections", "Collections", Icons.Default.Collections)
     object Map : Screen("map", "Map", Icons.Default.Map)
     object Tasks : Screen("tasks", "Tasks", Icons.Default.Timer)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
@@ -53,6 +56,7 @@ fun InventoriaApp() {
     val bottomNavItems = listOf(
         Screen.Dashboard,
         Screen.Inventory,
+        Screen.Collections,
         Screen.Map,
         Screen.Tasks,
         Screen.Settings
@@ -65,7 +69,10 @@ fun InventoriaApp() {
                 currentDestination?.hierarchy?.any {
                     it.route?.split("?")?.firstOrNull() == item.route
                 } == true
-            } || currentRoute?.startsWith("item_detail/") == true || currentRoute?.startsWith(Screen.Map.route) == true ||  currentRoute?.startsWith("edit_item/") == true
+            } || currentRoute?.startsWith("item_detail/") == true || 
+                currentRoute?.startsWith(Screen.Map.route) == true || 
+                currentRoute?.startsWith("edit_item/") == true ||
+                currentRoute?.startsWith("collection/") == true
 
             if (showBottomBar) {
                 NavigationBar {
@@ -74,6 +81,9 @@ fun InventoriaApp() {
                             currentRoute?.startsWith("item_detail/") == true || currentRoute?.startsWith("edit_item/") == true -> {
                                 val origin = navBackStackEntry?.arguments?.getString("origin")
                                 screen.route == (origin ?: Screen.Dashboard.route)
+                            }
+                            currentRoute?.startsWith("collection/") == true -> {
+                                screen.route == Screen.Collections.route
                             }
                             currentRoute?.startsWith(Screen.Map.route) == true -> {
                                 val lat = navBackStackEntry?.arguments?.getFloat("lat", -1f) ?: -1f
@@ -134,27 +144,77 @@ fun InventoriaApp() {
                 }
                 
                 composable(
-                    route = "${Screen.Inventory.route}?fromDashboard={fromDashboard}",
+                    route = "${Screen.Inventory.route}?fromDashboard={fromDashboard}&fromCollection={fromCollection}",
                     arguments = listOf(
                         navArgument("fromDashboard") { 
                             type = NavType.BoolType
                             defaultValue = false 
+                        },
+                        navArgument("fromCollection") {
+                            type = NavType.LongType
+                            defaultValue = 0L
                         }
                     )
                 ) { backStackEntry ->
                     val fromDashboard = backStackEntry.arguments?.getBoolean("fromDashboard") == true
+                    val fromCollectionId = backStackEntry.arguments?.getLong("fromCollection") ?: 0L
+                    
                     InventoryListScreen(
                         onAddItem = { navController.navigate("add_item") },
-                        onItemClick = { id -> navController.navigate("item_detail/$id?origin=${Screen.Inventory.route}") },
-                        onNavigateBack = if (fromDashboard) { { 
-                            navController.navigate(Screen.Dashboard.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = false
-                                }
-                                launchSingleTop = true
-                                restoreState = false
+                        onItemClick = { id -> 
+                            if (fromCollectionId == 0L) {
+                                navController.navigate("item_detail/$id?origin=${Screen.Inventory.route}")
                             }
-                        } } else null
+                        },
+                        onNavigateBack = if (fromDashboard || fromCollectionId != 0L) { { 
+                            navController.popBackStack()
+                        } } else null,
+                        fromCollectionId = fromCollectionId
+                    )
+                }
+
+                composable(Screen.Collections.route) {
+                    CollectionsScreen(
+                        onNavigateToCollectionDetail = { id ->
+                            navController.navigate("collection/$id")
+                        },
+                        onNavigateToCreateCollection = {
+                            navController.navigate("collection/create")
+                        }
+                    )
+                }
+
+                composable("collection/create") {
+                    AddEditCollectionScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    route = "collection/edit/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType })
+                ) { backStackEntry ->
+                    val id = backStackEntry.arguments?.getLong("id") ?: 0L
+                    AddEditCollectionScreen(
+                        collectionId = id,
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    route = "collection/{id}",
+                    arguments = listOf(navArgument("id") { type = NavType.LongType })
+                ) { backStackEntry ->
+                    val id = backStackEntry.arguments?.getLong("id") ?: 0L
+                    CollectionDetailScreen(
+                        collectionId = id,
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToAddItems = { collectionId ->
+                            navController.navigate("${Screen.Inventory.route}?fromCollection=$collectionId")
+                        },
+                        onNavigateToItemDetail = { itemId ->
+                            navController.navigate("item_detail/$itemId?origin=collection/$id")
+                        }
                     )
                 }
 

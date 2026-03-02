@@ -2,6 +2,7 @@ package com.inventoria.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.inventoria.app.data.local.CollectionDao
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.InventoryDatabase
 import com.inventoria.app.data.local.TaskDao
@@ -45,5 +46,11 @@ object DatabaseModule {
     @Singleton
     fun provideTaskDao(database: InventoryDatabase): TaskDao {
         return database.taskDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCollectionDao(database: InventoryDatabase): CollectionDao {
+        return database.collectionDao()
     }
 }

@@ -1,10 +1,10 @@
-
 package com.inventoria.app.ui.screens.inventory
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.repository.CollectionRepository
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
 import com.inventoria.app.data.repository.SyncStatus
@@ -16,6 +16,7 @@ import javax.inject.Inject
 data class InventoryUiState(
     val items: List<InventoryItem> = emptyList(),
     val filteredItems: List<InventoryItem> = emptyList(),
+    val collectionItemIds: Set<Long> = emptySet(),
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -23,6 +24,7 @@ data class InventoryUiState(
 @HiltViewModel
 class InventoryListViewModel @Inject constructor(
     private val repository: InventoryRepository,
+    private val collectionRepository: CollectionRepository,
     private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
@@ -30,6 +32,7 @@ class InventoryListViewModel @Inject constructor(
     val uiState: StateFlow<InventoryUiState> = _uiState.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
+    private val _currentCollectionId = MutableStateFlow<Long?>(null)
     
     // Expose sync status for UI components
     val syncStatus: StateFlow<SyncStatus> = syncRepository.syncStatus
@@ -38,33 +41,63 @@ class InventoryListViewModel @Inject constructor(
         observeItems()
     }
 
+    fun setCollectionId(collectionId: Long) {
+        _currentCollectionId.value = collectionId
+    }
+
     private fun observeItems() {
         viewModelScope.launch {
-            repository.getAllItemsWithResolvedLocations()
-                .combine(_searchQuery) { items, query ->
-                    val filtered = if (query.isBlank()) {
-                        items
-                    } else {
-                        items.filter { it.name.contains(query, ignoreCase = true) }
-                    }
-                    InventoryUiState(
-                        items = items,
-                        filteredItems = filtered,
-                        isLoading = false
-                    )
+            val itemsFlow = repository.getAllItemsWithResolvedLocations()
+            val collectionItemsFlow = _currentCollectionId.flatMapLatest { id ->
+                if (id != null) {
+                    collectionRepository.getCollectionWithItems(id).map { it?.items?.map { item -> item.id }?.toSet() ?: emptySet() }
+                } else {
+                    flowOf(emptySet())
                 }
-                .catch { e ->
-                    Log.e("InventoryListViewModel", "Error observing items", e)
-                    _uiState.value = InventoryUiState(isLoading = false, error = e.message)
+            }
+
+            combine(itemsFlow, _searchQuery, collectionItemsFlow) { items, query, collectionIds ->
+                val filtered = if (query.isBlank()) {
+                    items
+                } else {
+                    items.filter { it.name.contains(query, ignoreCase = true) }
                 }
-                .collect { newState ->
-                    _uiState.value = newState
-                }
+                InventoryUiState(
+                    items = items,
+                    filteredItems = filtered,
+                    collectionItemIds = collectionIds,
+                    isLoading = false
+                )
+            }
+            .catch { e ->
+                Log.e("InventoryListViewModel", "Error observing items", e)
+                _uiState.value = InventoryUiState(isLoading = false, error = e.message)
+            }
+            .collect { newState ->
+                _uiState.value = newState
+            }
         }
     }
 
     fun search(query: String) {
         _searchQuery.value = query
+    }
+
+    fun toggleItemInCollection(itemId: Long, collectionId: Long) {
+        viewModelScope.launch {
+            try {
+                val isInCollection = _uiState.value.collectionItemIds.contains(itemId)
+                if (isInCollection) {
+                    collectionRepository.removeItemFromCollection(collectionId, itemId)
+                    Log.d("InventoryListViewModel", "Removed item $itemId from collection $collectionId")
+                } else {
+                    collectionRepository.addItemToCollection(collectionId, itemId)
+                    Log.d("InventoryListViewModel", "Added item $itemId to collection $collectionId")
+                }
+            } catch (e: Exception) {
+                Log.e("InventoryListViewModel", "Failed to toggle item in collection", e)
+            }
+        }
     }
 
     fun updateUserLocation(latitude: Double, longitude: Double) {

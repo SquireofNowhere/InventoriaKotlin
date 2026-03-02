@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -22,16 +23,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.R
+import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.ui.theme.Warning
 import java.text.NumberFormat
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ItemDetailScreen(
     onNavigateBack: () -> Unit,
@@ -121,6 +122,53 @@ fun ItemDetailScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                // Tags section
+                if (item.tags.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item.tags.forEach { tag ->
+                            SuggestionChip(
+                                onClick = { },
+                                label = { Text("#$tag") },
+                                shape = CircleShape
+                            )
+                        }
+                    }
+                }
+
+                // Collections section
+                if (uiState.collections.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Part of Collections",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            items(uiState.collections) { collection ->
+                                AssistChip(
+                                    onClick = { /* Navigate to collection detail if needed */ },
+                                    label = { Text(collection.name) },
+                                    leadingIcon = { Text(collection.icon ?: "📦") },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = Color(collection.color).copy(alpha = 0.1f),
+                                        labelColor = Color(collection.color)
+                                    ),
+                                    border = AssistChipDefaults.assistChipBorder(
+                                        borderColor = Color(collection.color).copy(alpha = 0.5f)
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -389,4 +437,20 @@ fun DetailItemRow(
             Icon(Icons.Default.ChevronRight, contentDescription = "Action", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FlowRow(
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    content: @Composable () -> Unit
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = verticalArrangement,
+        content = { content() }
+    )
 }

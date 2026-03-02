@@ -3,7 +3,9 @@ package com.inventoria.app.ui.screens.inventory
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.repository.CollectionRepository
 import com.inventoria.app.data.repository.InventoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -13,6 +15,7 @@ import javax.inject.Inject
 data class ItemDetailUiState(
     val item: InventoryItem? = null,
     val parentItem: InventoryItem? = null,
+    val collections: List<InventoryCollection> = emptyList(),
     val availableContainers: List<InventoryItem> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null
@@ -21,6 +24,7 @@ data class ItemDetailUiState(
 @HiltViewModel
 class ItemDetailViewModel @Inject constructor(
     private val repository: InventoryRepository,
+    private val collectionRepository: CollectionRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -39,6 +43,7 @@ class ItemDetailViewModel @Inject constructor(
     init {
         if (itemId != 0L) {
             loadItem()
+            loadCollections()
             loadAvailableContainers()
             viewModelScope.launch {
                 repository.touchItem(itemId)
@@ -65,6 +70,14 @@ class ItemDetailViewModel @Inject constructor(
                 } else {
                     _uiState.update { it.copy(isLoading = false, error = "Item not found") }
                 }
+            }
+        }
+    }
+
+    private fun loadCollections() {
+        viewModelScope.launch {
+            collectionRepository.getCollectionsForItem(itemId).collect { collections ->
+                _uiState.update { it.copy(collections = collections) }
             }
         }
     }

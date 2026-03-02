@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface InventoryDao {
     
-    // Query all items - Updated to sort by updatedAt to reflect recent activity
-    @Query("SELECT * FROM inventory_items ORDER BY updatedAt DESC")
+    // Query all items - Updated to sort by updated_at to reflect recent activity
+    @Query("SELECT * FROM inventory_items ORDER BY updated_at DESC")
     fun getAllItems(): Flow<List<InventoryItem>>
     
     // Query by ID
@@ -37,7 +37,7 @@ interface InventoryDao {
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>>
     
     // Get items by storage container
-    @Query("SELECT * FROM inventory_items WHERE parentId = :parentId ORDER BY name ASC")
+    @Query("SELECT * FROM inventory_items WHERE parent_id = :parentId ORDER BY name ASC")
     fun getItemsByParent(parentId: Long): Flow<List<InventoryItem>>
     
     // Get all storage containers - Updated column name
@@ -93,14 +93,14 @@ interface InventoryDao {
     suspend fun deleteAllItems()
     
     // Update quantity
-    @Query("UPDATE inventory_items SET quantity = :newQuantity, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE inventory_items SET quantity = :newQuantity, updated_at = :updateTime WHERE id = :itemId")
     suspend fun updateQuantity(itemId: Long, newQuantity: Int, updateTime: Long = System.currentTimeMillis())
     
     // Increment quantity
-    @Query("UPDATE inventory_items SET quantity = quantity + :amount, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE inventory_items SET quantity = quantity + :amount, updated_at = :updateTime WHERE id = :itemId")
     suspend fun incrementQuantity(itemId: Long, amount: Int, updateTime: Long = System.currentTimeMillis())
     
     // Decrement quantity
-    @Query("UPDATE inventory_items SET quantity = quantity - :amount, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE inventory_items SET quantity = quantity - :amount, updated_at = :updateTime WHERE id = :itemId")
     suspend fun decrementQuantity(itemId: Long, amount: Int, updateTime: Long = System.currentTimeMillis())
 }

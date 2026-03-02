@@ -3,6 +3,7 @@ package com.inventoria.app.data.local
 import androidx.room.TypeConverter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.TaskKind
 import java.util.Date
 
@@ -66,6 +67,20 @@ class Converters {
                 "BIG_WASTE" -> TaskKind.TOMATO
                 else -> TaskKind.GRAPHITE
             }
+        }
+    }
+
+    @TypeConverter
+    fun fromInventoryCollectionType(type: InventoryCollectionType): String {
+        return type.name
+    }
+
+    @TypeConverter
+    fun toInventoryCollectionType(value: String): InventoryCollectionType {
+        return try {
+            InventoryCollectionType.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            InventoryCollectionType.OTHER
         }
     }
 }

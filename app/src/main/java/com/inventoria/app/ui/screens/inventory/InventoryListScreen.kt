@@ -2,11 +2,13 @@ package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -16,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -39,6 +42,7 @@ fun InventoryListScreen(
     onAddItem: () -> Unit,
     onItemClick: (Long) -> Unit,
     onNavigateBack: (() -> Unit)? = null,
+    fromCollectionId: Long = 0L,
     viewModel: InventoryListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -53,6 +57,12 @@ fun InventoryListScreen(
     
     // Bounds tracking for hover detection
     val itemBounds = remember { mutableStateMapOf<Long, Rect>() }
+
+    LaunchedEffect(fromCollectionId) {
+        if (fromCollectionId != 0L) {
+            viewModel.setCollectionId(fromCollectionId)
+        }
+    }
 
     // Detect drop target based on pointer position
     LaunchedEffect(currentPointerPosition, draggedItem) {
@@ -69,7 +79,7 @@ fun InventoryListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Inventory") },
+                title = { Text(if (fromCollectionId != 0L) "Add to Collection" else "Inventory") },
                 navigationIcon = {
                     if (onNavigateBack != null) {
                         IconButton(onClick = onNavigateBack) {
@@ -80,11 +90,13 @@ fun InventoryListScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddItem,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.Add, "Add Item")
+            if (fromCollectionId == 0L) {
+                FloatingActionButton(
+                    onClick = onAddItem,
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, "Add Item")
+                }
             }
         }
     ) { paddingValues ->
@@ -131,10 +143,18 @@ fun InventoryListScreen(
                                 expandedItemIds = expandedItemIds,
                                 draggedItemId = draggedItem?.id,
                                 dropTargetId = dropTargetId,
+                                collectionItemIds = uiState.collectionItemIds,
+                                isSelectionMode = fromCollectionId != 0L,
                                 onToggleExpand = { id ->
                                     expandedItemIds = if (expandedItemIds.contains(id)) expandedItemIds - id else expandedItemIds + id
                                 },
-                                onItemClick = onItemClick,
+                                onItemClick = { id ->
+                                    if (fromCollectionId != 0L) {
+                                        viewModel.toggleItemInCollection(id, fromCollectionId)
+                                    } else {
+                                        onItemClick(id)
+                                    }
+                                },
                                 onDragStart = { itm, pos -> 
                                     draggedItem = itm
                                     dragOffset = Offset.Zero
@@ -200,6 +220,8 @@ fun InventoryItemRow(
     expandedItemIds: Set<Long>,
     draggedItemId: Long?,
     dropTargetId: Long?,
+    collectionItemIds: Set<Long>,
+    isSelectionMode: Boolean = false,
     onToggleExpand: (Long) -> Unit,
     onItemClick: (Long) -> Unit,
     onDragStart: (InventoryItem, Offset) -> Unit,
@@ -215,6 +237,7 @@ fun InventoryItemRow(
     val isContainer = item.storage || children.isNotEmpty()
     val isBeingDragged = draggedItemId == item.id
     val isPotentialDropTarget = dropTargetId == item.id && draggedItemId != item.id
+    val isInCollection = collectionItemIds.contains(item.id)
 
     var rowRect by remember { mutableStateOf(Rect.Zero) }
 
@@ -222,6 +245,7 @@ fun InventoryItemRow(
         targetValue = when {
             isBeingDragged -> Color.Transparent
             isPotentialDropTarget -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            isInCollection && isSelectionMode -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
             depth == 0 -> MaterialTheme.colorScheme.surface
             else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
         },
@@ -230,6 +254,8 @@ fun InventoryItemRow(
 
     val borderStroke = if (isPotentialDropTarget) {
         BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+    } else if (isInCollection && isSelectionMode) {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
     } else null
 
     Column(
@@ -243,25 +269,32 @@ fun InventoryItemRow(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (isPotentialDropTarget) 4.dp else 0.dp)
+                .padding(horizontal = if (isPotentialDropTarget || (isInCollection && isSelectionMode)) 4.dp else 0.dp)
+                .padding(vertical = if (isInCollection && isSelectionMode) 2.dp else 0.dp)
                 .pointerInput(item.id) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { offset -> 
-                            onDragStart(item, rowRect.topLeft + offset) 
-                        },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragEnd() },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            onDrag(dragAmount)
-                        }
-                    )
+                    if (!isSelectionMode) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { offset -> 
+                                onDragStart(item, rowRect.topLeft + offset) 
+                            },
+                            onDragEnd = { onDragEnd() },
+                            onDragCancel = { onDragEnd() },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onDrag(dragAmount)
+                            }
+                        )
+                    }
                 }
                 .clickable { 
-                    if (isContainer && !isSearchMode) onToggleExpand(item.id) else onItemClick(item.id)
+                    if (isSelectionMode) {
+                        onItemClick(item.id)
+                    } else {
+                        if (isContainer && !isSearchMode) onToggleExpand(item.id) else onItemClick(item.id)
+                    }
                 },
             color = backgroundColor,
-            shape = if (isPotentialDropTarget) RoundedCornerShape(8.dp) else RoundedCornerShape(0.dp),
+            shape = if (isPotentialDropTarget || (isInCollection && isSelectionMode)) RoundedCornerShape(8.dp) else RoundedCornerShape(0.dp),
             border = borderStroke
         ) {
             Row(
@@ -276,7 +309,7 @@ fun InventoryItemRow(
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                         contentDescription = null,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(24.dp).clickable { onToggleExpand(item.id) },
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
@@ -285,14 +318,22 @@ fun InventoryItemRow(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                Icon(
-                    imageVector = if (item.storage) Icons.Default.Inventory else Icons.Default.Category,
-                    contentDescription = null,
-                    tint = if (item.storage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
+                if (isSelectionMode) {
+                    Checkbox(
+                        checked = isInCollection,
+                        onCheckedChange = { onItemClick(item.id) },
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                } else {
+                    Icon(
+                        imageVector = if (item.storage) Icons.Default.Inventory else Icons.Default.Category,
+                        contentDescription = null,
+                        tint = if (item.storage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -322,8 +363,10 @@ fun InventoryItemRow(
                     )
                 }
                 
-                IconButton(onClick = { onItemClick(item.id) }) {
-                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                if (!isSelectionMode) {
+                    IconButton(onClick = { onItemClick(item.id) }) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
@@ -337,6 +380,8 @@ fun InventoryItemRow(
                     expandedItemIds = expandedItemIds,
                     draggedItemId = draggedItemId,
                     dropTargetId = dropTargetId,
+                    collectionItemIds = collectionItemIds,
+                    isSelectionMode = isSelectionMode,
                     onToggleExpand = onToggleExpand,
                     onItemClick = onItemClick,
                     onDragStart = onDragStart,
