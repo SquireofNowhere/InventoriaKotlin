@@ -106,7 +106,8 @@ fun DashboardScreen(
                 items(uiState.recentItems) { item ->
                     RecentItemCard(
                         item = item,
-                        onClick = { onNavigateToItemDetail(item.id) }
+                        onClick = { onNavigateToItemDetail(item.id) },
+                        onToggleEquip = { viewModel.toggleEquip(item.id) }
                     )
                 }
             }
@@ -231,7 +232,7 @@ fun QuickActionCard(title: String, icon: ImageVector, color: Color, onClick: () 
 }
 
 @Composable
-fun RecentItemCard(item: InventoryItem, onClick: () -> Unit) {
+fun RecentItemCard(item: InventoryItem, onClick: () -> Unit, onToggleEquip: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -249,20 +250,19 @@ fun RecentItemCard(item: InventoryItem, onClick: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    if (item.equipped) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(
-                            painter = painterResource(R.drawable.mobile_theft_24px),
-                            contentDescription = "Equipped",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
                 }
                 Text(text = item.location, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (item.quantity != 1) {
+                    Text(text = "Qty: ${item.quantity}", style = MaterialTheme.typography.bodySmall)
+                }
             }
-            if (item.quantity != 1) {
-                Text(text = "Qty: ${item.quantity}", fontWeight = FontWeight.Medium)
+            
+            IconButton(onClick = onToggleEquip) {
+                Icon(
+                    painter = if (item.equipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
+                    contentDescription = if (item.equipped) "Unequip" else "Equip",
+                    tint = if (item.equipped) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
             }
         }
     }

@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface InventoryDao {
     
-    // Query all items
-    @Query("SELECT * FROM inventory_items ORDER BY createdAt DESC")
+    // Query all items - Updated to sort by updatedAt to reflect recent activity
+    @Query("SELECT * FROM inventory_items ORDER BY updatedAt DESC")
     fun getAllItems(): Flow<List<InventoryItem>>
     
     // Query by ID

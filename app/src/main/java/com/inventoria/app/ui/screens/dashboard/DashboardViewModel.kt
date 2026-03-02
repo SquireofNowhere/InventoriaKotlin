@@ -8,6 +8,7 @@ import com.inventoria.app.data.repository.InventoryRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class DashboardUiState(
@@ -73,6 +74,15 @@ class DashboardViewModel @Inject constructor(
         .launchIn(viewModelScope)
     }
     
+    fun toggleEquip(itemId: Long) {
+        viewModelScope.launch {
+            val item = repository.getItemById(itemId)
+            if (item != null) {
+                repository.updateItem(item.copy(equipped = !item.equipped))
+            }
+        }
+    }
+
     fun refresh() {
         _uiState.value = _uiState.value.copy(isLoading = true)
         syncRepository.triggerFullSync()

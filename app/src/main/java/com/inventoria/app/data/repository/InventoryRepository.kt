@@ -69,6 +69,16 @@ class InventoryRepository @Inject constructor(
     fun getItemByIdFlow(id: Long): Flow<InventoryItem?> = inventoryDao.getItemByIdFlow(id)
     
     /**
+     * Updates the updatedAt timestamp of an item to bring it to the top of recent lists.
+     */
+    suspend fun touchItem(id: Long) = withContext(Dispatchers.IO) {
+        val item = inventoryDao.getItemById(id)
+        if (item != null) {
+            inventoryDao.updateItem(item.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    /**
      * Searches items by name, location, or description.
      */
     fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)

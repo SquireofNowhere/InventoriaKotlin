@@ -1,5 +1,6 @@
 package com.inventoria.app.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
@@ -42,6 +43,7 @@ data class InventoryItem(
     @set:PropertyName("price")
     var price: Double? = null,
     
+    @ColumnInfo(name = "storage")
     @get:PropertyName("storage")
     @set:PropertyName("storage")
     var storage: Boolean = false,
@@ -50,6 +52,7 @@ data class InventoryItem(
     @set:PropertyName("parentId")
     var parentId: Long? = null,
     
+    @ColumnInfo(name = "equipped")
     @get:PropertyName("equipped")
     @set:PropertyName("equipped")
     var equipped: Boolean = false,

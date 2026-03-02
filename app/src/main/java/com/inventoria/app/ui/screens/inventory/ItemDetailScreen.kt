@@ -3,6 +3,8 @@ package com.inventoria.app.ui.screens.inventory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +22,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
@@ -39,6 +42,7 @@ fun ItemDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showContainerPicker by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -138,6 +142,29 @@ fun ItemDetailScreen(
                     )
                 }
 
+                // Inconspicuous "Add to container" button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = { showContainerPicker = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (parentItem != null) Icons.Default.DriveFileMove else Icons.Default.CreateNewFolder,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (parentItem != null) "Move to other" else "Add to container",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+
                 // Location Row
                 if (item.equipped) {
                     DetailItemRow(
@@ -200,6 +227,89 @@ fun ItemDetailScreen(
                 }
             }
         }
+    }
+
+    // Container Picker Dialog
+    if (showContainerPicker) {
+        AlertDialog(
+            onDismissRequest = { showContainerPicker = false },
+            title = { Text("Select Container") },
+            text = {
+                val containers = uiState.availableContainers
+                if (containers.isEmpty()) {
+                    Text("No items available to use as a container.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+                    ) {
+                        // Option to remove from current container
+                        item {
+                            ListItem(
+                                headlineContent = { Text("None (Standalone)", fontWeight = FontWeight.Medium) },
+                                leadingContent = { Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                modifier = Modifier.clickable {
+                                    viewModel.moveToContainer(null)
+                                    showContainerPicker = false
+                                }
+                            )
+                            Divider()
+                        }
+
+                        // Split into Existing Containers vs Regular Items
+                        val (existing, regular) = containers.partition { it.storage }
+
+                        if (existing.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "Existing Containers",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(16.dp, 8.dp, 16.dp, 4.dp)
+                                )
+                            }
+                            items(existing) { container ->
+                                ListItem(
+                                    headlineContent = { Text(container.name, fontWeight = FontWeight.Bold) },
+                                    leadingContent = { Icon(Icons.Default.Inventory, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                    supportingContent = { Text(container.location, style = MaterialTheme.typography.bodySmall) },
+                                    modifier = Modifier.clickable {
+                                        viewModel.moveToContainer(container.id)
+                                        showContainerPicker = false
+                                    }
+                                )
+                            }
+                        }
+
+                        if (regular.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "Other Items (Turn into container)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp)
+                                )
+                            }
+                            items(regular) { other ->
+                                ListItem(
+                                    headlineContent = { Text(other.name) },
+                                    leadingContent = { Icon(Icons.Default.Label, contentDescription = null, tint = MaterialTheme.colorScheme.outline) },
+                                    supportingContent = { Text(other.location, style = MaterialTheme.typography.bodySmall) },
+                                    modifier = Modifier.clickable {
+                                        viewModel.moveToContainer(other.id)
+                                        showContainerPicker = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showContainerPicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     if (showDeleteDialog) {
