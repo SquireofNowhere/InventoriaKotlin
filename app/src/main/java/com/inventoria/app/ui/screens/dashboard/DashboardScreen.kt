@@ -41,6 +41,8 @@ fun DashboardScreen(
     onNavigateToItemDetail: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var itemToUnequip by remember { mutableStateOf<InventoryItem?>(null) }
+    var containerName by remember { mutableStateOf<String?>(null) }
     
     val shimmerTranslate = rememberInfiniteTransition(label = "shimmer")
     val translateAnim = shimmerTranslate.animateFloat(
@@ -52,6 +54,14 @@ fun DashboardScreen(
         ),
         label = "shimmer"
     )
+
+    LaunchedEffect(itemToUnequip) {
+        if (itemToUnequip?.lastParentId != null) {
+            containerName = viewModel.getContainerName(itemToUnequip!!.lastParentId!!)
+        } else {
+            containerName = null
+        }
+    }
     
     Scaffold(
         topBar = {
@@ -88,7 +98,6 @@ fun DashboardScreen(
             
             item {
                 QuickActionsSection(
-                    onViewInventory = onNavigateToInventory,
                     onAddItem = onNavigateToAddItem
                 )
             }
@@ -107,12 +116,66 @@ fun DashboardScreen(
                     RecentItemCard(
                         item = item,
                         onClick = { onNavigateToItemDetail(item.id) },
-                        onToggleEquip = { viewModel.toggleEquip(item.id) }
+                        onToggleEquip = { 
+                            if (item.equipped) {
+                                if (item.lastParentId != null) {
+                                    itemToUnequip = item
+                                } else {
+                                    viewModel.toggleEquip(item.id, repack = false)
+                                }
+                            } else {
+                                viewModel.toggleEquip(item.id)
+                            }
+                        }
                     )
                 }
             }
         }
     }
+
+    itemToUnequip?.let { item ->
+        UnequipRepackDialog(
+            itemName = item.name,
+            containerName = containerName,
+            onDismiss = { itemToUnequip = null },
+            onUnequipOnly = {
+                viewModel.toggleEquip(item.id, repack = false)
+                itemToUnequip = null
+            },
+            onRepack = {
+                viewModel.toggleEquip(item.id, repack = true)
+                itemToUnequip = null
+            }
+        )
+    }
+}
+
+@Composable
+fun UnequipRepackDialog(
+    itemName: String,
+    containerName: String?,
+    onDismiss: () -> Unit,
+    onUnequipOnly: () -> Unit,
+    onRepack: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Unequip $itemName") },
+        text = { 
+            val containerText = if (containerName != null) " back to $containerName" else " into its original container"
+            Text("Would you like to repack this item$containerText or leave it at your current location?") 
+        },
+        confirmButton = {
+            TextButton(onClick = onRepack) {
+                Text("Repack")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUnequipOnly) {
+                Text("Leave Here")
+            }
+        }
+    )
 }
 
 @Composable
@@ -202,13 +265,10 @@ fun StatCard(modifier: Modifier, title: String, value: String, icon: ImageVector
 }
 
 @Composable
-fun QuickActionsSection(onViewInventory: () -> Unit, onAddItem: () -> Unit) {
+fun QuickActionsSection(onAddItem: () -> Unit) {
     Column {
         Text("Quick Actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                QuickActionCard(title = "View Inventory", icon = Icons.Default.List, color = PurplePrimary, onClick = onViewInventory)
-            }
             item {
                 QuickActionCard(title = "Add Item", icon = Icons.Default.Add, color = PurpleSecondary, onClick = onAddItem)
             }

@@ -8,6 +8,7 @@ import com.inventoria.app.data.model.*
 /**
  * Room database for Inventoria.
  * Version 13: Added InventoryCollection and InventoryCollectionItem entities.
+ * Version 14: Added lastParentId to InventoryItem.
  */
 @Database(
     entities = [
@@ -16,7 +17,7 @@ import com.inventoria.app.data.model.*
         InventoryCollection::class,
         InventoryCollectionItem::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

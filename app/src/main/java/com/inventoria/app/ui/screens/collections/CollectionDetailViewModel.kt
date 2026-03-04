@@ -95,10 +95,10 @@ class CollectionDetailViewModel @Inject constructor(
         }
     }
     
-    fun unequipCollection() {
+    fun unequipCollection(repack: Boolean = false) {
         viewModelScope.launch {
             _collectionId.value?.let { collectionId ->
-                when (val result = collectionRepository.unequipCollection(collectionId)) {
+                when (val result = collectionRepository.unequipCollection(collectionId, repack)) {
                     is PackResult.Success -> {
                         _packResult.emit(PackResultDisplay(result.message, true))
                     }
@@ -109,6 +109,10 @@ class CollectionDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    suspend fun getContainerName(id: Long): String? {
+        return inventoryRepository.getItemById(id)?.name
     }
     
     fun removeItem(itemId: Long) {

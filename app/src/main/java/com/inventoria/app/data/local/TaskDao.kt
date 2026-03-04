@@ -19,10 +19,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE groupId = :groupId")
     suspend fun getTasksByGroupId(groupId: String): List<Task>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertTask(task: Task)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertTasks(tasks: List<Task>)
 
     @Update

@@ -34,6 +34,7 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.ui.screens.dashboard.UnequipRepackDialog
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,6 +49,17 @@ fun InventoryListScreen(
     val uiState by viewModel.uiState.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var expandedItemIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
+    var collapsedGroupNames by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var itemToUnequip by remember { mutableStateOf<InventoryItem?>(null) }
+    var containerName by remember { mutableStateOf<String?>(null) }
+    
+    var showSortMenu by remember { mutableStateOf(false) }
+    var showGroupMenu by remember { mutableStateOf(false) }
+
+    // Clear collapsed groups when grouping mode changes
+    LaunchedEffect(uiState.groupOption) {
+        collapsedGroupNames = emptySet()
+    }
 
     // Drag and Drop State
     var draggedItem by remember { mutableStateOf<InventoryItem?>(null) }
@@ -64,14 +76,20 @@ fun InventoryListScreen(
         }
     }
 
+    LaunchedEffect(itemToUnequip) {
+        if (itemToUnequip?.lastParentId != null) {
+            containerName = viewModel.getContainerName(itemToUnequip!!.lastParentId!!)
+        } else {
+            containerName = null
+        }
+    }
+
     // Detect drop target based on pointer position
     LaunchedEffect(currentPointerPosition, draggedItem) {
         if (draggedItem != null) {
             val target = itemBounds.entries.find { (id, rect) ->
                 id != draggedItem?.id && rect.contains(currentPointerPosition)
             }?.key
-            
-            // ANY item is a valid drop target now. Dynamic container logic.
             dropTargetId = target
         }
     }
@@ -84,6 +102,53 @@ fun InventoryListScreen(
                     if (onNavigateBack != null) {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
+                actions = {
+                    if (uiState.groupOption != GroupOption.NONE) {
+                        val allGroupsCollapsed = collapsedGroupNames.size == uiState.groupedItems.size
+                        IconButton(onClick = {
+                            collapsedGroupNames = if (allGroupsCollapsed) emptySet() else uiState.groupedItems.map { it.first }.toSet()
+                        }) {
+                            Icon(
+                                imageVector = if (allGroupsCollapsed) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
+                                contentDescription = if (allGroupsCollapsed) "Expand All" else "Collapse All"
+                            )
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, "Sort")
+                        }
+                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                            SortOption.values().forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.displayName) },
+                                    onClick = {
+                                        viewModel.setSortOption(option)
+                                        showSortMenu = false
+                                    },
+                                    leadingIcon = { if (uiState.sortOption == option) Icon(Icons.Default.Check, null) }
+                                )
+                            }
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { showGroupMenu = true }) {
+                            Icon(Icons.Default.GroupWork, "Group")
+                        }
+                        DropdownMenu(expanded = showGroupMenu, onDismissRequest = { showGroupMenu = false }) {
+                            GroupOption.values().forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.displayName) },
+                                    onClick = {
+                                        viewModel.setGroupOption(option)
+                                        showGroupMenu = false
+                                    },
+                                    leadingIcon = { if (uiState.groupOption == option) Icon(Icons.Default.Check, null) }
+                                )
+                            }
                         }
                     }
                 }
@@ -115,6 +180,29 @@ fun InventoryListScreen(
                     shape = MaterialTheme.shapes.medium
                 )
                 
+                // Active Filters Chips
+                if (uiState.groupOption != GroupOption.NONE || uiState.sortOption != SortOption.DATE_DESC) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (uiState.groupOption != GroupOption.NONE) {
+                            SuggestionChip(
+                                onClick = { viewModel.setGroupOption(GroupOption.NONE) },
+                                label = { Text("Grouped by: ${uiState.groupOption.displayName}") },
+                                icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                            )
+                        }
+                        if (uiState.sortOption != SortOption.DATE_DESC) {
+                            SuggestionChip(
+                                onClick = { viewModel.setSortOption(SortOption.DATE_DESC) },
+                                label = { Text("Sorted by: ${uiState.sortOption.displayName}") },
+                                icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                            )
+                        }
+                    }
+                }
+                
                 // Item List
                 if (uiState.isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -125,57 +213,178 @@ fun InventoryListScreen(
                         Text("No items found")
                     }
                 } else {
-                    val displayItems = if (searchQuery.isNotBlank()) {
-                        uiState.filteredItems
-                    } else {
-                        uiState.items.filter { it.parentId == null }
-                    }
-
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 16.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(displayItems, key = { it.id }) { item ->
-                            InventoryItemRow(
-                                item = item,
-                                allItems = uiState.items,
-                                depth = 0,
-                                expandedItemIds = expandedItemIds,
-                                draggedItemId = draggedItem?.id,
-                                dropTargetId = dropTargetId,
-                                collectionItemIds = uiState.collectionItemIds,
-                                isSelectionMode = fromCollectionId != 0L,
-                                onToggleExpand = { id ->
-                                    expandedItemIds = if (expandedItemIds.contains(id)) expandedItemIds - id else expandedItemIds + id
-                                },
-                                onItemClick = { id ->
-                                    if (fromCollectionId != 0L) {
-                                        viewModel.toggleItemInCollection(id, fromCollectionId)
-                                    } else {
-                                        onItemClick(id)
+                        if (uiState.groupOption == GroupOption.NONE) {
+                            val displayItems = if (searchQuery.isNotBlank()) {
+                                uiState.filteredItems
+                            } else {
+                                // In flat view, only show top-level items unless searching
+                                uiState.filteredItems.filter { it.parentId == null }
+                            }
+
+                            items(displayItems, key = { it.id }) { item ->
+                                InventoryItemRow(
+                                    item = item,
+                                    allItems = uiState.items,
+                                    depth = 0,
+                                    expandedItemIds = expandedItemIds,
+                                    draggedItemId = draggedItem?.id,
+                                    dropTargetId = dropTargetId,
+                                    collectionItemIds = uiState.collectionItemIds,
+                                    isSelectionMode = fromCollectionId != 0L,
+                                    onToggleExpand = { id ->
+                                        expandedItemIds = if (expandedItemIds.contains(id)) expandedItemIds - id else expandedItemIds + id
+                                    },
+                                    onItemClick = { id ->
+                                        if (fromCollectionId != 0L) {
+                                            viewModel.toggleItemInCollection(id, fromCollectionId)
+                                        } else {
+                                            onItemClick(id)
+                                        }
+                                    },
+                                    onToggleEquip = { id ->
+                                        val itm = uiState.items.find { it.id == id }
+                                        if (itm != null) {
+                                            if (itm.equipped) {
+                                                if (itm.lastParentId != null) {
+                                                    itemToUnequip = itm
+                                                } else {
+                                                    viewModel.toggleEquip(id, repack = false)
+                                                }
+                                            } else {
+                                                viewModel.toggleEquip(id)
+                                            }
+                                        }
+                                    },
+                                    onDragStart = { itm, pos -> 
+                                        draggedItem = itm
+                                        dragOffset = Offset.Zero
+                                        currentPointerPosition = pos
+                                    },
+                                    onDrag = { delta ->
+                                        dragOffset += delta
+                                        currentPointerPosition += delta
+                                    },
+                                    onDragEnd = {
+                                        if (draggedItem != null) {
+                                            viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                        }
+                                        draggedItem = null
+                                        dragOffset = Offset.Zero
+                                        currentPointerPosition = Offset.Zero
+                                        dropTargetId = null
+                                    },
+                                    onPositioned = { id, rect -> itemBounds[id] = rect },
+                                    isSearchMode = searchQuery.isNotBlank()
+                                )
+                            }
+                        } else {
+                            // Grouped View
+                            uiState.groupedItems.forEach { (groupName, groupItems) ->
+                                val isCollapsed = collapsedGroupNames.contains(groupName)
+                                item(key = "header_$groupName") {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                collapsedGroupNames = if (isCollapsed) {
+                                                    collapsedGroupNames - groupName
+                                                } else {
+                                                    collapsedGroupNames + groupName
+                                                }
+                                            }
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isCollapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(24.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = groupName,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            ) {
+                                                Text("${groupItems.size}")
+                                            }
+                                        }
                                     }
-                                },
-                                onDragStart = { itm, pos -> 
-                                    draggedItem = itm
-                                    dragOffset = Offset.Zero
-                                    currentPointerPosition = pos
-                                },
-                                onDrag = { delta ->
-                                    dragOffset += delta
-                                    currentPointerPosition += delta
-                                },
-                                onDragEnd = {
-                                    if (draggedItem != null) {
-                                        viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                }
+                                
+                                if (!isCollapsed) {
+                                    items(groupItems, key = { "${groupName}_${it.id}" }) { item ->
+                                        InventoryItemRow(
+                                            item = item,
+                                            allItems = uiState.items,
+                                            depth = 0,
+                                            expandedItemIds = expandedItemIds,
+                                            draggedItemId = draggedItem?.id,
+                                            dropTargetId = dropTargetId,
+                                            collectionItemIds = uiState.collectionItemIds,
+                                            isSelectionMode = fromCollectionId != 0L,
+                                            onToggleExpand = { id ->
+                                                expandedItemIds = if (expandedItemIds.contains(id)) expandedItemIds - id else expandedItemIds + id
+                                            },
+                                            onItemClick = { id ->
+                                                if (fromCollectionId != 0L) {
+                                                    viewModel.toggleItemInCollection(id, fromCollectionId)
+                                                } else {
+                                                    onItemClick(id)
+                                                }
+                                            },
+                                            onToggleEquip = { id ->
+                                                val itm = uiState.items.find { it.id == id }
+                                                if (itm != null) {
+                                                    if (itm.equipped) {
+                                                        if (itm.lastParentId != null) {
+                                                            itemToUnequip = itm
+                                                        } else {
+                                                            viewModel.toggleEquip(id, repack = false)
+                                                        }
+                                                    } else {
+                                                        viewModel.toggleEquip(id)
+                                                    }
+                                                }
+                                            },
+                                            onDragStart = { itm, pos -> 
+                                                draggedItem = itm
+                                                dragOffset = Offset.Zero
+                                                currentPointerPosition = pos
+                                            },
+                                            onDrag = { delta ->
+                                                dragOffset += delta
+                                                currentPointerPosition += delta
+                                            },
+                                            onDragEnd = {
+                                                if (draggedItem != null) {
+                                                    viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                                }
+                                                draggedItem = null
+                                                dragOffset = Offset.Zero
+                                                currentPointerPosition = Offset.Zero
+                                                dropTargetId = null
+                                            },
+                                            onPositioned = { id, rect -> itemBounds[id] = rect },
+                                            isSearchMode = true // Force true to show items flattened within groups
+                                        )
                                     }
-                                    draggedItem = null
-                                    dragOffset = Offset.Zero
-                                    currentPointerPosition = Offset.Zero
-                                    dropTargetId = null
-                                },
-                                onPositioned = { id, rect -> itemBounds[id] = rect },
-                                isSearchMode = searchQuery.isNotBlank()
-                            )
+                                }
+                            }
                         }
                     }
                 }
@@ -210,6 +419,22 @@ fun InventoryListScreen(
             }
         }
     }
+
+    itemToUnequip?.let { item ->
+        UnequipRepackDialog(
+            itemName = item.name,
+            containerName = containerName,
+            onDismiss = { itemToUnequip = null },
+            onUnequipOnly = {
+                viewModel.toggleEquip(item.id, repack = false)
+                itemToUnequip = null
+            },
+            onRepack = {
+                viewModel.toggleEquip(item.id, repack = true)
+                itemToUnequip = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -224,6 +449,7 @@ fun InventoryItemRow(
     isSelectionMode: Boolean = false,
     onToggleExpand: (Long) -> Unit,
     onItemClick: (Long) -> Unit,
+    onToggleEquip: (Long) -> Unit,
     onDragStart: (InventoryItem, Offset) -> Unit,
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
@@ -364,6 +590,14 @@ fun InventoryItemRow(
                 }
                 
                 if (!isSelectionMode) {
+                    IconButton(onClick = { onToggleEquip(item.id) }) {
+                        Icon(
+                            painter = if (item.equipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
+                            contentDescription = if (item.equipped) "Unequip" else "Equip",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (item.equipped) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = { onItemClick(item.id) }) {
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
@@ -384,6 +618,7 @@ fun InventoryItemRow(
                     isSelectionMode = isSelectionMode,
                     onToggleExpand = onToggleExpand,
                     onItemClick = onItemClick,
+                    onToggleEquip = onToggleEquip,
                     onDragStart = onDragStart,
                     onDrag = onDrag,
                     onDragEnd = onDragEnd,

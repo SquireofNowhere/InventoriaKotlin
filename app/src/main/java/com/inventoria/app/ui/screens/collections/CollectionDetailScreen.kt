@@ -42,11 +42,28 @@ fun CollectionDetailScreen(
 
     var showPackDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showUnequipDialog by remember { mutableStateOf(false) }
+    var containerNames by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(collectionId) {
         viewModel.loadCollection(collectionId)
+    }
+
+    LaunchedEffect(showUnequipDialog, collectionWithItems) {
+        if (showUnequipDialog && collectionWithItems != null) {
+            val lastParentIds = collectionWithItems!!.items
+                .filter { it.equipped && it.lastParentId != null }
+                .map { it.lastParentId!! }
+                .toSet()
+            
+            val names = mutableSetOf<String>()
+            lastParentIds.forEach { id ->
+                viewModel.getContainerName(id)?.let { names.add(it) }
+            }
+            containerNames = names
+        }
     }
 
     LaunchedEffect(packResult) {
@@ -106,7 +123,7 @@ fun CollectionDetailScreen(
                         onPack = { showPackDialog = true },
                         onUnpack = { viewModel.unpackCollection() },
                         onEquip = { viewModel.equipCollection() },
-                        onUnequip = { viewModel.unequipCollection() },
+                        onUnequip = { showUnequipDialog = true },
                         isAnyPacked = (readiness?.packedItems ?: 0) > 0,
                         isAnyEquipped = (readiness?.equippedItems ?: 0) > 0
                     )
@@ -156,6 +173,21 @@ fun CollectionDetailScreen(
         )
     }
 
+    if (showUnequipDialog) {
+        CollectionUnequipRepackDialog(
+            containerNames = containerNames,
+            onDismiss = { showUnequipDialog = false },
+            onUnequipOnly = {
+                viewModel.unequipCollection(repack = false)
+                showUnequipDialog = false
+            },
+            onRepack = {
+                viewModel.unequipCollection(repack = true)
+                showUnequipDialog = false
+            }
+        )
+    }
+
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -176,6 +208,38 @@ fun CollectionDetailScreen(
             }
         )
     }
+}
+
+@Composable
+fun CollectionUnequipRepackDialog(
+    containerNames: Set<String>,
+    onDismiss: () -> Unit,
+    onUnequipOnly: () -> Unit,
+    onRepack: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Unequip Collection") },
+        text = { 
+            val containerText = when {
+                containerNames.isEmpty() -> " into their original containers"
+                containerNames.size == 1 -> " back to ${containerNames.first()}"
+                containerNames.size <= 3 -> " back to ${containerNames.joinToString(", ")}"
+                else -> " back to their respective containers"
+            }
+            Text("Would you like to repack items$containerText or leave them at your current location?") 
+        },
+        confirmButton = {
+            TextButton(onClick = onRepack) {
+                Text("Repack")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUnequipOnly) {
+                Text("Leave Here")
+            }
+        }
+    )
 }
 
 @Composable

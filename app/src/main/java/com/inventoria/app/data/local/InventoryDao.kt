@@ -17,6 +17,10 @@ interface InventoryDao {
     // Query by ID
     @Query("SELECT * FROM inventory_items WHERE id = :itemId")
     suspend fun getItemById(itemId: Long): InventoryItem?
+
+    // Query multiple by IDs
+    @Query("SELECT * FROM inventory_items WHERE id IN (:itemIds)")
+    suspend fun getItemsByIds(itemIds: List<Long>): List<InventoryItem>
     
     // Query by ID as Flow
     @Query("SELECT * FROM inventory_items WHERE id = :itemId")
@@ -68,17 +72,21 @@ interface InventoryDao {
     @Query("SELECT SUM(price * quantity) FROM inventory_items WHERE price IS NOT NULL")
     fun getTotalValue(): Flow<Double?>
     
-    // Insert item
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Insert item - Using Upsert to avoid CASCADE DELETE on replace
+    @Upsert
     suspend fun insertItem(item: InventoryItem): Long
     
-    // Insert multiple items
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Insert multiple items - Using Upsert to avoid CASCADE DELETE on replace
+    @Upsert
     suspend fun insertItems(items: List<InventoryItem>)
     
     // Update item
     @Update
     suspend fun updateItem(item: InventoryItem)
+
+    // Update multiple items
+    @Update
+    suspend fun updateItems(items: List<InventoryItem>)
     
     // Delete item
     @Delete

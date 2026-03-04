@@ -15,6 +15,7 @@ import javax.inject.Inject
 data class ItemDetailUiState(
     val item: InventoryItem? = null,
     val parentItem: InventoryItem? = null,
+    val lastParentName: String? = null,
     val collections: List<InventoryCollection> = emptyList(),
     val availableContainers: List<InventoryItem> = emptyList(),
     val isLoading: Boolean = true,
@@ -62,9 +63,17 @@ class ItemDetailViewModel @Inject constructor(
                     if (pId != null) {
                         parentItem = repository.getItemById(pId)
                     }
+                    
+                    var lastParentName: String? = null
+                    val lpId = item.lastParentId
+                    if (lpId != null) {
+                        lastParentName = repository.getItemById(lpId)?.name
+                    }
+                    
                     _uiState.update { it.copy(
                         item = item, 
                         parentItem = parentItem,
+                        lastParentName = lastParentName,
                         isLoading = false
                     ) }
                 } else {
@@ -84,9 +93,7 @@ class ItemDetailViewModel @Inject constructor(
 
     private fun loadAvailableContainers() {
         viewModelScope.launch {
-            // Updated: Use getAllItems instead of getStorageItems to allow ANY item to be a target
             repository.getAllItems().collect { allItems ->
-                // Filter out the item itself and any of its nested children to prevent circularity
                 val childrenIds = mutableSetOf<Long>()
                 fun findChildren(parentId: Long) {
                     allItems.filter { it.parentId == parentId }.forEach {
@@ -107,13 +114,12 @@ class ItemDetailViewModel @Inject constructor(
             val currentItem = _uiState.value.item ?: return@launch
             val updatedItem = currentItem.copy(
                 parentId = containerId,
-                // If moving into a container, it's no longer "equipped"
                 equipped = if (containerId != null) false else currentItem.equipped,
+                lastParentId = null, // Clear repack history if manually moved
                 updatedAt = System.currentTimeMillis()
             )
             repository.updateItem(updatedItem)
             
-            // Auto-upgrade target to storage if it isn't already
             if (containerId != null) {
                 repository.getItemById(containerId)?.let { target ->
                     if (!target.storage) {
@@ -124,11 +130,20 @@ class ItemDetailViewModel @Inject constructor(
         }
     }
 
-    fun toggleEquip() {
+    fun toggleEquip(repack: Boolean = false) {
         viewModelScope.launch {
-            val currentItem = _uiState.value.item ?: return@launch
-            val updatedItem = currentItem.copy(equipped = !currentItem.equipped)
-            repository.updateItem(updatedItem)
+            val item = _uiState.value.item ?: return@launch
+            if (item.equipped) {
+                // Unequipping
+                if (repack && item.lastParentId != null) {
+                    repository.updateItem(item.copy(equipped = false, parentId = item.lastParentId, lastParentId = null))
+                } else {
+                    repository.updateItem(item.copy(equipped = false, lastParentId = null))
+                }
+            } else {
+                // Equipping
+                repository.updateItem(item.copy(equipped = true))
+            }
         }
     }
 

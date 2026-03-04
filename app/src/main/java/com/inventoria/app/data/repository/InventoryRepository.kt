@@ -35,7 +35,7 @@ class InventoryRepository @Inject constructor(
 
     // Current user location to be used for equipped items
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
-    
+
     init {
         // Initialize Firebase Sync
         repositoryScope.launch {
@@ -82,26 +82,14 @@ class InventoryRepository @Inject constructor(
         }
     }
 
-    /**
-     * Returns a Flow of all inventory items, ordered by creation date descending.
-     */
     fun getAllItems(): Flow<List<InventoryItem>> = inventoryDao.getAllItems()
     
-    /**
-     * Retrieves a single item by its ID.
-     */
     suspend fun getItemById(id: Long): InventoryItem? = withContext(Dispatchers.IO) {
         inventoryDao.getItemById(id)
     }
     
-    /**
-     * Returns a Flow of a single item by its ID for real-time updates.
-     */
     fun getItemByIdFlow(id: Long): Flow<InventoryItem?> = inventoryDao.getItemByIdFlow(id)
     
-    /**
-     * Updates the updatedAt timestamp of an item to bring it to the top of recent lists.
-     */
     suspend fun touchItem(id: Long) = withContext(Dispatchers.IO) {
         val item = inventoryDao.getItemById(id)
         if (item != null) {
@@ -109,49 +97,22 @@ class InventoryRepository @Inject constructor(
         }
     }
 
-    /**
-     * Searches items by name, location, or description.
-     */
     fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)
     
-    /**
-     * Returns items belonging to a specific category.
-     */
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = inventoryDao.getItemsByCategory(category)
     
-    /**
-     * Returns items with zero quantity.
-     */
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = inventoryDao.getOutOfStockItems()
     
-    /**
-     * Returns a list of all unique categories used in the inventory.
-     */
     fun getAllCategories(): Flow<List<String>> = inventoryDao.getAllCategories()
     
-    /**
-     * Returns the total number of items in the inventory.
-     */
     fun getItemCount(): Flow<Int> = inventoryDao.getItemCount()
     
-    /**
-     * Calculates the total value of all items (price * quantity).
-     */
     fun getTotalValue(): Flow<Double?> = inventoryDao.getTotalValue()
     
-    /**
-     * Returns all storage items.
-     */
     fun getStorageItems(): Flow<List<InventoryItem>> = inventoryDao.getStorageItems()
     
-    /**
-     * Returns items within a storage container.
-     */
     fun getItemsByParent(parentId: Long): Flow<List<InventoryItem>> = inventoryDao.getItemsByParent(parentId)
     
-    /**
-     * Returns all items with resolved locations.
-     */
     fun getAllItemsWithResolvedLocations(): Flow<List<InventoryItem>> {
         return combine(getAllItems(), _userLocation) { items, userLoc ->
             val itemMap = items.associateBy { it.id }
@@ -199,9 +160,6 @@ class InventoryRepository @Inject constructor(
         }
     }
     
-    /**
-     * Inserts a new item into the database.
-     */
     suspend fun insertItem(item: InventoryItem): Long = withContext(Dispatchers.IO) {
         val finalItem = if (item.equipped) {
             item.copy(parentId = null)
@@ -212,72 +170,125 @@ class InventoryRepository @Inject constructor(
     }
     
     /**
-     * Updates an existing item in the database with logic for equipped/storage status.
+     * Batch updates multiple items, optimized for performance and location fetching.
      */
-    suspend fun updateItem(item: InventoryItem) = withContext(Dispatchers.IO) {
-        val currentItem = inventoryDao.getItemById(item.id) ?: return@withContext
-        var updatedItem = item.copy(updatedAt = System.currentTimeMillis())
+    suspend fun updateItems(items: List<InventoryItem>) = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext
         
-        // Identify transitions that require a fresh location fix
-        val isUnequipping = !updatedItem.equipped && currentItem.equipped
-        val parentItem = updatedItem.parentId?.let { inventoryDao.getItemById(it) }
-        val isMovingToEquippedParent = parentItem?.equipped == true && 
-                (updatedItem.parentId != currentItem.parentId || updatedItem.equipped != currentItem.equipped)
-        val isMovingToOpenSpace = updatedItem.parentId == null && currentItem.parentId != null && !updatedItem.equipped
+        val currentItems = inventoryDao.getItemsByIds(items.map { it.id }).associateBy { it.id }
+        val currentTime = System.currentTimeMillis()
 
-        // Get fresh location if transition requires it
-        var locationToUse = _userLocation.value
-        if (isUnequipping || isMovingToEquippedParent || isMovingToOpenSpace) {
+        // Determine if we need a fresh location fix for this batch
+        var needsFreshLocation = false
+        for (item in items) {
+            val current = currentItems[item.id] ?: continue
+            val isUnequipping = !item.equipped && current.equipped
+            val isMovingToOpenSpace = item.parentId == null && current.parentId != null && !item.equipped
+            if (isUnequipping || isMovingToOpenSpace) {
+                needsFreshLocation = true
+                break
+            }
+        }
+
+        var batchLocation = _userLocation.value
+        var batchAddress: String? = null
+
+        if (needsFreshLocation) {
             val freshLoc = getFreshLocation()
             if (freshLoc != null) {
-                locationToUse = freshLoc
+                batchLocation = freshLoc
                 _userLocation.value = freshLoc
+                batchAddress = reverseGeocode(freshLoc.first, freshLoc.second)
             }
         }
 
-        // 1. Handle Equipping: if being EQUIPPED now (wasn't before)
-        if (updatedItem.equipped && !currentItem.equipped) {
-            updatedItem = updatedItem.copy(parentId = null)
-        }
-        
-        // 2. Handle Moving to Storage (Bag/Container)
-        if (updatedItem.parentId != null && (updatedItem.parentId != currentItem.parentId || updatedItem.equipped != currentItem.equipped)) {
-            if (parentItem != null) {
-                // If parent is equipped, the item inherits the user's current physical location
-                if (parentItem.equipped && locationToUse != null) {
-                    val address = reverseGeocode(locationToUse.first, locationToUse.second)
-                    updatedItem = updatedItem.copy(
-                        latitude = locationToUse.first,
-                        longitude = locationToUse.second,
-                        location = address,
-                        equipped = false
-                    )
-                } else {
-                    // Inherit parent's stored coordinates
-                    updatedItem = updatedItem.copy(
-                        latitude = parentItem.latitude,
-                        longitude = parentItem.longitude,
-                        location = parentItem.location,
-                        equipped = false
-                    )
+        val updatedItems = items.mapNotNull { item ->
+            val current = currentItems[item.id] ?: return@mapNotNull null
+            var updated = item.copy(updatedAt = currentTime)
+
+            // 1. Handle Equipping Logic: Take out of container if parent is not also being equipped
+            if (updated.equipped && !current.equipped) {
+                if (current.parentId != null) {
+                    val parentId = current.parentId!!
+                    // Check if parent is also in this batch and being equipped
+                    val isParentInBatchAndEquipped = items.any { it.id == parentId && it.equipped }
+                    
+                    if (!isParentInBatchAndEquipped) {
+                        // Parent is NOT being equipped. Take item out and remember where it was.
+                        updated = updated.copy(
+                            parentId = null,
+                            lastParentId = parentId
+                        )
+                    }
                 }
             }
-        }
 
-        // 3. Handle Unequipping or Moving to Open Space: if it's now "loose" and not equipped
-        if (!updatedItem.equipped && (isUnequipping || isMovingToOpenSpace) && updatedItem.parentId == null) {
-            if (locationToUse != null) {
-                val address = reverseGeocode(locationToUse.first, locationToUse.second)
-                updatedItem = updatedItem.copy(
-                    latitude = locationToUse.first,
-                    longitude = locationToUse.second,
-                    location = address
-                )
+            // 2. Handle Unequipping Logic
+            if (!updated.equipped && current.equipped) {
+                // If the item has a parentId now, it's being put back (choice made by caller)
+                // If it doesn't have a parentId, it's being left loose.
             }
+
+            // 3. Inherit location logic
+            if (updated.parentId != null) {
+                // Check if parent is in this batch for location data
+                val parentInBatch = items.find { it.id == updated.parentId }
+                if (parentInBatch != null) {
+                    if (parentInBatch.equipped && batchLocation != null) {
+                        updated = updated.copy(
+                            latitude = batchLocation.first,
+                            longitude = batchLocation.second,
+                            location = batchAddress ?: reverseGeocode(batchLocation.first, batchLocation.second)
+                        )
+                    } else {
+                        updated = updated.copy(
+                            latitude = parentInBatch.latitude,
+                            longitude = parentInBatch.longitude,
+                            location = parentInBatch.location
+                        )
+                    }
+                } else {
+                    // Check DB for parent
+                    val parent = inventoryDao.getItemById(updated.parentId!!)
+                    if (parent != null) {
+                        if (parent.equipped && batchLocation != null) {
+                            updated = updated.copy(
+                                latitude = batchLocation.first,
+                                longitude = batchLocation.second,
+                                location = batchAddress ?: reverseGeocode(batchLocation.first, batchLocation.second)
+                            )
+                        } else {
+                            updated = updated.copy(
+                                latitude = parent.latitude,
+                                longitude = parent.longitude,
+                                location = parent.location
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Not in a container
+                val isUnequipping = !updated.equipped && current.equipped
+                val isMovingToOpenSpace = updated.parentId == null && current.parentId != null && !updated.equipped
+                
+                if (!updated.equipped && (isUnequipping || isMovingToOpenSpace)) {
+                    if (batchLocation != null) {
+                        updated = updated.copy(
+                            latitude = batchLocation.first,
+                            longitude = batchLocation.second,
+                            location = batchAddress ?: reverseGeocode(batchLocation.first, batchLocation.second)
+                        )
+                    }
+                }
+            }
+            
+            updated
         }
 
-        inventoryDao.updateItem(updatedItem)
+        inventoryDao.updateItems(updatedItems)
     }
+
+    suspend fun updateItem(item: InventoryItem) = updateItems(listOf(item))
 
     private suspend fun reverseGeocode(latitude: Double, longitude: Double): String = withContext(Dispatchers.IO) {
         try {
@@ -302,16 +313,10 @@ class InventoryRepository @Inject constructor(
         }
     }
     
-    /**
-     * Deletes an item by its ID.
-     */
     suspend fun deleteItemById(id: Long) = withContext(Dispatchers.IO) {
         inventoryDao.deleteItemById(id)
     }
 
-    /**
-     * Updates only the quantity of an item.
-     */
     suspend fun updateQuantity(id: Long, newQuantity: Int) = withContext(Dispatchers.IO) {
         inventoryDao.updateQuantity(id, newQuantity)
     }

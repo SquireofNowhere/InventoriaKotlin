@@ -27,6 +27,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.ui.screens.dashboard.UnequipRepackDialog
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.ui.theme.Warning
@@ -44,6 +45,7 @@ fun ItemDetailScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showContainerPicker by remember { mutableStateOf(false) }
+    var showUnequipDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -57,7 +59,17 @@ fun ItemDetailScreen(
                 actions = {
                     val item = uiState.item
                     if (item != null) {
-                        IconButton(onClick = viewModel::toggleEquip) {
+                        IconButton(onClick = {
+                            if (item.equipped) {
+                                if (item.lastParentId != null) {
+                                    showUnequipDialog = true
+                                } else {
+                                    viewModel.toggleEquip(repack = false)
+                                }
+                            } else {
+                                viewModel.toggleEquip()
+                            }
+                        }) {
                             Icon(
                                 painter = if (item.equipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
                                 contentDescription = if (item.equipped) "Unequip" else "Equip"
@@ -356,6 +368,23 @@ fun ItemDetailScreen(
                 TextButton(onClick = { showContainerPicker = false }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    if (showUnequipDialog) {
+        val itemName = uiState.item?.name ?: "Item"
+        UnequipRepackDialog(
+            itemName = itemName,
+            containerName = uiState.lastParentName,
+            onDismiss = { showUnequipDialog = false },
+            onUnequipOnly = {
+                viewModel.toggleEquip(repack = false)
+                showUnequipDialog = false
+            },
+            onRepack = {
+                viewModel.toggleEquip(repack = true)
+                showUnequipDialog = false
             }
         )
     }

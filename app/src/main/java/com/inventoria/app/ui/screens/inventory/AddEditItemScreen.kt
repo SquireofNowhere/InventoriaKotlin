@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.collectLatest
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddEditItemScreen(
     onNavigateBack: () -> Unit,
@@ -218,12 +218,30 @@ fun AddEditItemScreen(
                 )
             }
 
-            OutlinedTextField(
-                value = viewModel.category,
-                onValueChange = { viewModel.category = it },
-                label = { Text("Category") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = viewModel.category,
+                    onValueChange = { viewModel.category = it },
+                    label = { Text("Categories") },
+                    placeholder = { Text("e.g. Tools, Electronics, Home") },
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = { Text("Separate multiple categories with commas") }
+                )
+                
+                if (viewModel.parsedCategories.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        viewModel.parsedCategories.forEach { cat ->
+                            SuggestionChip(
+                                onClick = { },
+                                label = { Text(cat) }
+                            )
+                        }
+                    }
+                }
+            }
 
             OutlinedTextField(
                 value = viewModel.description,

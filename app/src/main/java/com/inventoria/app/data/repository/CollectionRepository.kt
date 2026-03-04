@@ -75,40 +75,35 @@ class CollectionRepository @Inject constructor(
             if (item.quantity < ci.requiredQuantity) {
                 errors.add("Insufficient quantity for ${item.name}: has ${item.quantity}, needs ${ci.requiredQuantity}")
             }
-            itemsToUpdate.add(item)
+            itemsToUpdate.add(item.copy(parentId = containerId, equipped = false, lastParentId = null))
         }
 
         if (errors.isNotEmpty()) {
             return@withContext PackResult.ValidationFailed(errors)
         }
 
-        val packedItemIds = mutableListOf<Long>()
-        for (item in itemsToUpdate) {
-            val updatedItem = item.copy(
-                parentId = containerId,
-                equipped = false
-            )
-            inventoryRepository.updateItem(updatedItem)
-            packedItemIds.add(item.id)
-        }
-
-        PackResult.Success("Successfully packed into ${container.name}", packedItemIds)
+        inventoryRepository.updateItems(itemsToUpdate)
+        PackResult.Success("Successfully packed into ${container.name}", itemsToUpdate.map { it.id })
     }
 
     suspend fun unpackCollection(collectionId: Long): PackResult = withContext(Dispatchers.IO) {
         val collectionItems = collectionDao.getItemsForCollection(collectionId)
+        val itemsToUpdate = mutableListOf<InventoryItem>()
         
         for (ci in collectionItems) {
             val item = inventoryDao.getItemById(ci.itemId)
             if (item != null && item.parentId != null) {
-                inventoryRepository.updateItem(item.copy(parentId = null))
+                itemsToUpdate.add(item.copy(parentId = null, lastParentId = null))
             }
         }
+        
+        inventoryRepository.updateItems(itemsToUpdate)
         PackResult.Success("Collection unpacked")
     }
 
     suspend fun equipCollection(collectionId: Long): PackResult = withContext(Dispatchers.IO) {
         val collectionItems = collectionDao.getItemsForCollection(collectionId)
+        val itemsToUpdate = mutableListOf<InventoryItem>()
         val errors = mutableListOf<String>()
         
         for (ci in collectionItems) {
@@ -117,8 +112,10 @@ class CollectionRepository @Inject constructor(
                 errors.add("Item not found: ID ${ci.itemId}")
                 continue
             }
-            inventoryRepository.updateItem(item.copy(equipped = true, parentId = null))
+            itemsToUpdate.add(item.copy(equipped = true))
         }
+
+        inventoryRepository.updateItems(itemsToUpdate)
 
         if (errors.isNotEmpty()) {
             return@withContext PackResult.Error("Some items could not be equipped: ${errors.joinToString()}")
@@ -126,15 +123,22 @@ class CollectionRepository @Inject constructor(
         PackResult.Success("Collection equipped")
     }
 
-    suspend fun unequipCollection(collectionId: Long): PackResult = withContext(Dispatchers.IO) {
+    suspend fun unequipCollection(collectionId: Long, repack: Boolean = false): PackResult = withContext(Dispatchers.IO) {
         val collectionItems = collectionDao.getItemsForCollection(collectionId)
+        val itemsToUpdate = mutableListOf<InventoryItem>()
         
         for (ci in collectionItems) {
             val item = inventoryDao.getItemById(ci.itemId)
             if (item != null && item.equipped) {
-                inventoryRepository.updateItem(item.copy(equipped = false))
+                if (repack && item.lastParentId != null) {
+                    itemsToUpdate.add(item.copy(equipped = false, parentId = item.lastParentId, lastParentId = null))
+                } else {
+                    itemsToUpdate.add(item.copy(equipped = false, lastParentId = null))
+                }
             }
         }
-        PackResult.Success("Collection unequipped")
+        
+        inventoryRepository.updateItems(itemsToUpdate)
+        PackResult.Success(if (repack) "Collection unequipped and repacked" else "Collection unequipped")
     }
 }

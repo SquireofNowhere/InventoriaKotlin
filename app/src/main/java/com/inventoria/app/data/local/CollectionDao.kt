@@ -36,7 +36,7 @@ interface CollectionDao {
     """)
     fun searchCollections(query: String): Flow<List<InventoryCollection>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertCollection(collection: InventoryCollection): Long
 
     @Update
@@ -45,7 +45,7 @@ interface CollectionDao {
     @Delete
     suspend fun deleteCollection(collection: InventoryCollection)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertCollectionItem(collectionItem: InventoryCollectionItem)
 
     @Delete

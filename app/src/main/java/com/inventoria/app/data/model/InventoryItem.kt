@@ -60,6 +60,11 @@ data class InventoryItem(
     @set:PropertyName("parentId")
     var parentId: Long? = null,
     
+    @ColumnInfo(name = "last_parent_id")
+    @get:PropertyName("lastParentId")
+    @set:PropertyName("lastParentId")
+    var lastParentId: Long? = null,
+    
     @ColumnInfo(name = "equipped")
     @get:PropertyName("equipped")
     @set:PropertyName("equipped")

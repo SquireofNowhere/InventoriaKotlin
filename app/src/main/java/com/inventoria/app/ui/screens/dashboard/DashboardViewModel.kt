@@ -74,13 +74,27 @@ class DashboardViewModel @Inject constructor(
         .launchIn(viewModelScope)
     }
     
-    fun toggleEquip(itemId: Long) {
+    fun toggleEquip(itemId: Long, repack: Boolean = false) {
         viewModelScope.launch {
             val item = repository.getItemById(itemId)
             if (item != null) {
-                repository.updateItem(item.copy(equipped = !item.equipped))
+                if (item.equipped) {
+                    // Unequipping
+                    if (repack && item.lastParentId != null) {
+                        repository.updateItem(item.copy(equipped = false, parentId = item.lastParentId, lastParentId = null))
+                    } else {
+                        repository.updateItem(item.copy(equipped = false, lastParentId = null))
+                    }
+                } else {
+                    // Equipping
+                    repository.updateItem(item.copy(equipped = true))
+                }
             }
         }
+    }
+
+    suspend fun getContainerName(id: Long): String? {
+        return repository.getItemById(id)?.name
     }
 
     fun refresh() {

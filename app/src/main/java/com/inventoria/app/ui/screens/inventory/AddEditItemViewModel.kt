@@ -4,6 +4,7 @@ package com.inventoria.app.ui.screens.inventory
 import android.content.Context
 import android.location.Geocoder
 import android.util.Log
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +51,7 @@ class AddEditItemViewModel @Inject constructor(
     private val TAG = "AddEditItemViewModel"
 
     var name by mutableStateOf("")
-    var quantity by mutableStateOf("")
+    var quantity by mutableStateOf("1") // Default to 1
     var price by mutableStateOf("")
     var category by mutableStateOf("")
     var description by mutableStateOf("")
@@ -58,6 +59,12 @@ class AddEditItemViewModel @Inject constructor(
     var parentId by mutableStateOf<Long?>(null)
     var isEquipped by mutableStateOf(false)
     
+    val parsedCategories by derivedStateOf {
+        category.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+    }
+
     private val _uiState = MutableStateFlow(AddEditItemUiState())
     val uiState: StateFlow<AddEditItemUiState> = _uiState.asStateFlow()
 
@@ -80,7 +87,7 @@ class AddEditItemViewModel @Inject constructor(
         val itemIdRaw = savedStateHandle.get<Any>("itemId")
         val itemId: Long? = when (itemIdRaw) {
             is Long -> itemIdRaw
-            is String -> itemIdRaw.toLongOrNull()
+            is String -> itemIdRaw.toLongOrNull() ?: 0L
             else -> null
         }
         
