@@ -110,7 +110,7 @@ fun SettingsScreen(
             )
 
             SettingsCategoryHeader(title = "About")
-            AboutCard()
+            AboutCard(context)
         }
     }
 }
@@ -229,14 +229,17 @@ fun SettingsToggleRow(
 }
 
 @Composable
-fun AboutCard() {
+fun AboutCard(context: Context) {
+    val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+    val versionName = packageInfo.versionName ?: "1.14"
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "Inventoria v1.1",
+                "Inventoria v$versionName",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )

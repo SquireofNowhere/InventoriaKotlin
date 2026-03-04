@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.inventoria.app.ui.screens.inventory
 
 import androidx.compose.animation.animateColorAsState
@@ -7,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,7 +40,6 @@ import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.ui.screens.dashboard.UnequipRepackDialog
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryListScreen(
     onAddItem: () -> Unit,
@@ -55,25 +57,10 @@ fun InventoryListScreen(
     
     var showSortMenu by remember { mutableStateOf(false) }
     var showGroupMenu by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
 
-    // Clear collapsed groups when grouping mode changes
     LaunchedEffect(uiState.groupOption) {
         collapsedGroupNames = emptySet()
-    }
-
-    // Drag and Drop State
-    var draggedItem by remember { mutableStateOf<InventoryItem?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    var currentPointerPosition by remember { mutableStateOf(Offset.Zero) }
-    var dropTargetId by remember { mutableStateOf<Long?>(null) }
-    
-    // Bounds tracking for hover detection
-    val itemBounds = remember { mutableStateMapOf<Long, Rect>() }
-
-    LaunchedEffect(fromCollectionId) {
-        if (fromCollectionId != 0L) {
-            viewModel.setCollectionId(fromCollectionId)
-        }
     }
 
     LaunchedEffect(itemToUnequip) {
@@ -84,7 +71,18 @@ fun InventoryListScreen(
         }
     }
 
-    // Detect drop target based on pointer position
+    var draggedItem by remember { mutableStateOf<InventoryItem?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var currentPointerPosition by remember { mutableStateOf(Offset.Zero) }
+    var dropTargetId by remember { mutableStateOf<Long?>(null) }
+    val itemBounds = remember { mutableStateMapOf<Long, Rect>() }
+
+    LaunchedEffect(fromCollectionId) {
+        if (fromCollectionId != 0L) {
+            viewModel.setCollectionId(fromCollectionId)
+        }
+    }
+
     LaunchedEffect(currentPointerPosition, draggedItem) {
         if (draggedItem != null) {
             val target = itemBounds.entries.find { (id, rect) ->
@@ -106,15 +104,10 @@ fun InventoryListScreen(
                     }
                 },
                 actions = {
-                    if (uiState.groupOption != GroupOption.NONE) {
-                        val allGroupsCollapsed = collapsedGroupNames.size == uiState.groupedItems.size
-                        IconButton(onClick = {
-                            collapsedGroupNames = if (allGroupsCollapsed) emptySet() else uiState.groupedItems.map { it.first }.toSet()
-                        }) {
-                            Icon(
-                                imageVector = if (allGroupsCollapsed) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
-                                contentDescription = if (allGroupsCollapsed) "Expand All" else "Collapse All"
-                            )
+                    IconButton(onClick = { showFilterSheet = true }) {
+                        val isFiltered = uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()
+                        BadgedBox(badge = { if (isFiltered) Badge() }) {
+                            Icon(Icons.Default.FilterList, "Filter")
                         }
                     }
                     Box {
@@ -167,7 +160,6 @@ fun InventoryListScreen(
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Search Bar
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { 
@@ -180,30 +172,43 @@ fun InventoryListScreen(
                     shape = MaterialTheme.shapes.medium
                 )
                 
-                // Active Filters Chips
-                if (uiState.groupOption != GroupOption.NONE || uiState.sortOption != SortOption.DATE_DESC) {
-                    Row(
+                if (uiState.groupOption != GroupOption.NONE || uiState.sortOption != SortOption.DATE_DESC || uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()) {
+                    LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (uiState.groupOption != GroupOption.NONE) {
-                            SuggestionChip(
-                                onClick = { viewModel.setGroupOption(GroupOption.NONE) },
-                                label = { Text("Grouped by: ${uiState.groupOption.displayName}") },
-                                icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
-                            )
+                            item {
+                                SuggestionChip(
+                                    onClick = { viewModel.setGroupOption(GroupOption.NONE) },
+                                    label = { Text("Grouped by: ${uiState.groupOption.displayName}") },
+                                    icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                                )
+                            }
                         }
                         if (uiState.sortOption != SortOption.DATE_DESC) {
-                            SuggestionChip(
-                                onClick = { viewModel.setSortOption(SortOption.DATE_DESC) },
-                                label = { Text("Sorted by: ${uiState.sortOption.displayName}") },
-                                icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
-                            )
+                            item {
+                                SuggestionChip(
+                                    onClick = { viewModel.setSortOption(SortOption.DATE_DESC) },
+                                    label = { Text("Sorted by: ${uiState.sortOption.displayName}") },
+                                    icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                                )
+                            }
+                        }
+                        if (uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()) {
+                            item {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.clearFilters() },
+                                    label = { Text("Filters Active") },
+                                    trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                                )
+                            }
                         }
                     }
                 }
                 
-                // Item List
                 if (uiState.isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -218,10 +223,9 @@ fun InventoryListScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         if (uiState.groupOption == GroupOption.NONE) {
-                            val displayItems = if (searchQuery.isNotBlank()) {
+                            val displayItems = if (searchQuery.isNotBlank() || uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()) {
                                 uiState.filteredItems
                             } else {
-                                // In flat view, only show top-level items unless searching
                                 uiState.filteredItems.filter { it.parentId == null }
                             }
 
@@ -278,11 +282,10 @@ fun InventoryListScreen(
                                         dropTargetId = null
                                     },
                                     onPositioned = { id, rect -> itemBounds[id] = rect },
-                                    isSearchMode = searchQuery.isNotBlank()
+                                    isSearchMode = searchQuery.isNotBlank() || uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()
                                 )
                             }
                         } else {
-                            // Grouped View
                             uiState.groupedItems.forEach { (groupName, groupItems) ->
                                 val isCollapsed = collapsedGroupNames.contains(groupName)
                                 item(key = "header_$groupName") {
@@ -380,7 +383,7 @@ fun InventoryListScreen(
                                                 dropTargetId = null
                                             },
                                             onPositioned = { id, rect -> itemBounds[id] = rect },
-                                            isSearchMode = true // Force true to show items flattened within groups
+                                            isSearchMode = true 
                                         )
                                     }
                                 }
@@ -390,7 +393,6 @@ fun InventoryListScreen(
                 }
             }
 
-            // Ghost Preview following the finger
             draggedItem?.let { item ->
                 Surface(
                     modifier = Modifier
@@ -420,6 +422,19 @@ fun InventoryListScreen(
         }
     }
 
+    if (showFilterSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false }
+        ) {
+            FilterBottomSheetContent(
+                uiState = uiState,
+                onToggleCategory = viewModel::toggleCategoryVisibility,
+                onToggleCollection = viewModel::toggleCollectionVisibility,
+                onClearAll = viewModel::clearFilters
+            )
+        }
+    }
+
     itemToUnequip?.let { item ->
         UnequipRepackDialog(
             itemName = item.name,
@@ -434,6 +449,75 @@ fun InventoryListScreen(
                 itemToUnequip = null
             }
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FilterBottomSheetContent(
+    uiState: InventoryUiState,
+    onToggleCategory: (String) -> Unit,
+    onToggleCollection: (Long) -> Unit,
+    onClearAll: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Filter Inventory", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            TextButton(onClick = onClearAll) {
+                Text("Clear All")
+            }
+        }
+
+        Text("Hide Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            uiState.allCategories.forEach { category ->
+                val isHidden = uiState.hiddenCategories.contains(category)
+                FilterChip(
+                    selected = !isHidden,
+                    onClick = { onToggleCategory(category) },
+                    label = { Text(category) },
+                    leadingIcon = { if (!isHidden) Icon(Icons.Default.Visibility, null, Modifier.size(18.dp)) else Icon(Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) }
+                )
+            }
+            val isUncatHidden = uiState.hiddenCategories.contains("Uncategorized")
+            FilterChip(
+                selected = !isUncatHidden,
+                onClick = { onToggleCategory("Uncategorized") },
+                label = { Text("Uncategorized") },
+                leadingIcon = { if (!isUncatHidden) Icon(Icons.Default.Visibility, null, Modifier.size(18.dp)) else Icon(Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) }
+            )
+        }
+
+        Divider()
+
+        Text("Hide Collections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            uiState.allCollections.forEach { collection ->
+                val isHidden = uiState.hiddenCollections.contains(collection.id)
+                FilterChip(
+                    selected = !isHidden,
+                    onClick = { onToggleCollection(collection.id) },
+                    label = { Text(collection.name) },
+                    leadingIcon = { if (!isHidden) Icon(Icons.Default.Visibility, null, Modifier.size(18.dp)) else Icon(Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) }
+                )
+            }
+        }
     }
 }
 

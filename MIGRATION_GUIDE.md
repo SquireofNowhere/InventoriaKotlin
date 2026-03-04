@@ -18,15 +18,20 @@ Inventoria C#/
 app/src/main/java/com/inventoria/app/
 ├── InventoriaApplication.kt          # Application entry point
 ├── data/
-│   ├── model/InventoryItem.kt       # Replaces C# Item dictionary
-│   ├── local/InventoryDao.kt        # Database operations
-│   ├── local/InventoryDatabase.kt   # Room database
-│   └── repository/InventoryRepository.kt  # Data layer
-├── ui/
-│   ├── main/                         # Replaces Menus.cs
-│   ├── screens/dashboard/            # Main dashboard
-│   └── screens/inventory/            # Inventory management
-└── di/                               # Dependency injection
+│   ├── model/
+│   │   ├── InventoryItem.kt         # Replaces C# Item dictionary
+│   │   └── Collection.kt            # Kits and grouping logic
+│   ├── local/
+│   │   ├── InventoryDao.kt          # CRUD with @Upsert for sync safety
+│   │   └── InventoryDatabase.kt     # Room database (v14)
+│   └── repository/
+│       ├── InventoryRepository.kt    # Location resolution & batch ops
+│       └── FirebaseSyncRepository.kt # Cloud bi-sync
+└── ui/
+    ├── main/                         # Navigation & App Scaffold
+    ├── screens/dashboard/            # Stats & Recent items
+    ├── screens/inventory/            # Sort/Group/Hierarchical list
+    └── screens/collections/          # Kit management & Readiness
 ```
 
 ## Key Concept Mappings
@@ -39,8 +44,7 @@ Dictionary<string, object?> Item = new Dictionary<string, object?>
 {
     {"Name", "Mouse"},
     {"Quantity", 1},
-    {"Location", "My Room 414"},
-    {"Price", 199.99}
+    {"Location", "My Room 414"}
 };
 ```
 
@@ -49,188 +53,63 @@ Dictionary<string, object?> Item = new Dictionary<string, object?>
 @Entity(tableName = "inventory_items")
 data class InventoryItem(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val name: String,
-    val quantity: Int,
-    val location: String,
-    val price: Double? = null,
-    val customFields: Map<String, String> = emptyMap()
+    var name: String = "",
+    var quantity: Int = 1,
+    var location: String = "",
+    var parentId: Long? = null,      // For nested storage
+    var equipped: Boolean = false,   // For GPS tracking
+    var lastParentId: Long? = null   // For intelligent repacking
 )
 ```
 
-### 2. Data Storage
+### 2. Data Storage & Sync
 
 **C#:**
 - In-memory List<Dictionary>
 - Lost on application close
 
 **Kotlin:**
-- Room Database (SQLite)
-- Persistent storage
-- Reactive with Flow
+- **Local**: Room Database (SQLite) for offline-first speed.
+- **Cloud**: Firebase Realtime Database for cross-device sync.
+- **Bi-directional Sync**: Changes on one device reflect on others automatically.
 
 ### 3. User Interface
 
 **C#:**
-```csharp
-Console.WriteLine("Main Menu");
-Console.WriteLine("1. Inventory");
-var input = Console.ReadKey(true).KeyChar;
-```
+- Console-based menus.
 
 **Kotlin (Jetpack Compose):**
-```kotlin
-@Composable
-fun DashboardScreen() {
-    Column {
-        Text("Dashboard", style = MaterialTheme.typography.headlineLarge)
-        StatisticsCards()
-        RecentItems()
-    }
-}
-```
+- Modern, touch-first Material 3 UI.
+- **Purple Sheen Theme**: Custom professional design.
+- **Dynamic Grouping**: Visualize inventory by Category, Collection, or Location.
 
-### 4. Operations
+## Major Feature Enhancements
 
-| C# Method | Kotlin Equivalent |
-|-----------|-------------------|
-| `CreateItem()` | `repository.insertItem(item)` |
-| `DisplayAllItems()` | `LazyColumn { items(list) { ... } }` |
-| `DeleteInstance(index)` | `repository.deleteItem(item)` |
-| `UpdateInstance(index, item)` | `repository.updateItem(item)` |
-| `FetchInventoryItem(index)` | `repository.getItemById(id)` |
+### 1. Dynamic Hierarchy
+- **C#**: Flat list of items.
+- **Android**: Items can be nested inside other items. A "Toolbox" can contain a "Hammer". Moving the toolbox moves all items inside it.
 
-### 5. Menu System
+### 2. Equip & Repack System
+- Items can be "Equipped" to the user.
+- Equipped items inherit the user's live physical location via GPS.
+- **Intelligent Repacking**: The app remembers which bag or box an item was pulled from and offers to return it there with one tap.
 
-**C# Switch-based Menus:**
-```csharp
-switch (input) {
-    case '1':
-        ShowInventoryMenu();
-        break;
-    case '0':
-        return;
-}
-```
+### 3. Kits & Readiness
+- Group items into "Collections" (e.g., "Hiking Trip", "Daily Carry").
+- Real-time "Readiness" percentages show what you have available, what is packed, and what is currently equipped.
 
-**Kotlin Navigation:**
-```kotlin
-NavHost(navController, startDestination = "dashboard") {
-    composable("dashboard") { DashboardScreen() }
-    composable("inventory") { InventoryListScreen() }
-    composable("settings") { SettingsScreen() }
-}
-```
+### 4. Advanced Sorting & Grouping
+- **Smart Grouping**: Group items by classification with collapsible headers.
+- **Pinned Headers**: "With You" is always at the top; "Uncategorized" at the bottom.
+- **Multi-Classification**: Items can belong to multiple categories simultaneously.
 
-## Feature Enhancements
+## Deployment & Safety
 
-### What's New in Android Version
-
-1. **Visual Design**
-   - Beautiful purple gradient theme
-   - Material Design 3 components
-   - Smooth animations and transitions
-   - Light/dark mode support
-
-2. **User Experience**
-   - Touch-based navigation
-   - Swipe gestures
-   - Pull-to-refresh
-   - Real-time search
-
-3. **Data Management**
-   - Persistent database storage
-   - Real-time updates with Flow
-   - Type-safe operations
-   - Transaction support
-
-4. **Modern Features**
-   - Dashboard with statistics
-   - Quick actions
-   - Category filtering
-   - Low stock alerts
-
-## Data Migration
-
-If you want to migrate data from the C# version:
-
-### Step 1: Export from C# (You would need to add this)
-
-Add to your C# project:
-```csharp
-public void ExportToJson(string filePath)
-{
-    var json = JsonSerializer.Serialize(Instances);
-    File.WriteAllText(filePath, json);
-}
-```
-
-### Step 2: Import to Android
-
-```kotlin
-suspend fun importFromJson(jsonString: String) {
-    val gson = Gson()
-    val listType = object : TypeToken<List<InventoryItem>>() {}.type
-    val items: List<InventoryItem> = gson.fromJson(jsonString, listType)
-    repository.insertItems(items)
-}
-```
-
-## Custom Fields Migration
-
-### C# Approach:
-```csharp
-// Any key-value can be added
-Item["CustomField"] = "CustomValue";
-```
-
-### Kotlin Approach:
-```kotlin
-// Predefined fields + custom fields map
-val item = InventoryItem(
-    name = "Mouse",
-    quantity = 1,
-    customFields = mapOf("CustomField" to "CustomValue")
-)
-```
-
-## Best Practices in the New Version
-
-1. **Type Safety**
-   - Use data classes instead of dictionaries
-   - Leverage Kotlin's null safety
-   - Compile-time error checking
-
-2. **Reactive Programming**
-   - Use Flow for real-time updates
-   - Collect state in composables
-   - Automatic UI updates
-
-3. **Separation of Concerns**
-   - Repository for data access
-   - ViewModel for business logic
-   - Composables for UI only
-
-4. **Dependency Injection**
-   - Hilt for automatic dependency management
-   - Easy testing and mocking
-   - Clean architecture
-
-## Next Steps
-
-1. **Build & Run** the Android app
-2. **Explore** the dashboard and navigation
-3. **Test** CRUD operations (coming soon)
-4. **Customize** colors and themes
-5. **Add** new features as needed
-
-## Questions?
-
-Refer to:
-- [README.md](README.md) for setup instructions
-- [Android Developer Docs](https://developer.android.com)
-- [Jetpack Compose Docs](https://developer.android.com/jetpack/compose)
-- [Kotlin Docs](https://kotlinlang.org/docs/home.html)
+1. **Circular Safety**: The Android version prevents users from accidentally packing a container into itself (e.g., Bag A inside Bag B inside Bag A).
+2. **Batch Optimization**: Updating 50 items at once (like "Equip All") is optimized to perform a single database transaction and a single GPS lookup.
+3. **Migration Safety**: Uses `@Upsert` to prevent foreign key data loss during cloud synchronization.
 
 ---
 
-Happy coding! 🚀
+**Made with 💜 and Jetpack Compose**
+**Reflecting v1.14 Updates**

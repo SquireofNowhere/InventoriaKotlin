@@ -32,10 +32,16 @@ enum class GroupOption(val displayName: String) {
 data class InventoryUiState(
     val items: List<InventoryItem> = emptyList(),
     val filteredItems: List<InventoryItem> = emptyList(),
+    val matchedItemIds: Set<Long> = emptySet(),
     val groupedItems: List<Pair<String, List<InventoryItem>>> = emptyList(),
+    val allCategories: List<String> = emptyList(),
+    val allCollections: List<InventoryCollection> = emptyList(),
+    val hiddenCategories: Set<String> = emptySet(),
+    val hiddenCollections: Set<Long> = emptySet(),
     val collectionItemIds: Set<Long> = emptySet(),
     val sortOption: SortOption = SortOption.DATE_DESC,
     val groupOption: GroupOption = GroupOption.NONE,
+    val isFiltering: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -53,9 +59,10 @@ class InventoryListViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     private val _sortOption = MutableStateFlow(SortOption.DATE_DESC)
     private val _groupOption = MutableStateFlow(GroupOption.NONE)
+    private val _hiddenCategories = MutableStateFlow(setOf<String>())
+    private val _hiddenCollections = MutableStateFlow(setOf<Long>())
     private val _currentCollectionId = MutableStateFlow<Long?>(null)
     
-    // Expose sync status for UI components
     val syncStatus: StateFlow<SyncStatus> = syncRepository.syncStatus
 
     init {
@@ -69,13 +76,13 @@ class InventoryListViewModel @Inject constructor(
     private fun observeItems() {
         viewModelScope.launch {
             val itemsFlow = repository.getAllItemsWithResolvedLocations()
+            val allCollectionsFlow = collectionRepository.getAllCollections()
             
-            // Get mapping of items to collections for grouping
-            val itemToCollectionsFlow = collectionRepository.getAllCollections().flatMapLatest { collections ->
+            val itemToCollectionsFlow = allCollectionsFlow.flatMapLatest { collections ->
                 val flows = collections.map { coll ->
-                    collectionRepository.getCollectionWithItems(coll.id).map { coll.name to (it?.items?.map { i -> i.id } ?: emptyList()) }
+                    collectionRepository.getCollectionWithItems(coll.id).map { coll.id to (it?.items?.map { i -> i.id } ?: emptyList()) }
                 }
-                if (flows.isEmpty()) flowOf(emptyList<Pair<String, List<Long>>>())
+                if (flows.isEmpty()) flowOf(emptyList<Pair<Long, List<Long>>>())
                 else combine(flows) { it.toList() }
             }
 
@@ -93,39 +100,77 @@ class InventoryListViewModel @Inject constructor(
                 selectionModeCollectionItemsFlow, 
                 _sortOption, 
                 _groupOption,
-                itemToCollectionsFlow
+                itemToCollectionsFlow,
+                allCollectionsFlow,
+                _hiddenCategories,
+                _hiddenCollections
             ) { args: Array<Any?> ->
                 val items = args[0] as List<InventoryItem>
                 val query = args[1] as String
                 val selectionIds = args[2] as Set<Long>
                 val sort = args[3] as SortOption
                 val group = args[4] as GroupOption
-                val itemCollections = args[5] as List<Pair<String, List<Long>>>
+                val itemCollections = args[5] as List<Pair<Long, List<Long>>>
+                val allCollections = args[6] as List<InventoryCollection>
+                val hiddenCats = args[7] as Set<String>
+                val hiddenColls = args[8] as Set<Long>
                 
-                // 1. Filter
-                var filtered = if (query.isBlank()) {
-                    items
-                } else {
-                    items.filter { it.name.contains(query, ignoreCase = true) }
+                val isFiltering = query.isNotBlank() || hiddenCats.isNotEmpty() || hiddenColls.isNotEmpty()
+
+                val allCategories = items.flatMap { item -> 
+                    item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList() 
+                }.distinct().sorted()
+
+                // 1. Initial Match
+                val matchedItems = items.filter { item ->
+                    val matchesQuery = query.isBlank() || item.name.contains(query, ignoreCase = true)
+                    
+                    val itemCats = item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: listOf("Uncategorized")
+                    val isHiddenByCategory = itemCats.all { hiddenCats.contains(it) } // Hidden only if ALL its categories are hidden
+                    
+                    val itemCollIds = itemCollections.filter { it.second.contains(item.id) }.map { it.first }
+                    val isHiddenByCollection = itemCollIds.isNotEmpty() && itemCollIds.all { hiddenColls.contains(it) }
+                    
+                    matchesQuery && !isHiddenByCategory && !isHiddenByCollection
+                }
+                val matchedItemIds = matchedItems.map { it.id }.toSet()
+
+                // 2. Ancestor preservation for tree structure
+                val itemsToShowIds = mutableSetOf<Long>()
+                val itemMap = items.associateBy { it.id }
+                
+                matchedItems.forEach { matchedItem ->
+                    itemsToShowIds.add(matchedItem.id)
+                    var parentId = matchedItem.parentId
+                    while (parentId != null) {
+                        if (itemsToShowIds.add(parentId)) {
+                            parentId = itemMap[parentId]?.parentId
+                        } else {
+                            parentId = null
+                        }
+                    }
                 }
 
-                // 2. Sort
-                filtered = when (sort) {
-                    SortOption.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
-                    SortOption.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
-                    SortOption.DATE_DESC -> filtered.sortedByDescending { it.updatedAt }
-                    SortOption.QUANTITY_DESC -> filtered.sortedByDescending { it.quantity }
-                    SortOption.PRICE_DESC -> filtered.sortedByDescending { it.price ?: 0.0 }
+                val finalItemsToShow = items.filter { itemsToShowIds.contains(it.id) }
+
+                // 3. Sorting (applied globally but UI handles sibling sorting)
+                val sortedItems = when (sort) {
+                    SortOption.NAME_ASC -> finalItemsToShow.sortedBy { it.name.lowercase() }
+                    SortOption.NAME_DESC -> finalItemsToShow.sortedByDescending { it.name.lowercase() }
+                    SortOption.DATE_DESC -> finalItemsToShow.sortedByDescending { it.updatedAt }
+                    SortOption.QUANTITY_DESC -> finalItemsToShow.sortedByDescending { it.quantity }
+                    SortOption.PRICE_DESC -> finalItemsToShow.sortedByDescending { it.price ?: 0.0 }
                 }
 
-                // 3. Group
+                // 4. Grouping (Grouped view is always flat for clarity)
                 val grouped = when (group) {
                     GroupOption.NONE -> emptyList()
                     GroupOption.CATEGORY -> {
                         val result = mutableMapOf<String, MutableList<InventoryItem>>()
                         val uncategorized = mutableListOf<InventoryItem>()
                         
-                        filtered.forEach { item ->
+                        // Use matchedItems for grouping to avoid showing ancestor "noise" in categories
+                        matchedItems.forEach { item ->
                             val itemCategories = item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                             if (itemCategories.isNullOrEmpty()) {
                                 uncategorized.add(item)
@@ -143,7 +188,7 @@ class InventoryListViewModel @Inject constructor(
                         sorted.sortedWith(compareBy({ it.first == "Uncategorized" }, { it.first }))
                     }
                     GroupOption.LOCATION -> {
-                        filtered.groupBy { it.location.ifBlank { "No Location" } }
+                        matchedItems.groupBy { it.location.ifBlank { "No Location" } }
                             .map { it.key to it.value }
                             .sortedWith(compareBy({ it.first != "With You" }, { it.first == "No Location" }, { it.first }))
                     }
@@ -151,15 +196,16 @@ class InventoryListViewModel @Inject constructor(
                         val result = mutableMapOf<String, MutableList<InventoryItem>>()
                         val itemsInCollections = mutableSetOf<Long>()
                         
-                        itemCollections.forEach { (collName, itemIds) ->
-                            val itemsInThisColl = filtered.filter { itemIds.contains(it.id) }
+                        allCollections.forEach { coll ->
+                            val itemIdsInColl = itemCollections.find { it.first == coll.id }?.second ?: emptyList()
+                            val itemsInThisColl = matchedItems.filter { itemIdsInColl.contains(it.id) }
                             if (itemsInThisColl.isNotEmpty()) {
-                                result.getOrPut(collName) { mutableListOf() }.addAll(itemsInThisColl)
+                                result.getOrPut(coll.name) { mutableListOf() }.addAll(itemsInThisColl)
                                 itemsInThisColl.forEach { itemsInCollections.add(it.id) }
                             }
                         }
                         
-                        val standalone = filtered.filter { !itemsInCollections.contains(it.id) }
+                        val standalone = matchedItems.filter { !itemsInCollections.contains(it.id) }
                         if (standalone.isNotEmpty()) {
                             result["Standalone Items"] = standalone.toMutableList()
                         }
@@ -170,11 +216,17 @@ class InventoryListViewModel @Inject constructor(
 
                 InventoryUiState(
                     items = items,
-                    filteredItems = filtered,
+                    filteredItems = sortedItems,
+                    matchedItemIds = matchedItemIds,
                     groupedItems = grouped,
+                    allCategories = allCategories,
+                    allCollections = allCollections,
+                    hiddenCategories = hiddenCats,
+                    hiddenCollections = hiddenColls,
                     collectionItemIds = selectionIds,
                     sortOption = sort,
                     groupOption = group,
+                    isFiltering = isFiltering,
                     isLoading = false
                 )
             }
@@ -200,19 +252,33 @@ class InventoryListViewModel @Inject constructor(
         _groupOption.value = option
     }
 
+    fun toggleCategoryVisibility(category: String) {
+        val current = _hiddenCategories.value
+        _hiddenCategories.value = if (current.contains(category)) current - category else current + category
+    }
+
+    fun toggleCollectionVisibility(collectionId: Long) {
+        val current = _hiddenCollections.value
+        _hiddenCollections.value = if (current.contains(collectionId)) current - collectionId else current + collectionId
+    }
+
+    fun clearFilters() {
+        _hiddenCategories.value = emptySet()
+        _hiddenCollections.value = emptySet()
+        _searchQuery.value = ""
+    }
+
     fun toggleEquip(itemId: Long, repack: Boolean = false) {
         viewModelScope.launch {
             try {
                 val item = repository.getItemById(itemId) ?: return@launch
                 if (item.equipped) {
-                    // Unequipping
                     if (repack && item.lastParentId != null) {
                         repository.updateItem(item.copy(equipped = false, parentId = item.lastParentId, lastParentId = null))
                     } else {
                         repository.updateItem(item.copy(equipped = false, lastParentId = null))
                     }
                 } else {
-                    // Equipping
                     repository.updateItem(item.copy(equipped = true))
                 }
             } catch (e: Exception) {
@@ -231,10 +297,8 @@ class InventoryListViewModel @Inject constructor(
                 val isInCollection = _uiState.value.collectionItemIds.contains(itemId)
                 if (isInCollection) {
                     collectionRepository.removeItemFromCollection(collectionId, itemId)
-                    Log.d("InventoryListViewModel", "Removed item $itemId from collection $collectionId")
                 } else {
                     collectionRepository.addItemToCollection(collectionId, itemId)
-                    Log.d("InventoryListViewModel", "Added item $itemId to collection $collectionId")
                 }
             } catch (e: Exception) {
                 Log.e("InventoryListViewModel", "Failed to toggle item in collection", e)
@@ -258,22 +322,18 @@ class InventoryListViewModel @Inject constructor(
                 val allItems = _uiState.value.items
                 val itemToMove = allItems.find { it.id == itemId } ?: return@launch
                 
-                // 1. Prevent moving an item into itself
                 if (itemId == newParentId) return@launch
                 
                 val oldParentId = itemToMove.parentId
 
-                // 2. Update the item being moved
                 val updatedItem = itemToMove.copy(
                     parentId = newParentId,
-                    // If moved into a container, it shouldn't be "equipped" anymore
                     equipped = if (newParentId != null) false else itemToMove.equipped,
-                    lastParentId = null, // Clear history when manually moved
+                    lastParentId = null,
                     updatedAt = System.currentTimeMillis()
                 )
                 repository.updateItem(updatedItem)
 
-                // 3. Auto-Container: If dropped into a target, make target a container
                 if (newParentId != null) {
                     allItems.find { it.id == newParentId }?.let { target ->
                         if (!target.storage) {
@@ -282,7 +342,6 @@ class InventoryListViewModel @Inject constructor(
                     }
                 }
 
-                // 4. Auto-Revert: If old parent is now empty, it stops being a container
                 if (oldParentId != null) {
                     val remainingChildren = allItems.filter { it.parentId == oldParentId && it.id != itemId }
                     if (remainingChildren.isEmpty()) {
@@ -291,8 +350,6 @@ class InventoryListViewModel @Inject constructor(
                         }
                     }
                 }
-
-                Log.d("InventoryListViewModel", "Moved item $itemId. New parent: $newParentId, Old parent: $oldParentId")
             } catch (e: Exception) {
                 Log.e("InventoryListViewModel", "Failed to move item", e)
             }
