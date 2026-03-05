@@ -36,6 +36,7 @@ fun SettingsScreen(
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsState()
     val showValueOnDashboard by viewModel.showValueOnDashboard.collectAsState()
     val authState by viewModel.authState.collectAsState()
+    val customUsername by viewModel.customUsername.collectAsState()
 
     // Google Sign-In Launcher
     val launcher = rememberLauncherForActivityResult(
@@ -73,6 +74,8 @@ fun SettingsScreen(
             SettingsCategoryHeader(title = "Cloud Account")
             AccountSection(
                 authState = authState,
+                customUsername = customUsername,
+                onUsernameChange = viewModel::updateCustomUsername,
                 onSignInClick = {
                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                         .requestIdToken(context.getString(R.string.default_web_client_id)) // Requires google-services plugin
@@ -118,6 +121,8 @@ fun SettingsScreen(
 @Composable
 fun AccountSection(
     authState: AuthState,
+    customUsername: String?,
+    onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit
 ) {
@@ -125,14 +130,62 @@ fun AccountSection(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium
     ) {
-        Box(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // User Profile Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp).clip(CircleShape),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    val displayName = when (authState) {
+                        is AuthState.Authenticated -> customUsername ?: authState.user.displayName ?: "User"
+                        else -> customUsername ?: "Local Account"
+                    }
+                    val subtitle = when (authState) {
+                        is AuthState.Authenticated -> authState.user.email ?: ""
+                        else -> "Sign in to sync your data"
+                    }
+                    Text(text = displayName, fontWeight = FontWeight.Bold)
+                    Text(text = subtitle, style = MaterialTheme.typography.bodySmall)
+                }
+                if (authState is AuthState.Authenticated) {
+                    IconButton(onClick = onSignOutClick) {
+                        Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
+            // Custom Username Field
+            var tempUsername by remember(customUsername) { mutableStateOf(customUsername ?: "") }
+            OutlinedTextField(
+                value = tempUsername,
+                onValueChange = { 
+                    tempUsername = it
+                    onUsernameChange(it)
+                },
+                label = { Text("Custom Username") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Enter a custom name") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+            )
+
+            // Auth Actions
             when (authState) {
-                is AuthState.Idle -> {
+                is AuthState.Idle, is AuthState.Error -> {
+                    if (authState is AuthState.Error) {
+                        Text(text = "Error: ${authState.message}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     Button(
                         onClick = onSignInClick,
                         modifier = Modifier.fillMaxWidth(),
@@ -144,39 +197,11 @@ fun AccountSection(
                     }
                 }
                 is AuthState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                }
-                is AuthState.Authenticated -> {
-                    val user = authState.user
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // User Profile (placeholder if photoUrl is null)
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp).clip(CircleShape),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(text = user.displayName ?: "User", fontWeight = FontWeight.Bold)
-                            Text(text = user.email ?: "", style = MaterialTheme.typography.bodySmall)
-                        }
-                        IconButton(onClick = onSignOutClick) {
-                            Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
-                        }
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
                     }
                 }
-                is AuthState.Error -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "Error: ${authState.message}", color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = onSignInClick) {
-                            Text("Try Again")
-                        }
-                    }
-                }
+                else -> {}
             }
         }
     }

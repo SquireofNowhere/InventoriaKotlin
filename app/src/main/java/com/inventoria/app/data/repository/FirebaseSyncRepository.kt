@@ -25,7 +25,8 @@ class FirebaseSyncRepository @Inject constructor(
     private val taskDao: TaskDao,
     private val collectionDao: CollectionDao,
     private val firebaseDatabase: FirebaseDatabase,
-    private val authRepository: FirebaseAuthRepository
+    private val authRepository: FirebaseAuthRepository,
+    private val settingsRepository: SettingsRepository
 ) {
     private val TAG = "FirebaseSync"
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -95,6 +96,29 @@ class FirebaseSyncRepository @Inject constructor(
             pushAction = { ref, items -> pushCollectionItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullCollectionItemsFromFirebase(snapshot) }
         )
+
+        // 5. Settings Sync (Includes Custom Username)
+        val settingsRef = rootRef.child("settings")
+        repositoryScope.launch {
+            settingsRepository.customUsername.distinctUntilChanged().collect { username ->
+                if (!isUpdatingFromFirebase) {
+                    settingsRef.child("custom_username").setValue(username)
+                }
+            }
+        }
+
+        settingsRef.child("custom_username").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val cloudUsername = snapshot.getValue(String::class.java)
+                repositoryScope.launch {
+                    isUpdatingFromFirebase = true
+                    settingsRepository.saveCustomUsername(cloudUsername)
+                    delay(500)
+                    isUpdatingFromFirebase = false
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
     }
 
     private fun <T> setupNodeSync(
@@ -156,6 +180,10 @@ class FirebaseSyncRepository @Inject constructor(
                 pullCollectionItemsFromFirebase(ciSnapshot)
                 pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getItemsForSync())
                 
+                // Username
+                val usernameSnapshot = ref.child("settings").child("custom_username").get().await()
+                settingsRepository.saveCustomUsername(usernameSnapshot.getValue(String::class.java))
+
                 _syncStatus.value = SyncStatus.Synced
             } catch (e: Exception) {
                 _syncStatus.value = SyncStatus.Error(e.message ?: "Sync failed")

@@ -35,6 +35,9 @@ class SettingsViewModel @Inject constructor(
 
     val showValueOnDashboard: StateFlow<Boolean> = settingsRepository.showValueOnDashboard
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        
+    val customUsername: StateFlow<String?> = settingsRepository.customUsername
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -71,6 +74,12 @@ class SettingsViewModel @Inject constructor(
     fun signOut() {
         authRepository.signOut()
         _authState.value = AuthState.Idle
+    }
+
+    fun updateCustomUsername(name: String?) {
+        viewModelScope.launch {
+            settingsRepository.saveCustomUsername(name)
+        }
     }
 
     fun toggleDarkMode(enabled: Boolean) {

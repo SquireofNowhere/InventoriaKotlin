@@ -36,6 +36,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.inventoria.app.R
 import com.inventoria.app.data.repository.FirebaseAuthRepository
+import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.ui.main.MainActivity
 import com.inventoria.app.ui.theme.*
 import dagger.hilt.android.AndroidEntryPoint
@@ -49,6 +50,9 @@ class SplashActivity : ComponentActivity() {
     
     @Inject
     lateinit var authRepository: FirebaseAuthRepository
+
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +61,7 @@ class SplashActivity : ComponentActivity() {
             InventoriaTheme {
                 SplashScreenContent(
                     authRepository = authRepository,
+                    settingsRepository = settingsRepository,
                     onEnterApp = { navigateToMain() }
                 )
             }
@@ -72,6 +77,7 @@ class SplashActivity : ComponentActivity() {
 @Composable
 fun SplashScreenContent(
     authRepository: FirebaseAuthRepository,
+    settingsRepository: SettingsRepository,
     onEnterApp: () -> Unit
 ) {
     val context = LocalContext.current
@@ -81,6 +87,7 @@ fun SplashScreenContent(
     
     val currentUser = authRepository.getCurrentUser()
     val isAuthenticated = currentUser != null && !currentUser.isAnonymous
+    val customUsername by settingsRepository.customUsername.collectAsState(initial = null)
 
     // Google Sign-In Launcher
     val launcher = rememberLauncherForActivityResult(
@@ -146,7 +153,7 @@ fun SplashScreenContent(
                 .alpha(alphaAnim.value)
                 .scale(scaleAnim.value)
         ) {
-            // New Unified Logo
+            // Logo
             Box(
                 modifier = Modifier
                     .size(120.dp)
@@ -173,8 +180,9 @@ fun SplashScreenContent(
             AnimatedVisibility(visible = showActions, enter = fadeIn()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (isAuthenticated) {
+                        val displayName = customUsername ?: currentUser?.displayName?.split(" ")?.firstOrNull() ?: "User"
                         Text(
-                            text = "Welcome back, ${currentUser?.displayName?.split(" ")?.firstOrNull() ?: "User"}",
+                            text = "Welcome back, $displayName",
                             fontSize = 18.sp,
                             color = Color.White.copy(alpha = 0.9f)
                         )
@@ -213,7 +221,8 @@ fun SplashScreenContent(
                         ) {
                             Icon(Icons.Default.Person, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Local Account", fontWeight = FontWeight.Bold)
+                            val label = customUsername ?: "Local Account"
+                            Text(label, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

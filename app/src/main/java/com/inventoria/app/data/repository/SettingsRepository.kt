@@ -26,6 +26,9 @@ class SettingsRepository @Inject constructor(
     private val INVENTORY_HIDDEN_COLLECTIONS = stringSetPreferencesKey("inv_hidden_colls")
     private val INVENTORY_HARD_FILTER = booleanPreferencesKey("inv_hard_filter")
     private val INVENTORY_EXPANDED_ITEMS = stringSetPreferencesKey("inv_expanded_items")
+    
+    // Custom Username
+    private val CUSTOM_USERNAME = stringPreferencesKey("custom_username")
 
     val isDarkMode: Flow<Boolean> = context.dataStore.data
         .map { preferences -> preferences[IS_DARK_MODE] ?: false }
@@ -54,6 +57,9 @@ class SettingsRepository @Inject constructor(
 
     val expandedItemIds: Flow<Set<String>> = context.dataStore.data
         .map { it[INVENTORY_EXPANDED_ITEMS] ?: emptySet() }
+        
+    val customUsername: Flow<String?> = context.dataStore.data
+        .map { it[CUSTOM_USERNAME] }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }
@@ -90,5 +96,15 @@ class SettingsRepository @Inject constructor(
 
     suspend fun saveExpandedItems(itemIds: Set<String>) {
         context.dataStore.edit { it[INVENTORY_EXPANDED_ITEMS] = itemIds }
+    }
+    
+    suspend fun saveCustomUsername(username: String?) {
+        context.dataStore.edit { prefs ->
+            if (username.isNullOrBlank()) {
+                prefs.remove(CUSTOM_USERNAME)
+            } else {
+                prefs[CUSTOM_USERNAME] = username
+            }
+        }
     }
 }
