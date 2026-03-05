@@ -126,7 +126,9 @@ class InventoryListViewModel @Inject constructor(
                 val expandedIdsStrings = args[10] as Set<String>
                 val expandedIds = expandedIdsStrings.mapNotNull { it.toLongOrNull() }.toSet()
                 
-                val isFiltering = query.isNotBlank() || hiddenCats.isNotEmpty() || hiddenColls.isNotEmpty()
+                // Only consider it "active filtering" if search query is present
+                // Hidden categories/collections are considered persistent organizational filters
+                val isFiltering = query.isNotBlank()
 
                 val allCategories = items.flatMap { item -> 
                     item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList() 
@@ -134,15 +136,15 @@ class InventoryListViewModel @Inject constructor(
 
                 // 1. Initial Match
                 val matchedItems = items.filter { item ->
+                    val itemCats = item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: listOf("Uncategorized")
+                    
                     val matchesQuery = if (query.isBlank()) true else {
-                        val itemCats = item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: listOf("Uncategorized")
                         item.name.contains(query, ignoreCase = true) || 
                         item.location.contains(query, ignoreCase = true) ||
                         item.description?.contains(query, ignoreCase = true) == true ||
                         itemCats.any { it.contains(query, ignoreCase = true) }
                     }
                     
-                    val itemCats = item.category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: listOf("Uncategorized")
                     val itemCollIds = itemCollections.filter { it.second.contains(item.id) }.map { it.first }
                     
                     val isHiddenByCategory = if (isHardFilter) {

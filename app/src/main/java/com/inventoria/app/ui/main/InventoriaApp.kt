@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -101,8 +102,15 @@ fun InventoriaApp() {
 
                         NavigationBarItem(
                             icon = { Icon(screen.icon, contentDescription = null) },
-                            label = { Text(screen.title) },
+                            label = { 
+                                Text(
+                                    text = screen.title,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                ) 
+                            },
                             selected = isSelected,
+                            alwaysShowLabel = false, // This ensures labels only show if there is enough space or when selected
                             onClick = {
                                 Log.d("InventoriaNav", "Click on ${screen.route}. currentRoute: $currentRoute")
                                 navController.navigate(screen.route) {
