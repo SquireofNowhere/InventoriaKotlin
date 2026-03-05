@@ -124,9 +124,11 @@ fun CollectionItemCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                if (!collection.description.isNullOrEmpty()) {
+                
+                val description = collection.description
+                if (!description.isNullOrEmpty()) {
                     Text(
-                        text = collection.description,
+                        text = description,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1

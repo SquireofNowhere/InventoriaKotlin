@@ -57,6 +57,12 @@ interface CollectionDao {
     @Query("SELECT * FROM collection_items WHERE collection_id = :collectionId")
     suspend fun getItemsForCollection(collectionId: Long): List<InventoryCollectionItem>
 
+    @Query("SELECT * FROM collection_items")
+    fun getAllCollectionItemsFlow(): Flow<List<InventoryCollectionItem>>
+
+    @Query("SELECT * FROM collection_items")
+    suspend fun getItemsForSync(): List<InventoryCollectionItem>
+
     @Query("""
         SELECT 
             :collectionId as collection_id,

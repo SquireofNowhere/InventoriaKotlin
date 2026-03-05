@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.inventoria.app.ui.screens.collections
 
 import androidx.compose.animation.*
@@ -26,7 +28,6 @@ import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryCollectionWithItems
 import com.inventoria.app.data.model.InventoryCollectionReadiness
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollectionDetailScreen(
     collectionId: Long,
@@ -274,9 +275,10 @@ fun CollectionHeader(collection: InventoryCollection, readiness: InventoryCollec
                 }
             }
             
-            if (!collection.description.isNullOrEmpty()) {
+            val desc = collection.description
+            if (!desc.isNullOrEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(text = collection.description, style = MaterialTheme.typography.bodyMedium)
+                Text(text = desc, style = MaterialTheme.typography.bodyMedium)
             }
 
             Spacer(modifier = Modifier.height(16.dp))

@@ -50,7 +50,6 @@ fun InventoryListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
-    var expandedItemIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
     var collapsedGroupNames by rememberSaveable { mutableStateOf(setOf<String>()) }
     var itemToUnequip by remember { mutableStateOf<InventoryItem?>(null) }
     var containerName by remember { mutableStateOf<String?>(null) }
@@ -59,6 +58,7 @@ fun InventoryListScreen(
     var showGroupMenu by remember { mutableStateOf(false) }
     var showFilterSheet by remember { mutableStateOf(false) }
 
+    // Clear collapsed groups when grouping mode changes
     LaunchedEffect(uiState.groupOption) {
         collapsedGroupNames = emptySet()
     }
@@ -71,6 +71,7 @@ fun InventoryListScreen(
         }
     }
 
+    // Drag and Drop State logic
     var draggedItem by remember { mutableStateOf<InventoryItem?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var currentPointerPosition by remember { mutableStateOf(Offset.Zero) }
@@ -104,6 +105,18 @@ fun InventoryListScreen(
                     }
                 },
                 actions = {
+                    // TREE CONTROLS (EXPAND/COLLAPSE ALL)
+                    if (uiState.groupOption == GroupOption.NONE) {
+                        IconButton(onClick = {
+                            if (uiState.expandedItemIds.isEmpty()) viewModel.expandAll() else viewModel.collapseAll()
+                        }) {
+                            Icon(
+                                imageVector = if (uiState.expandedItemIds.isEmpty()) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
+                                contentDescription = "Toggle Tree"
+                            )
+                        }
+                    }
+                    
                     IconButton(onClick = { showFilterSheet = true }) {
                         val isFiltered = uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()
                         BadgedBox(badge = { if (isFiltered) Badge() }) {
@@ -160,6 +173,7 @@ fun InventoryListScreen(
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Search Bar
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { 
@@ -172,6 +186,7 @@ fun InventoryListScreen(
                     shape = MaterialTheme.shapes.medium
                 )
                 
+                // Active Filters Chips
                 if (uiState.groupOption != GroupOption.NONE || uiState.sortOption != SortOption.DATE_DESC || uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
@@ -209,6 +224,7 @@ fun InventoryListScreen(
                     }
                 }
                 
+                // Item List
                 if (uiState.isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -223,24 +239,21 @@ fun InventoryListScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         if (uiState.groupOption == GroupOption.NONE) {
-                            val displayItems = if (searchQuery.isNotBlank() || uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()) {
-                                uiState.filteredItems
-                            } else {
-                                uiState.filteredItems.filter { it.parentId == null }
-                            }
+                            val displayItems = uiState.filteredItems.filter { it.parentId == null }
 
                             items(displayItems, key = { it.id }) { item ->
                                 InventoryItemRow(
                                     item = item,
-                                    allItems = uiState.items,
+                                    allItems = uiState.filteredItems,
+                                    matchedItemIds = uiState.matchedItemIds,
                                     depth = 0,
-                                    expandedItemIds = expandedItemIds,
+                                    expandedItemIds = uiState.expandedItemIds,
                                     draggedItemId = draggedItem?.id,
                                     dropTargetId = dropTargetId,
                                     collectionItemIds = uiState.collectionItemIds,
                                     isSelectionMode = fromCollectionId != 0L,
                                     onToggleExpand = { id ->
-                                        expandedItemIds = if (expandedItemIds.contains(id)) expandedItemIds - id else expandedItemIds + id
+                                        viewModel.toggleItemExpansion(id)
                                     },
                                     onItemClick = { id ->
                                         if (fromCollectionId != 0L) {
@@ -282,10 +295,11 @@ fun InventoryListScreen(
                                         dropTargetId = null
                                     },
                                     onPositioned = { id, rect -> itemBounds[id] = rect },
-                                    isSearchMode = searchQuery.isNotBlank() || uiState.hiddenCategories.isNotEmpty() || uiState.hiddenCollections.isNotEmpty()
+                                    isSearchMode = uiState.isFiltering
                                 )
                             }
                         } else {
+                            // Grouped View
                             uiState.groupedItems.forEach { (groupName, groupItems) ->
                                 val isCollapsed = collapsedGroupNames.contains(groupName)
                                 item(key = "header_$groupName") {
@@ -333,15 +347,16 @@ fun InventoryListScreen(
                                     items(groupItems, key = { "${groupName}_${it.id}" }) { item ->
                                         InventoryItemRow(
                                             item = item,
-                                            allItems = uiState.items,
+                                            allItems = groupItems,
+                                            matchedItemIds = uiState.matchedItemIds,
                                             depth = 0,
-                                            expandedItemIds = expandedItemIds,
+                                            expandedItemIds = uiState.expandedItemIds,
                                             draggedItemId = draggedItem?.id,
                                             dropTargetId = dropTargetId,
                                             collectionItemIds = uiState.collectionItemIds,
                                             isSelectionMode = fromCollectionId != 0L,
                                             onToggleExpand = { id ->
-                                                expandedItemIds = if (expandedItemIds.contains(id)) expandedItemIds - id else expandedItemIds + id
+                                                viewModel.toggleItemExpansion(id)
                                             },
                                             onItemClick = { id ->
                                                 if (fromCollectionId != 0L) {
@@ -393,6 +408,7 @@ fun InventoryListScreen(
                 }
             }
 
+            // Ghost Preview remains the same
             draggedItem?.let { item ->
                 Surface(
                     modifier = Modifier
@@ -430,6 +446,7 @@ fun InventoryListScreen(
                 uiState = uiState,
                 onToggleCategory = viewModel::toggleCategoryVisibility,
                 onToggleCollection = viewModel::toggleCollectionVisibility,
+                onSetHardFilter = viewModel::setHardFilterEnabled,
                 onClearAll = viewModel::clearFilters
             )
         }
@@ -458,6 +475,7 @@ fun FilterBottomSheetContent(
     uiState: InventoryUiState,
     onToggleCategory: (String) -> Unit,
     onToggleCollection: (Long) -> Unit,
+    onSetHardFilter: (Boolean) -> Unit,
     onClearAll: () -> Unit
 ) {
     Column(
@@ -477,6 +495,33 @@ fun FilterBottomSheetContent(
                 Text("Clear All")
             }
         }
+
+        // Hard Filter Toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Hard Filter", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Items with ANY hidden tag will be hidden",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = uiState.isHardFilterEnabled,
+                    onCheckedChange = onSetHardFilter
+                )
+            }
+        }
+
+        Divider()
 
         Text("Hide Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         FlowRow(
@@ -525,6 +570,7 @@ fun FilterBottomSheetContent(
 fun InventoryItemRow(
     item: InventoryItem,
     allItems: List<InventoryItem>,
+    matchedItemIds: Set<Long>,
     depth: Int,
     expandedItemIds: Set<Long>,
     draggedItemId: Long?,
@@ -548,6 +594,7 @@ fun InventoryItemRow(
     val isBeingDragged = draggedItemId == item.id
     val isPotentialDropTarget = dropTargetId == item.id && draggedItemId != item.id
     val isInCollection = collectionItemIds.contains(item.id)
+    val isDirectMatch = matchedItemIds.contains(item.id) || !isSearchMode
 
     var rowRect by remember { mutableStateOf(Rect.Zero) }
 
@@ -581,6 +628,7 @@ fun InventoryItemRow(
                 .fillMaxWidth()
                 .padding(horizontal = if (isPotentialDropTarget || (isInCollection && isSelectionMode)) 4.dp else 0.dp)
                 .padding(vertical = if (isInCollection && isSelectionMode) 2.dp else 0.dp)
+                .alpha(if (isDirectMatch) 1f else 0.6f)
                 .pointerInput(item.id) {
                     if (!isSelectionMode) {
                         detectDragGesturesAfterLongPress(
@@ -600,7 +648,7 @@ fun InventoryItemRow(
                     if (isSelectionMode) {
                         onItemClick(item.id)
                     } else {
-                        if (isContainer && !isSearchMode) onToggleExpand(item.id) else onItemClick(item.id)
+                        if (isContainer) onToggleExpand(item.id) else onItemClick(item.id)
                     }
                 },
             color = backgroundColor,
@@ -615,7 +663,7 @@ fun InventoryItemRow(
                     .alpha(if (isBeingDragged) 0f else 1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isContainer && !isSearchMode) {
+                if (isContainer) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                         contentDescription = null,
@@ -649,7 +697,8 @@ fun InventoryItemRow(
                     Text(
                         text = item.name,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (isContainer) FontWeight.Bold else FontWeight.Normal
+                        fontWeight = if (isDirectMatch) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isDirectMatch) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (item.location.isNotBlank() && depth == 0) {
                         Text(
@@ -689,11 +738,12 @@ fun InventoryItemRow(
             }
         }
 
-        if (isExpanded && !isSearchMode) {
+        if (isExpanded) {
             children.forEach { child ->
                 InventoryItemRow(
                     item = child,
                     allItems = allItems,
+                    matchedItemIds = matchedItemIds,
                     depth = depth + 1,
                     expandedItemIds = expandedItemIds,
                     draggedItemId = draggedItemId,

@@ -1,6 +1,7 @@
 package com.inventoria.app.data.model
 
 import androidx.room.*
+import com.google.firebase.database.PropertyName
 
 enum class InventoryCollectionType {
     TRAVEL_KIT,
@@ -15,27 +16,59 @@ enum class InventoryCollectionType {
 data class InventoryCollection(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = "id")
-    val id: Long = 0,
+    @get:PropertyName("id")
+    @set:PropertyName("id")
+    var id: Long = 0,
+    
     @ColumnInfo(name = "name")
-    val name: String,
+    @get:PropertyName("name")
+    @set:PropertyName("name")
+    var name: String = "",
+    
     @ColumnInfo(name = "description")
-    val description: String? = null,
+    @get:PropertyName("description")
+    @set:PropertyName("description")
+    var description: String? = null,
+    
     @ColumnInfo(name = "icon")
-    val icon: String? = null,
+    @get:PropertyName("icon")
+    @set:PropertyName("icon")
+    var icon: String? = null,
+    
     @ColumnInfo(name = "color")
-    val color: Int,
+    @get:PropertyName("color")
+    @set:PropertyName("color")
+    var color: Int = 0,
+    
     @ColumnInfo(name = "tags")
-    val tags: List<String> = emptyList(),
+    @get:PropertyName("tags")
+    @set:PropertyName("tags")
+    var tags: List<String> = emptyList(),
+    
     @ColumnInfo(name = "collection_type")
-    val collectionType: InventoryCollectionType = InventoryCollectionType.OTHER,
+    @get:PropertyName("collectionType")
+    @set:PropertyName("collectionType")
+    var collectionType: InventoryCollectionType = InventoryCollectionType.OTHER,
+    
     @ColumnInfo(name = "requires_same_location")
-    val requiresSameLocation: Boolean = false,
+    @get:PropertyName("requiresSameLocation")
+    @set:PropertyName("requiresSameLocation")
+    var requiresSameLocation: Boolean = false,
+    
     @ColumnInfo(name = "preferred_container_id")
-    val preferredContainerId: Long? = null,
+    @get:PropertyName("preferredContainerId")
+    @set:PropertyName("preferredContainerId")
+    var preferredContainerId: Long? = null,
+    
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis(),
+    @get:PropertyName("createdAt")
+    @set:PropertyName("createdAt")
+    var createdAt: Long = System.currentTimeMillis(),
+    
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis()
+    @get:PropertyName("updatedAt")
+    @set:PropertyName("updatedAt")
+    var updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(
@@ -59,17 +92,34 @@ data class InventoryCollection(
 )
 data class InventoryCollectionItem(
     @ColumnInfo(name = "collection_id")
-    val collectionId: Long,
+    @get:PropertyName("collectionId")
+    @set:PropertyName("collectionId")
+    var collectionId: Long = 0,
+    
     @ColumnInfo(name = "item_id")
-    val itemId: Long,
+    @get:PropertyName("itemId")
+    @set:PropertyName("itemId")
+    var itemId: Long = 0,
+    
     @ColumnInfo(name = "required_quantity")
-    val requiredQuantity: Int = 1,
+    @get:PropertyName("requiredQuantity")
+    @set:PropertyName("requiredQuantity")
+    var requiredQuantity: Int = 1,
+    
     @ColumnInfo(name = "notes")
-    val notes: String? = null,
+    @get:PropertyName("notes")
+    @set:PropertyName("notes")
+    var notes: String? = null,
+    
     @ColumnInfo(name = "sort_order")
-    val sortOrder: Int = 0,
+    @get:PropertyName("sortOrder")
+    @set:PropertyName("sortOrder")
+    var sortOrder: Int = 0,
+    
     @ColumnInfo(name = "added_at")
-    val addedAt: Long = System.currentTimeMillis()
+    @get:PropertyName("addedAt")
+    @set:PropertyName("addedAt")
+    var addedAt: Long = System.currentTimeMillis()
 )
 
 data class InventoryCollectionWithCount(
