@@ -12,10 +12,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Person
@@ -30,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,6 +95,8 @@ fun SplashScreenContent(
     val currentUser = authRepository.getCurrentUser()
     val isAuthenticated = currentUser != null && !currentUser.isAnonymous
     val customUsername by settingsRepository.customUsername.collectAsState(initial = null)
+    
+    val isDarkTheme = isSystemInDarkTheme()
 
     // Google Sign-In Launcher
     val launcher = rememberLauncherForActivityResult(
@@ -146,16 +152,31 @@ fun SplashScreenContent(
         showActions = true
     }
     
+    // Theme-aware background and colors
+    val backgroundBrush = if (isDarkTheme) {
+        Brush.linearGradient(
+            colors = listOf(DarkBackground, DarkSurface),
+            start = Offset(0f, 0f),
+            end = Offset(1000f, 1000f)
+        )
+    } else {
+        Brush.linearGradient(
+            colors = listOf(GradientStart, GradientMiddle, GradientEnd),
+            start = Offset(0f, 0f),
+            end = Offset(1000f, 1000f)
+        )
+    }
+
+    val textColor = if (isDarkTheme) DarkOnSurface else Color.White
+    val subTextColor = textColor.copy(alpha = 0.7f)
+    val buttonBgColor = if (isDarkTheme) PurplePrimaryLight else Color.White
+    val buttonContentColor = if (isDarkTheme) Color.Black else GradientStart
+    val outlinedButtonColor = if (isDarkTheme) PurplePrimaryLight else Color.White
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(GradientStart, GradientMiddle, GradientEnd),
-                    start = Offset(0f, 0f),
-                    end = Offset(1000f, 1000f)
-                )
-            )
+            .background(brush = backgroundBrush)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -172,17 +193,21 @@ fun SplashScreenContent(
                 .alpha(alphaAnim.value)
                 .scale(scaleAnim.value)
         ) {
-            // Logo
+            // Logo with dynamic background
             Box(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(160.dp)
                     .background(
-                        color = Color.White.copy(alpha = 0.2f),
-                        shape = androidx.compose.foundation.shape.CircleShape
+                        color = if (isDarkTheme) DarkSurfaceVariant.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.2f),
+                        shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = "📦", fontSize = 60.sp)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_inventoria_logo),
+                    contentDescription = "Inventoria Logo",
+                    modifier = Modifier.size(120.dp)
+                )
             }
             
             Spacer(modifier = Modifier.height(24.dp))
@@ -191,7 +216,7 @@ fun SplashScreenContent(
                 text = "Inventoria",
                 fontSize = 44.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color.White
+                color = textColor
             )
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -199,19 +224,19 @@ fun SplashScreenContent(
             AnimatedVisibility(visible = showActions, enter = fadeIn()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (isSigningIn) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = textColor)
                     } else if (isAuthenticated) {
                         val displayName = customUsername ?: currentUser?.displayName?.split(" ")?.firstOrNull() ?: "User"
                         Text(
                             text = "Welcome back, $displayName",
                             fontSize = 18.sp,
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = subTextColor
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "Tap anywhere to begin",
                             fontSize = 14.sp,
-                            color = Color.White.copy(alpha = 0.6f)
+                            color = subTextColor.copy(alpha = 0.5f)
                         )
                     } else {
                         Spacer(modifier = Modifier.height(32.dp))
@@ -220,26 +245,23 @@ fun SplashScreenContent(
                                 isSigningIn = true
                                 try {
                                     val webClientId = context.getString(R.string.default_web_client_id)
-                                    Log.d("SplashActivity", "Using Web Client ID: $webClientId")
-                                    
                                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                                         .requestIdToken(webClientId)
                                         .requestEmail()
                                         .build()
                                     val client = GoogleSignIn.getClient(context, gso)
-                                    
-                                    // Sign out first to ensure account selection dialog always appears
                                     client.signOut().addOnCompleteListener {
-                                        Log.d("SplashActivity", "Launching Google Sign In Intent")
                                         launcher.launch(client.signInIntent)
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("SplashActivity", "Error preparing Google Sign In: ${e.message}")
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                                     isSigningIn = false
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = GradientStart),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = buttonBgColor,
+                                contentColor = buttonContentColor
+                            ),
                             modifier = Modifier.fillMaxWidth(0.7f).height(50.dp)
                         ) {
                             Icon(Icons.Default.Login, contentDescription = null)
@@ -251,8 +273,8 @@ fun SplashScreenContent(
                         
                         OutlinedButton(
                             onClick = onEnterApp,
-                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(outlinedButtonColor)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = outlinedButtonColor),
                             modifier = Modifier.fillMaxWidth(0.7f).height(50.dp)
                         ) {
                             Icon(Icons.Default.Person, contentDescription = null)

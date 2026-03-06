@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Mode Gradient Colors -->
+    <color name="gradient_start">#0F172A</color> <!-- DarkBackground -->
+    <color name="gradient_middle">#161E33</color>
+    <color name="gradient_end">#1E293B</color>   <!-- DarkSurface -->
+
+    <!-- Adjust other colors if needed for dark mode -->
+    <color name="shimmer_highlight">#20FFFFFF</color>
+    <color name="shimmer_base">#10FFFFFF</color>
+</resources>
