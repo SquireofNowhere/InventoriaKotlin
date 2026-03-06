@@ -2,6 +2,7 @@ package com.inventoria.app.di
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.storage.FirebaseStorage
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,9 +20,16 @@ object FirebaseModule {
     @Provides
     @Singleton
     fun provideFirebaseDatabase(): FirebaseDatabase {
-        // Return the regional instance. 
-        // Initial setup (like persistence) is handled in InventoriaApplication.kt
-        val url = "https://inventoria-18b97-default-rtdb.europe-west1.firebasedatabase.app/"
+        // Updated to the new project URL from google-services.json
+        val url = "https://inventoriaus-default-rtdb.firebaseio.com"
         return FirebaseDatabase.getInstance(url)
+    }
+
+    @Provides
+    @Singleton
+    fun provideFirebaseStorage(): FirebaseStorage {
+        // Updated to the new storage bucket from google-services.json
+        val bucketUrl = "gs://inventoriaus.firebasestorage.app"
+        return FirebaseStorage.getInstance(bucketUrl)
     }
 }

@@ -28,10 +28,11 @@ class InventoriaApplication : Application() {
 
         // 3. Unified Firebase Initialization
         try {
-            val url = "https://inventoria-18b97-default-rtdb.europe-west1.firebasedatabase.app/"
-            // Set persistence on the specific regional instance we use everywhere
+            // Updated to the new project URL from google-services.json
+            val url = "https://inventoriaus-default-rtdb.firebaseio.com"
+            // Set persistence on the specific instance we use everywhere
             FirebaseDatabase.getInstance(url).setPersistenceEnabled(true)
-            Log.d("InventoriaApp", "Firebase Database initialized with persistence.")
+            Log.d("InventoriaApp", "Firebase Database initialized with persistence for new project.")
         } catch (e: Exception) {
             Log.e("InventoriaApp", "Firebase initialization failed", e)
         }

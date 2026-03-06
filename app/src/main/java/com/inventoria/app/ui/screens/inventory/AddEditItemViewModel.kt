@@ -1,14 +1,15 @@
-
 package com.inventoria.app.ui.screens.inventory
 
 import android.content.Context
 import android.location.Geocoder
+import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +18,7 @@ import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.repository.FirebaseStorageRepository
 import com.inventoria.app.data.repository.InventoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,7 +28,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
+import java.util.UUID
 import javax.inject.Inject
 
 data class CustomField(
@@ -38,12 +43,14 @@ data class AddEditItemUiState(
     val geoPoint: GeoPoint? = null,
     val address: String = "",
     val isResolvingAddress: Boolean = false,
-    val storageItems: List<InventoryItem> = emptyList()
+    val storageItems: List<InventoryItem> = emptyList(),
+    val isUploadingImage: Boolean = false
 )
 
 @HiltViewModel
 class AddEditItemViewModel @Inject constructor(
     private val repository: InventoryRepository,
+    private val storageRepository: FirebaseStorageRepository,
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -59,10 +66,17 @@ class AddEditItemViewModel @Inject constructor(
     var parentId by mutableStateOf<Long?>(null)
     var isEquipped by mutableStateOf(false)
     
+    // imageUrl holds the remote URL for database syncing
+    var imageUrl by mutableStateOf<String?>(null)
+    
+    // previewImageUri holds either the remote URL or a local file path for immediate UI feedback
+    var previewImageUri by mutableStateOf<String?>(null)
+    
     val parsedCategories by derivedStateOf {
         category.split(",")
             .map { it.trim() }
             .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
     }
 
     private val _uiState = MutableStateFlow(AddEditItemUiState())
@@ -131,6 +145,8 @@ class AddEditItemViewModel @Inject constructor(
                     isStorage = item.storage
                     parentId = item.parentId
                     isEquipped = item.equipped
+                    imageUrl = item.imageUrl
+                    previewImageUri = item.imageUrl
                     
                     val lat = item.latitude
                     val lon = item.longitude
@@ -207,6 +223,65 @@ class AddEditItemViewModel @Inject constructor(
         if (index in customFields.indices) customFields[index] = CustomField(key, value)
     }
 
+    fun removeImage() {
+        imageUrl = null
+        previewImageUri = null
+    }
+
+    fun handleImageSelection(uri: Uri?) {
+        if (uri == null) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploadingImage = true) }
+            try {
+                val localPath = withContext(Dispatchers.IO) {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val file = File(context.filesDir, "item_images").apply { mkdirs() }
+                    val fileName = "img_${UUID.randomUUID()}.jpg"
+                    val targetFile = File(file, fileName)
+
+                    inputStream?.use { input ->
+                        FileOutputStream(targetFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    targetFile.absolutePath
+                }
+
+                // Show local preview immediately
+                previewImageUri = localPath
+
+                // Upload to Firebase Storage
+                val uploadResult = storageRepository.uploadItemImage(localPath)
+
+                withContext(Dispatchers.Main) {
+                    uploadResult.onSuccess { downloadUrl ->
+                        imageUrl = downloadUrl
+                        previewImageUri = downloadUrl
+                    }.onFailure { exception ->
+                        Log.e(TAG, "Failed to get download URL from Storage", exception)
+                        _eventFlow.emit(UiEvent.ShowSnackbar("Failed to upload image to cloud: ${exception.message}"))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving image", e)
+                _eventFlow.emit(UiEvent.ShowSnackbar("Failed to save or upload image"))
+            } finally {
+                _uiState.update { it.copy(isUploadingImage = false) }
+            }
+        }
+    }
+
+
+    fun getTempImageUri(): Uri {
+        val directory = File(context.cacheDir, "temp_images").apply { mkdirs() }
+        val file = File(directory, "temp_capture.jpg")
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+    }
+
     fun onSaveClick() {
         viewModelScope.launch {
             try {
@@ -214,6 +289,13 @@ class AddEditItemViewModel @Inject constructor(
                     _eventFlow.emit(UiEvent.ShowSnackbar("Please fill in required fields"))
                     return@launch
                 }
+                
+                // Sanitize categories: split, trim, distinct by lowercase, then join
+                val sanitizedCategory = category.split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinctBy { it.lowercase() }
+                    .joinToString(", ")
                 
                 val state = _uiState.value
                 val item = InventoryItem(
@@ -224,11 +306,12 @@ class AddEditItemViewModel @Inject constructor(
                     latitude = state.geoPoint?.latitude,
                     longitude = state.geoPoint?.longitude,
                     price = price.toDoubleOrNull(),
-                    storage = isStorage, // Updated to use renamed 'storage' field
+                    storage = isStorage, 
                     parentId = parentId,
-                    equipped = isEquipped, // Updated to use renamed 'equipped' field
-                    category = category.ifBlank { null },
+                    equipped = isEquipped, 
+                    category = sanitizedCategory.ifBlank { null },
                     description = description.ifBlank { null },
+                    imageUrl = imageUrl, // This is now guaranteed to be a remote URL or null
                     customFields = customFields.filter { it.key.isNotBlank() }.associate { it.key to it.value }
                 )
 

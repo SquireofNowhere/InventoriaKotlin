@@ -228,8 +228,7 @@ class TaskTrackerViewModel @Inject constructor(
                     isRunning = false,
                     isPaused = true,
                     endTime = System.currentTimeMillis(),
-                    duration = duration,
-                    updatedAt = System.currentTimeMillis()
+                    duration = duration
                 )
                 timerService?.stopTask(currentTask.id)
                 repository.updateTask(pausedTask)
@@ -245,8 +244,7 @@ class TaskTrackerViewModel @Inject constructor(
                         startTime = System.currentTimeMillis(),
                         isRunning = true,
                         isPaused = false,
-                        isSessionActive = true,
-                        updatedAt = System.currentTimeMillis()
+                        isSessionActive = true
                     )
                     repository.insertTask(newSegment)
                 }
@@ -259,24 +257,16 @@ class TaskTrackerViewModel @Inject constructor(
             _isLoading.value = true
             val now = System.currentTimeMillis()
             
-            // 1. First, handle the active segment if it exists
-            session.activeSegment?.let { ui ->
-                val currentTask = ui.task
-                val duration = now - currentTask.startTime
-                val completedTask = currentTask.copy(
-                    isRunning = false,
-                    isPaused = false,
-                    isSessionActive = false,
-                    endTime = now,
-                    duration = duration,
-                    updatedAt = now
-                )
-                timerService?.stopTask(currentTask.id)
-                repository.updateTask(completedTask)
-            }
+            // Handle the active segment if it exists
+            val activeId = session.activeSegment?.task?.id
+            val activeDuration = session.activeSegment?.task?.let { now - it.startTime } ?: 0L
             
-            // 2. Mark the entire session as inactive using a bulk database operation
-            repository.endSession(session.groupId)
+            if (activeId != null) {
+                timerService?.stopTask(activeId)
+                repository.stopTaskAndSession(activeId, session.groupId, now, activeDuration)
+            } else {
+                repository.endSession(session.groupId)
+            }
             
             _isLoading.value = false
         }
@@ -303,19 +293,19 @@ class TaskTrackerViewModel @Inject constructor(
     // Explicitly adding these for TaskDetailDialog compatibility
     fun updateCompletedTaskName(task: Task, newName: String) {
         viewModelScope.launch {
-            repository.updateTask(task.copy(name = newName, isNameCustom = true, updatedAt = System.currentTimeMillis()))
+            repository.updateTask(task.copy(name = newName, isNameCustom = true))
         }
     }
 
     fun updateCompletedTaskKind(task: Task, newKind: TaskKind) {
         viewModelScope.launch {
-            repository.updateTask(task.copy(kind = newKind, isKindCustom = true, updatedAt = System.currentTimeMillis()))
+            repository.updateTask(task.copy(kind = newKind, isKindCustom = true))
         }
     }
 
     fun updateSegment(task: Task) {
         viewModelScope.launch {
-            repository.updateTask(task.copy(updatedAt = System.currentTimeMillis()))
+            repository.updateTask(task)
         }
     }
 

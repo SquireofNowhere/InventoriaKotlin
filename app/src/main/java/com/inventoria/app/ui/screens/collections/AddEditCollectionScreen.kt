@@ -27,12 +27,7 @@ fun AddEditCollectionScreen(
     viewModel: AddEditCollectionViewModel = hiltViewModel()
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(collectionId) {
-        if (collectionId != null && collectionId != 0L) {
-            viewModel.loadCollection(collectionId)
-        }
-    }
+    val isEditing = collectionId != null && collectionId != 0L
 
     LaunchedEffect(Unit) {
         viewModel.eventFlow.collect { event ->
@@ -47,7 +42,7 @@ fun AddEditCollectionScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(if (collectionId == null) "Create Collection" else "Edit Collection") },
+                title = { Text(if (!isEditing) "Create Collection" else "Edit Collection") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -134,7 +129,7 @@ fun AddEditCollectionScreen(
                     expanded = expanded,
                     onDismissRequest = { expanded = false }
                 ) {
-                    for (type in InventoryCollectionType.values()) {
+                    for (type in InventoryCollectionType.entries) {
                         DropdownMenuItem(
                             text = { Text(type.name) },
                             onClick = {
@@ -167,7 +162,7 @@ fun AddEditCollectionScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium
             ) {
-                Text("Save Collection")
+                Text(if (isEditing) "Update Collection" else "Save Collection")
             }
         }
     }

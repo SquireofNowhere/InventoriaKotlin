@@ -15,8 +15,8 @@ android {
         applicationId = "com.inventoria.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.14"
+        versionCode = 3
+        versionName = "1.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -126,7 +126,11 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
     implementation("com.google.firebase:firebase-database")
     implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-storage")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
+
+    // Image Loading
+    implementation("io.coil-kt:coil-compose:2.5.0")
     
     // Testing
     testImplementation("junit:junit:4.13.2")

@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.inventoria.app.data.local.CollectionDao
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.InventoryDatabase
+import com.inventoria.app.data.local.ItemLinkDao
 import com.inventoria.app.data.local.TaskDao
 import dagger.Module
 import dagger.Provides
@@ -52,5 +53,11 @@ object DatabaseModule {
     @Singleton
     fun provideCollectionDao(database: InventoryDatabase): CollectionDao {
         return database.collectionDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideItemLinkDao(database: InventoryDatabase): ItemLinkDao {
+        return database.itemLinkDao()
     }
 }

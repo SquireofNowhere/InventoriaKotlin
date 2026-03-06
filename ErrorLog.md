@@ -4,54 +4,77 @@ This document tracks significant bugs encountered during development and the tec
 
 ---
 
-## 🐞 1. Navigation Backstack & State Restoration Crash
+## 🐞 1. Task Desync During Rapid Operations
 **Status:** ✅ Resolved
 
 ### 📝 Problem
-The application would crash when navigating from a deep-linked screen (e.g., Dashboard -> Item Detail -> Map) back to a primary tab via the Bottom Navigation bar.
+Starting and stopping a task segment in rapid succession (under 1 second) caused multiple devices to desync. One device would show the task stopped, while others would show it still running or "ghost" restarted.
 
 ### 🔍 Root Cause
-1.  **Tab Hierarchy Conflict:** Sub-screens like `Item Detail` and `Map` weren't logically grouped under their parent tabs (Dashboard/Inventory), causing the UI to lose focus and trigger redundant navigation calls.
-2.  **Map State Serialization:** `osmdroid`'s `MapView` contains a complex state that is not easily serializable. When Compose Navigation attempted to `saveState` on a backstack that included a MapView, it triggered a crash or an infinite restoration loop.
+- **Clock Precision**: `System.currentTimeMillis()` can return the same value for operations happening in the same millisecond. Sync logic cannot order these correctly.
+- **Atomic Split**: The "Stop Task" action involved two separate database calls (Complete Task + End Session), creating a race condition window.
 
 ### 🛠️ Final Fix
--   **Implemented "Clean-Slate" Navigation:** Modified `InventoriaApp.kt` to explicitly disable `saveState` and `restoreState` when switching primary tabs. 
--   **Stack Clearing:** Used `popUpTo(startDestination) { saveState = false }` to ensure every tab click starts from a fresh root screen, preventing the restoration of unstable map states.
--   **Logical Origin Tracking:** Added an `origin` parameter to detail routes to ensure the correct bottom navigation tab remains highlighted regardless of the navigation path.
+- **Monotonic Timestamps**: Implemented a monotonic counter in `TaskRepository.kt` that guarantees a strictly increasing `updatedAt` value for every operation, even if they occur in the same millisecond.
+- **Atomic Transactions**: Created a `@Transaction` method `stopTaskAndSession` in `TaskDao` to ensure both state changes are committed as a single unit.
 
 ---
 
-## 🐞 2. Map Initialization Crash (Device Specific)
+## 🐞 2. Link Persistence & "Zombie" Data
 **Status:** ✅ Resolved
 
 ### 📝 Problem
-The Map tab worked perfectly on a tablet but crashed instantly upon opening on certain phone hardware.
+Removing links between items would work locally, but the links would reappear after an app restart or a cloud sync.
 
 ### 🔍 Root Cause
--   **Missing User Agent:** `osmdroid` requires an explicit User Agent string to fetch tiles. Some devices/Android versions fail silently or crash if `Configuration.getInstance().userAgentValue` is not set.
--   **Context Loading:** The library requires `Configuration.getInstance().load()` to be called with a valid context before the `MapView` is instantiated.
+- **Merging vs Overwriting**: The sync engine used `updateChildren` when pushing to Firebase. This merged local lists with cloud data, making deletions impossible (the cloud would just add the "missing" link back to the local device).
 
 ### 🛠️ Final Fix
--   **Explicit Configuration:** Added a `LaunchedEffect(Unit)` in `InventoryMapScreen.kt` to load the `osmdroid` configuration and set the `userAgentValue` to the application's package name before any map UI is rendered.
+- **Full State Overwrite**: Switched to `setValue()` for all sync nodes in `FirebaseSyncRepository.kt`. This ensures that if a link is deleted locally, it is removed from the cloud, and subsequently from all other devices.
 
 ---
 
-## 🐞 3. Recursive Location Resolution (StackOverflowError)
+## 🐞 3. Disappearing Items & Self-Parenting Loops
 **Status:** ✅ Resolved
 
 ### 📝 Problem
-The app would crash (process ended abruptly) when receiving its first GPS location fix, or even when opening the Inventory list with an empty database.
+Certain items (like a "Bag") would disappear from the inventory list, and opening their details would crash the app.
 
 ### 🔍 Root Cause
-1.  **Circular Dependencies:** The logic to "resolve" an item's location (checking if it's inside a container, which is inside another container, etc.) was recursive. A data loop (A in B, B in A) caused an infinite loop.
-2.  **UI Recursion:** The `InventoryItemRow` was also recursive for displaying nested storage. Without a depth limit, any data corruption could crash the UI thread.
-3.  **Threading Violations:** The GPS "first fix" callback was attempting to update the repository from a background thread without a proper coroutine context.
+- **Logical Circularity**: An item was set as its own physical parent (`parentId == id`). This caused the recursive location resolver and hierarchy builder to enter an infinite loop.
 
 ### 🛠️ Final Fix
--   **Cycle Detection:** Added a `visited` set to the recursive location resolver in `InventoryRepository.kt` to detect and break circular dependencies.
--   **UI Depth Guard:** Added a `depth > 20` hard limit to `InventoryItemRow` in `InventoryListScreen.kt` to prevent UI thread stack overflows.
--   **Coroutine Safety:** Wrapped repository updates in `viewModelScope.launch` within the `InventoryListViewModel` to ensure all state changes happen on the correct thread.
--   **Flow Robustness:** Added `.catch` operators to the data flows in the ViewModel to prevent a single calculation error from killing the entire application process.
+- **Sanitization Guard**: Added repository-level protection in `InventoryRepository.kt` that forces `parentId` to `null` if an item tries to parent itself.
+- **Recursion Ticker**: Added a `visited` set to all recursive functions in the ViewModels and Repository to safely break out of any loops caused by "bad" data in the database.
 
 ---
-*Last Updated: 2026-02-27*
+
+## 🐞 4. Drag-and-Drop Ejection
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Dragging an item that was part of a linked group out of a container would sometimes "eject" it into root space while its linked followers stayed in the container, or vice versa.
+
+### 🔍 Root Cause
+- **Follower Application**: The drag-and-drop handler was only updating the `parentId` of the specific item being dragged, ignoring its logical followers.
+
+### 🛠️ Final Fix
+- **Recursive Move**: Updated `moveItem` in `InventoryListViewModel.kt` to explicitly request a follower update (`applyToFollowers = true`). Now, moving a leader item physically moves the entire logical group.
+
+---
+
+## 🐞 5. Multi-Device "Sync-Back" Race Condition
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Actions on Device A would briefly reflect on Device B, but then Device B would "sync back" its old state, overriding the new change.
+
+### 🔍 Root Cause
+- **Sync Echo**: Device B would apply a cloud change, which would trigger a local database observer, which Device B would then mistake for a "new local change" and push back to the cloud.
+
+### 🛠️ Final Fix
+- **Atomic Ignore Counter**: Replaced the boolean sync guard with an `AtomicInteger`. When a cloud update starts, the counter increments; local changes are ignored until the counter returns to zero.
+- **Flow Throttling**: Used `collectLatest` on the Firebase listener to ensure only the absolute latest cloud state is processed, canceling any overlapping stale pulls.
+
+---
+*Last Updated: 2024-05-20*

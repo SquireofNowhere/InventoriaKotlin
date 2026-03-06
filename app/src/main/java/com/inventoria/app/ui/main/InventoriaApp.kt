@@ -25,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.SyncStatus
 import com.inventoria.app.ui.components.SyncStatusIndicator
 import com.inventoria.app.ui.screens.collections.*
@@ -45,7 +46,14 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoriaApp() {
+fun InventoriaApp(
+    syncRepository: FirebaseSyncRepository = hiltViewModel<InventoryListViewModel>().let { 
+        // This is a hacky way to get the singleton repository without complicating the DI further
+        // Ideally, FirebaseSyncRepository should be injected directly into InventoriaApp if using hilt for App entry
+        // For now, I'll assume we can get it via Hilt in a better way or just use the syncStatus flow
+        hiltViewModel<InventoryListViewModel>().syncRepository
+    }
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -110,16 +118,21 @@ fun InventoriaApp() {
                                 ) 
                             },
                             selected = isSelected,
-                            alwaysShowLabel = false, // This ensures labels only show if there is enough space or when selected
+                            alwaysShowLabel = false,
                             onClick = {
-                                Log.d("InventoriaNav", "Click on ${screen.route}. currentRoute: $currentRoute")
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = false
-                                        inclusive = false
+                                if (!isSelected) {
+                                    Log.d("InventoriaNav", "Click on ${screen.route}. Triggering sync.")
+                                    // Trigger manual sync when switching tabs
+                                    inventoryViewModel.triggerManualSync()
+                                    
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = false
+                                            inclusive = false
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = false
                                     }
-                                    launchSingleTop = true
-                                    restoreState = false
                                 }
                             }
                         )
@@ -128,6 +141,7 @@ fun InventoriaApp() {
             }
         }
     ) { innerPadding ->
+        // Content remains the same
         Box(modifier = Modifier.fillMaxSize()) {
             NavHost(
                 navController = navController,
@@ -217,6 +231,9 @@ fun InventoriaApp() {
                     CollectionDetailScreen(
                         collectionId = id,
                         onNavigateBack = { navController.popBackStack() },
+                        onEditCollection = { collectionId ->
+                            navController.navigate("collection/edit/$collectionId")
+                        },
                         onNavigateToAddItems = { collectionId ->
                             navController.navigate("${Screen.Inventory.route}?fromCollection=$collectionId")
                         },
@@ -278,7 +295,8 @@ fun InventoriaApp() {
                                 launchSingleTop = true
                             }
                         },
-                        onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") }
+                        onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") },
+                        onNavigateToCollection = { id -> navController.navigate("collection/$id") }
                     )
                 }
 
@@ -321,7 +339,6 @@ fun InventoriaApp() {
                             onNavigateBack = { navController.popBackStack() }
                         )
                     } else {
-                        // Fallback or navigate back if we lost the parent entry
                         LaunchedEffect(Unit) {
                             navController.popBackStack()
                         }
@@ -329,17 +346,22 @@ fun InventoriaApp() {
                 }
             }
             
-            // Subtle, floating sync indicator at the top
+            // Sync status indicator UI remains the same
             if (syncStatus != SyncStatus.Idle) {
-                Surface(
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .wrapContentHeight()
                         .padding(top = 8.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-                    tonalElevation = 4.dp
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    SyncStatusIndicator(syncStatus = syncStatus)
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                        tonalElevation = 4.dp
+                    ) {
+                        SyncStatusIndicator(syncStatus = syncStatus)
+                    }
                 }
             }
         }
