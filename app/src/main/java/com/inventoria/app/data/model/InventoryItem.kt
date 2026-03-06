@@ -113,7 +113,12 @@ data class InventoryItem(
     @ColumnInfo(name = "sku")
     @get:PropertyName("sku")
     @set:PropertyName("sku")
-    var sku: String? = null
+    var sku: String? = null,
+
+    @ColumnInfo(name = "is_deleted")
+    @get:PropertyName("isDeleted")
+    @set:PropertyName("isDeleted")
+    var isDeleted: Boolean = false
 ) {
     /**
      * Check if the item is currently in stock

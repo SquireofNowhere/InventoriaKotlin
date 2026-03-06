@@ -1,38 +1,51 @@
 package com.inventoria.app.ui.main
 
-import android.util.Log
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Collections
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.Inventory
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.inventoria.app.R
 import com.inventoria.app.data.repository.SyncStatus
-import com.inventoria.app.ui.components.SyncStatusIndicator
-import com.inventoria.app.ui.screens.collections.*
+import com.inventoria.app.ui.screens.collections.AddEditCollectionScreen
+import com.inventoria.app.ui.screens.collections.CollectionDetailScreen
+import com.inventoria.app.ui.screens.collections.CollectionsScreen
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
-import com.inventoria.app.ui.screens.inventory.*
+import com.inventoria.app.ui.screens.inventory.AddEditItemScreen
+import com.inventoria.app.ui.screens.inventory.AddEditItemViewModel
+import com.inventoria.app.ui.screens.inventory.InventoryListScreen
+import com.inventoria.app.ui.screens.inventory.ItemDetailScreen
+import com.inventoria.app.ui.screens.inventory.LocationPickerScreen
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.SettingsScreen
-import com.inventoria.app.ui.screens.task.TaskTrackerScreen
+import com.inventoria.app.ui.screens.task.*
+import com.inventoria.app.ui.theme.InventoriaTheme
+import com.inventoria.app.ui.theme.PurplePrimary
+import com.inventoria.app.ui.theme.Success
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
@@ -49,12 +62,8 @@ fun InventoriaApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    
-    // Shared ViewModel to get sync status across screens
-    val inventoryViewModel: InventoryListViewModel = hiltViewModel()
-    val syncStatus by inventoryViewModel.syncStatus.collectAsState()
 
-    val bottomNavItems = listOf(
+    val items = listOf(
         Screen.Dashboard,
         Screen.Inventory,
         Screen.Collections,
@@ -65,75 +74,30 @@ fun InventoriaApp() {
 
     Scaffold(
         bottomBar = {
-            val currentRoute = currentDestination?.route
-            val showBottomBar = bottomNavItems.any { item ->
-                currentDestination?.hierarchy?.any {
-                    it.route?.split("?")?.firstOrNull() == item.route
-                } == true
-            } || currentRoute?.startsWith("item_detail/") == true || 
-                currentRoute?.startsWith(Screen.Map.route) == true || 
-                currentRoute?.startsWith("edit_item/") == true ||
-                currentRoute?.startsWith("collection/") == true
-
-            if (showBottomBar) {
-                NavigationBar {
-                    bottomNavItems.forEach { screen ->
-                        val isSelected = when {
-                            currentRoute?.startsWith("item_detail/") == true || currentRoute?.startsWith("edit_item/") == true -> {
-                                val origin = navBackStackEntry?.arguments?.getString("origin")
-                                screen.route == (origin ?: Screen.Dashboard.route)
-                            }
-                            currentRoute?.startsWith("collection/") == true -> {
-                                screen.route == Screen.Collections.route
-                            }
-                            currentRoute?.startsWith(Screen.Map.route) == true -> {
-                                val lat = navBackStackEntry?.arguments?.getFloat("lat", -1f) ?: -1f
-                                if (lat != -1f) {
-                                    val origin = navBackStackEntry?.arguments?.getString("origin")
-                                    screen.route == (origin ?: Screen.Dashboard.route)
-                                } else {
-                                    screen.route == Screen.Map.route
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
+            ) {
+                items.forEach { screen ->
+                    NavigationBarItem(
+                        icon = { Icon(screen.icon, contentDescription = null) },
+                        label = { Text(screen.title, fontSize = 10.sp) },
+                        selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = false
+                                    inclusive = false
                                 }
+                                launchSingleTop = true
+                                restoreState = false
                             }
-                            else -> currentDestination?.hierarchy?.any {
-                                it.route?.split("?")?.firstOrNull() == screen.route
-                            } == true
                         }
-
-                        NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = null) },
-                            label = { 
-                                Text(
-                                    text = screen.title,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                ) 
-                            },
-                            selected = isSelected,
-                            alwaysShowLabel = false,
-                            onClick = {
-                                if (!isSelected) {
-                                    Log.d("InventoriaNav", "Click on ${screen.route}. Triggering sync.")
-                                    // Trigger manual sync when switching tabs
-                                    inventoryViewModel.triggerManualSync()
-                                    
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = false
-                                            inclusive = false
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = false
-                                    }
-                                }
-                            }
-                        )
-                    }
+                    )
                 }
             }
         }
     ) { innerPadding ->
-        // Content remains the same
         Box(modifier = Modifier.fillMaxSize()) {
             NavHost(
                 navController = navController,
@@ -253,7 +217,25 @@ fun InventoriaApp() {
                 }
 
                 composable(Screen.Tasks.route) {
-                    TaskTrackerScreen()
+                    val trackerViewModel: TaskTrackerViewModel = hiltViewModel()
+                    TaskTrackerScreen(
+                        viewModel = trackerViewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToHistory = { navController.navigate("task_history") },
+                        onNavigateToStats = { navController.navigate("productivity_stats") }
+                    )
+                }
+                
+                composable("task_history") {
+                    TaskHistoryScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("productivity_stats") {
+                    ProductivityStatsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
                 }
 
                 composable(Screen.Settings.route) {
@@ -343,25 +325,40 @@ fun InventoriaApp() {
                     }
                 }
             }
-            
-            // Sync status indicator UI remains the same
-            if (syncStatus != SyncStatus.Idle) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .wrapContentHeight()
-                        .padding(top = 8.dp),
-                    contentAlignment = Alignment.TopCenter
-                ) {
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-                        tonalElevation = 4.dp
-                    ) {
-                        SyncStatusIndicator(syncStatus = syncStatus)
-                    }
-                }
-            }
         }
+    }
+}
+
+@Composable
+fun SyncStatusIndicator(syncStatus: SyncStatus) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (syncStatus == SyncStatus.Syncing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
+        } else {
+            Icon(
+                imageVector = if (syncStatus == SyncStatus.Synced) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = if (syncStatus == SyncStatus.Synced) Success else MaterialTheme.colorScheme.error
+            )
+        }
+        val statusText = when (syncStatus) {
+            SyncStatus.Syncing -> "Syncing with cloud..."
+            SyncStatus.Synced -> "Cloud sync complete"
+            is SyncStatus.Error -> "Sync failed"
+            else -> ""
+        }
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.labelMedium
+        )
     }
 }

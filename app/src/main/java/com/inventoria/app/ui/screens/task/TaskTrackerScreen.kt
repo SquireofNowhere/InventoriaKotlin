@@ -1,16 +1,14 @@
 package com.inventoria.app.ui.screens.task
 
-import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
+import android.net.Uri
 import android.provider.CalendarContract
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,7 +20,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,20 +30,19 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.draw.scale
+import com.inventoria.app.R
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.ui.theme.PurplePrimary
@@ -58,199 +55,206 @@ import java.util.concurrent.TimeUnit
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskTrackerScreen(
-    viewModel: TaskTrackerViewModel = hiltViewModel()
+    viewModel: TaskTrackerViewModel,
+    onNavigateBack: () -> Unit,
+    onNavigateToStats: () -> Unit,
+    onNavigateToHistory: () -> Unit
 ) {
     val context = LocalContext.current
     val activeSessions by viewModel.activeSessions.collectAsState()
     val completedSessions by viewModel.completedSessions.collectAsState()
-    val personalScore by viewModel.personalScore.collectAsState()
-    val socialScore by viewModel.socialScore.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     
-    var sessionToShowDetail by remember { mutableStateOf<List<Task>?>(null) }
-    var singleTaskToShowDetail by remember { mutableStateOf<Task?>(null) }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            viewModel.addNewTask()
-        }
-    }
-
-    if (isLoading) {
-        Dialog(
-            onDismissRequest = { },
-            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(100.dp)
-                    .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp))
-            ) {
-                CircularProgressIndicator(color = PurplePrimary)
-            }
-        }
-    }
-
-    if (singleTaskToShowDetail != null) {
-        val task = singleTaskToShowDetail!!
-        TaskDetailDialog(
-            task = task,
-            onDismiss = { singleTaskToShowDetail = null },
-            onSaveName = { viewModel.updateCompletedTaskName(task, it) },
-            onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
-            onToggleCalendar = { 
-                val newState = !task.savedToCalendar
-                viewModel.setSegmentCalendarStatus(task, newState)
-                if (newState) addToGoogleCalendar(context, task)
-            },
-            onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) }
-        )
-    }
-
-    if (sessionToShowDetail != null) {
-        val groupId = sessionToShowDetail!!.first().groupId
-        val currentSession = (activeSessions.find { it.groupId == groupId }?.let { it.segments + (it.activeSegment?.task?.let { listOf(it) } ?: emptyList()) }
-                             ?: completedSessions.find { it.first().groupId == groupId }) ?: sessionToShowDetail!!
-
-        SessionDetailDialog(
-            segments = currentSession,
-            onDismiss = { sessionToShowDetail = null },
-            onUpdateSessionName = { newName -> viewModel.updateSessionName(groupId, newName) },
-            onUpdateSessionKind = { newKind -> viewModel.updateSessionKind(groupId, newKind) },
-            onUpdateSegment = { updatedSegment -> viewModel.updateSegment(updatedSegment) },
-            onToggleCalendar = { segment ->
-                val newState = !segment.savedToCalendar
-                viewModel.setSegmentCalendarStatus(segment, newState)
-                if (newState) {
-                    addToGoogleCalendar(context, segment)
-                }
-            }
-        )
-    }
+    var selectedSessionForDetail by remember { mutableStateOf<List<Task>?>(null) }
+    var selectedTaskForDetail by remember { mutableStateOf<Task?>(null) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { Text("Task Tracker", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
-                    if (activeSessions.size < 5) {
-                        TextButton(onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                if (ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.POST_NOTIFICATIONS
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    viewModel.addNewTask()
-                                } else {
-                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                            } else {
-                                viewModel.addNewTask()
-                            }
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Text("New Task")
-                        }
+                    IconButton(onClick = onNavigateToStats) {
+                        Icon(Icons.Default.BarChart, contentDescription = "Stats")
+                    }
+                    IconButton(onClick = onNavigateToHistory) {
+                        Icon(Icons.Default.History, contentDescription = "History")
                     }
                 }
             )
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                ProductivityScoreCard(
-                    personalScore = personalScore,
-                    socialScore = socialScore
-                )
+        },
+        floatingActionButton = {
+            if (activeSessions.size < 5) {
+                FloatingActionButton(
+                    onClick = { viewModel.addNewTask() },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New Task")
+                }
             }
+        }
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (activeSessions.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Active Sessions",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    items(activeSessions) { session ->
+                        ActiveSessionCard(
+                            session = session,
+                            onStop = { viewModel.stopTask(session) },
+                            onPauseResume = { viewModel.pauseResumeTask(session) },
+                            onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
+                            onKindChange = { viewModel.updateSessionKind(session.groupId, it) },
+                            onSessionClick = { 
+                                selectedSessionForDetail = session.segments + listOfNotNull(session.activeSegment?.task)
+                            }
+                        )
+                    }
+                }
 
-            if (activeSessions.isNotEmpty()) {
-                item {
-                    Text(
-                        "Active Tracking",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                
-                items(activeSessions, key = { it.groupId }) { session ->
-                    ActiveSessionCard(
-                        session = session,
-                        onStop = { viewModel.stopTask(session) },
-                        onPauseResume = { viewModel.pauseResumeTask(session) },
-                        onUpdateName = { newName -> viewModel.updateSessionName(session.groupId, newName) },
-                        onKindChange = { newKind -> viewModel.updateSessionKind(session.groupId, newKind) },
-                        onSessionClick = { sessionToShowDetail = session.segments + (session.activeSegment?.task?.let { listOf(it) } ?: emptyList()) }
-                    )
-                }
-                
-                item { Divider() }
-            } else if (completedSessions.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillParentMaxHeight(0.6f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.Timer, 
-                                contentDescription = null, 
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Text(
-                                "No active tasks. Tap 'New Task' to start.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                if (completedSessions.isNotEmpty()) {
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Recent Activity (Last 24h)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    
+                    val recentSessions = completedSessions.filter { session ->
+                        val latestTask = session.maxByOrNull { it.startTime }
+                        latestTask != null && (System.currentTimeMillis() - latestTask.startTime) < 24 * 60 * 60 * 1000L
+                    }
+
+                    if (recentSessions.isEmpty()) {
+                        item {
+                            Text("No recent activity found.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                    } else {
+                        items(recentSessions) { session ->
+                            if (session.size > 1) {
+                                CompletedSessionCard(
+                                    segments = session,
+                                    onClick = { selectedSessionForDetail = session },
+                                    onDelete = { viewModel.clearSession(session.first().groupId) }
+                                )
+                            } else {
+                                val task = session.first()
+                                SingleTaskItemCard(
+                                    task = task,
+                                    onClick = { selectedTaskForDetail = task },
+                                    onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
+                                    onDelete = { viewModel.clearSegment(task) },
+                                    onAddToCalendar = { addToGoogleCalendar(context, task) }
+                                )
+                            }
                         }
                     }
                 }
+                
+                item { Spacer(Modifier.height(80.dp)) }
             }
 
-            if (completedSessions.isNotEmpty()) {
-                item {
-                    Text(
-                        "History",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                items(completedSessions) { sessionSegments ->
-                    if (sessionSegments.size > 1) {
-                        CompletedSessionCard(
-                            segments = sessionSegments,
-                            onClick = { sessionToShowDetail = sessionSegments },
-                            onDelete = { viewModel.clearSession(sessionSegments.first().groupId) }
-                        )
-                    } else {
-                        val task = sessionSegments.first()
-                        SingleTaskItemCard(
-                            task = task,
-                            onClick = { singleTaskToShowDetail = task },
-                            onToggleCalendar = {
-                                val newState = !task.savedToCalendar
-                                viewModel.setSegmentCalendarStatus(task, newState)
-                                if (newState) {
-                                    addToGoogleCalendar(context, task)
-                                }
-                            },
-                            onDelete = { viewModel.clearSegment(task) }
-                        )
-                    }
-                }
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
         }
     }
+
+    selectedSessionForDetail?.let { segments ->
+        SessionDetailDialog(
+            segments = segments,
+            onDismiss = { selectedSessionForDetail = null },
+            onUpdateSessionName = { name -> viewModel.updateSessionName(segments.first().groupId, name) },
+            onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
+            onUpdateSegment = { viewModel.updateSegment(it) },
+            onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
+            onFlatten = { viewModel.flattenSession(segments.first().groupId) }
+        )
+    }
+
+    selectedTaskForDetail?.let { task ->
+        TaskDetailDialog(
+            task = task,
+            onDismiss = { selectedTaskForDetail = null },
+            onSaveName = { viewModel.updateCompletedTaskName(task, it) },
+            onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
+            onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
+            onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) }
+        )
+    }
+}
+
+fun calculatePercentageOfDay(taskDuration: Long, timestamp: Long): String {
+    val dayMillis = 24L * 60L * 60L * 1000L
+    val percentage = (taskDuration.toDouble() / dayMillis.toDouble()) * 100
+    val dayLabel = getDayLabel(timestamp)
+    return String.format("%.1f%% of %s", percentage, dayLabel)
+}
+
+fun calculateSessionPercentage(segments: List<Task>, activeDuration: Long = 0L, activeTask: Task? = null): String {
+    val dayMillis = 24L * 60L * 60L * 1000L
+    val dayDurations = mutableMapOf<Long, Long>()
+
+    segments.forEach { segment ->
+        val dayStart = getStartOfDay(segment.startTime)
+        dayDurations[dayStart] = (dayDurations[dayStart] ?: 0L) + segment.duration
+    }
+
+    activeTask?.let {
+        val dayStart = getStartOfDay(it.startTime)
+        dayDurations[dayStart] = (dayDurations[dayStart] ?: 0L) + activeDuration
+    }
+
+    if (dayDurations.isEmpty()) return "0.0% of Today"
+
+    return dayDurations.entries
+        .sortedByDescending { it.key }
+        .joinToString(" - ") { (dayStart, duration) ->
+            val percentage = (duration.toDouble() / dayMillis.toDouble()) * 100
+            val dayLabel = getDayLabel(dayStart)
+            String.format("%.1f%% of %s", percentage, dayLabel)
+        }
+}
+
+fun getStartOfDay(timestamp: Long): Long {
+    val cal = Calendar.getInstance()
+    cal.timeInMillis = timestamp
+    cal.set(Calendar.HOUR_OF_DAY, 0)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
+
+fun getDayLabel(timestamp: Long): String {
+    val dateInfo = formatCardDate(timestamp)
+    if (dateInfo.isEmpty()) return "Today"
+    
+    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val target = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val isYesterday = yesterday.get(Calendar.YEAR) == target.get(Calendar.YEAR) &&
+            yesterday.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
+    if (isYesterday) return "Yesterday"
+    
+    return dateInfo
 }
 
 @Composable
@@ -258,9 +262,14 @@ fun SingleTaskItemCard(
     task: Task,
     onClick: () -> Unit,
     onToggleCalendar: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onAddToCalendar: () -> Unit
 ) {
+    val context = LocalContext.current
     val taskColor = Color(task.kind.colorValue)
+    val isCalendarTask = task.id.startsWith("cal_")
+    val percentage = calculatePercentageOfDay(task.duration, task.startTime)
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -277,21 +286,35 @@ fun SingleTaskItemCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = task.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Duration: ${formatDetailedDuration(task.duration)}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                    text = "Duration: ${formatDetailedDuration(task.duration)} • $percentage",
+                    style = MaterialTheme.typography.bodySmall)
             }
-            IconButton(
-                onClick = onToggleCalendar
-            ) {
-                Icon(
-                    imageVector = if (task.savedToCalendar) Icons.Default.EventAvailable else Icons.Default.CalendarToday, 
-                    contentDescription = if (task.savedToCalendar) "Saved to Calendar" else "Add to Calendar", 
-                    tint = if (task.savedToCalendar) Success else PurplePrimary
-                )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
+            
+            if (isCalendarTask) {
+                IconButton(onClick = { openInSystemCalendar(context, task) }) {
+                    Icon(
+                        imageVector = Icons.Outlined.CalendarToday,
+                        contentDescription = "Open in Calendar",
+                        tint = Color(0xFF2196F3), // Material Blue
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            } else {
+                IconButton(onClick = {
+                    if (!task.savedToCalendar) {
+                        onAddToCalendar()
+                    }
+                    onToggleCalendar()
+                }) {
+                    Icon(
+                        imageVector = if (task.savedToCalendar) Icons.Default.EventAvailable else Icons.Default.CalendarToday,
+                        contentDescription = if (task.savedToCalendar) "Remove from Calendar list" else "Add to Calendar",
+                        tint = if (task.savedToCalendar) Success else PurplePrimary
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
+                }
             }
         }
     }
@@ -311,6 +334,10 @@ fun ActiveSessionCard(
     val focusManager = LocalFocusManager.current
     
     val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) })
+    
+    val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return
+    val percentage = calculateSessionPercentage(session.segments, activeElapsed, activeSegment?.task)
+
     val prevTotal = session.segments.sumOf { it.duration }
     val totalTime = prevTotal + activeElapsed
 
@@ -318,7 +345,6 @@ fun ActiveSessionCard(
     val sessionName = (session.segments.find { !it.isNameCustom } ?: activeSegment?.task ?: session.segments.firstOrNull())?.name ?: "Untitled"
     var editableName by remember(sessionName) { mutableStateOf(sessionName) }
     
-    val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return
     val taskColor = Color(refTask.kind.colorValue)
 
     Card(
@@ -384,12 +410,20 @@ fun ActiveSessionCard(
                 }
                 
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = formatTime(totalTime),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (taskColor == Color.White) Color.Black else taskColor
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = formatTime(totalTime),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (taskColor == Color.White) Color.Black else taskColor
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = percentage,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                    }
                     
                     if (activeSegment == null) {
                         Text(
@@ -429,8 +463,9 @@ fun ActiveSessionCard(
                         ) {
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(taskColor))
                             Spacer(Modifier.width(8.dp))
+                            val segPercentage = calculatePercentageOfDay(activeElapsed, activeSegment.task.startTime)
                             Text(
-                                text = "Current: ${activeSegment.task.name} - ${formatDetailedDuration(activeElapsed)}",
+                                text = "Current: ${activeSegment.task.name} - ${formatDetailedDuration(activeElapsed)} • $segPercentage",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.DarkGray
@@ -445,15 +480,16 @@ fun ActiveSessionCard(
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.Gray
                         )
-                        session.segments.sortedBy { it.startTime }.forEach { segment ->
+                        session.segments.sortedByDescending { it.startTime }.forEach { segment ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(segment.kind.colorValue)))
                                 Spacer(Modifier.width(8.dp))
+                                val segPercentage = calculatePercentageOfDay(segment.duration, segment.startTime)
                                 Text(
-                                    text = "${segment.name} - ${formatDetailedDuration(segment.duration)}",
+                                    text = "${segment.name} - ${formatDetailedDuration(segment.duration)} • $segPercentage",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.DarkGray
                                 )
@@ -472,22 +508,23 @@ fun CompletedSessionCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     
     // Find majority segment type
     val majorityKind = segments.groupBy { it.kind }
         .maxByOrNull { it.value.size }?.key ?: segments.first().kind
     
-    val refTask = segments.first()
-    
     // Stable title: Use the first non-customized segment as the session title
     val sessionName = (segments.find { !it.isNameCustom } ?: segments.firstOrNull())?.name ?: "Untitled Session"
     
     val totalDuration = segments.sumOf { it.duration }
     val taskColor = Color(majorityKind.colorValue)
+    val percentage = calculateSessionPercentage(segments)
 
     val allSaved = segments.all { it.savedToCalendar }
     val someSaved = segments.any { it.savedToCalendar }
+    val isCalendarSession = segments.any { it.id.startsWith("cal_") }
     
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(allSaved) {
@@ -535,12 +572,12 @@ fun CompletedSessionCard(
                         )
                     }
                     Text(
-                        text = "${segments.size} segment(s) • Total: ${formatDetailedDuration(totalDuration)}",
+                        text = "${segments.size} segment(s) • Total: ${formatDetailedDuration(totalDuration)} • $percentage",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
                     
-                    if (allSaved) {
+                    if (allSaved && !isCalendarSession) {
                         val latestSaveAt = segments.maxOf { it.savedToCalendarAt ?: 0L }
                         val remaining = (24 * 60 * 60 * 1000L) - (currentTime - latestSaveAt)
                         if (remaining > 0) {
@@ -554,14 +591,25 @@ fun CompletedSessionCard(
                     }
                 }
 
-                if (allSaved) {
-                    Icon(Icons.Default.EventAvailable, "All Saved", tint = Success, modifier = Modifier.size(20.dp))
-                } else if (someSaved) {
-                    Icon(Icons.Default.CalendarMonth, "Partially Saved", tint = PurplePrimary, modifier = Modifier.size(20.dp))
-                }
+                if (isCalendarSession) {
+                    IconButton(onClick = { openInSystemCalendar(context, segments.first()) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.CalendarToday, 
+                            contentDescription = "Open in Calendar", 
+                            tint = Color(0xFF2196F3),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                } else {
+                    if (allSaved) {
+                        Icon(Icons.Default.EventAvailable, "All Saved", tint = Success, modifier = Modifier.size(20.dp))
+                    } else if (someSaved) {
+                        Icon(Icons.Default.CalendarMonth, "Partially Saved", tint = PurplePrimary, modifier = Modifier.size(20.dp))
+                    }
 
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.LightGray)
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.LightGray)
+                    }
                 }
             }
 
@@ -572,7 +620,7 @@ fun CompletedSessionCard(
                         .padding(top = 8.dp, start = 32.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    segments.sortedBy { it.startTime }.forEach { segment ->
+                    segments.sortedByDescending { it.startTime }.forEach { segment ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -586,13 +634,23 @@ fun CompletedSessionCard(
                                     fontWeight = if (segment.isNameCustom) FontWeight.Bold else FontWeight.Normal,
                                     color = if (segment.isNameCustom) PurplePrimary else Color.Unspecified
                                 )
+                                val segPercentage = calculatePercentageOfDay(segment.duration, segment.startTime)
                                 Text(
-                                    text = formatDetailedDuration(segment.duration),
+                                    text = "${formatDetailedDuration(segment.duration)} • $segPercentage",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.Gray
                                 )
                             }
-                            if (segment.savedToCalendar) {
+                            if (segment.id.startsWith("cal_")) {
+                                IconButton(onClick = { openInSystemCalendar(context, segment) }, modifier = Modifier.size(24.dp)) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.CalendarToday, 
+                                        null, 
+                                        tint = Color(0xFF2196F3), 
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            } else if (segment.savedToCalendar) {
                                 Icon(Icons.Default.CheckCircle, null, tint = Success, modifier = Modifier.size(16.dp))
                             }
                         }
@@ -610,8 +668,10 @@ fun SessionDetailDialog(
     onUpdateSessionName: (String) -> Unit,
     onUpdateSessionKind: (TaskKind) -> Unit,
     onUpdateSegment: (Task) -> Unit,
-    onToggleCalendar: (Task) -> Unit
+    onToggleCalendar: (Task) -> Unit,
+    onFlatten: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     // Determine the reference session values (the first segment that isn't custom)
     val sessionRef = segments.find { !it.isNameCustom && !it.isKindCustom } ?: segments.firstOrNull() ?: return
     var sessionNameInput by remember(sessionRef.name) { mutableStateOf(sessionRef.name) }
@@ -632,9 +692,51 @@ fun SessionDetailDialog(
         }
     }
 
+    var showFlattenConfirm by remember { mutableStateOf(false) }
+
+    if (showFlattenConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFlattenConfirm = false },
+            title = { Text("Flatten Session?") },
+            text = { Text("Are you sure? This cannot be undone. All segments will be merged into one single task, removing any gaps between them.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onFlatten?.invoke()
+                        showFlattenConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Flatten")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFlattenConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Session Details") },
+        title = { 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Session Details")
+                
+                val isCalendarSession = segments.any { it.id.startsWith("cal_") }
+                val allSaved = segments.all { it.savedToCalendar }
+                if (!isCalendarSession && !allSaved && segments.size > 1 && onFlatten != null && !hasRunningTask) {
+                    IconButton(onClick = { showFlattenConfirm = true }) {
+                        Icon(Icons.Default.Compress, contentDescription = "Flatten", tint = PurplePrimary)
+                    }
+                }
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Global Session Settings - Always visible at the top
@@ -646,16 +748,19 @@ fun SessionDetailDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text("Global Session Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    val isCalendarSession = segments.any { it.id.startsWith("cal_") }
+                    
                     OutlinedTextField(
                         value = sessionNameInput,
                         onValueChange = { 
                             sessionNameInput = it
                         },
                         label = { Text("Session Name") },
+                        enabled = !isCalendarSession,
                         modifier = Modifier
                             .fillMaxWidth()
                             .onFocusChanged { 
-                                if (!it.isFocused && sessionNameInput != sessionRef.name) {
+                                if (!it.isFocused && sessionNameInput != sessionRef.name && !isCalendarSession) {
                                     onUpdateSessionName(sessionNameInput)
                                 }
                             },
@@ -671,17 +776,30 @@ fun SessionDetailDialog(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Session Type:", style = MaterialTheme.typography.bodySmall)
-                        TaskKindDropdownMenu(
-                            selectedKind = sessionRef.kind,
-                            onKindSelected = { onUpdateSessionKind(it) }
+                        if (isCalendarSession) {
+                            TaskKindChip(kind = sessionRef.kind)
+                        } else {
+                            TaskKindDropdownMenu(
+                                selectedKind = sessionRef.kind,
+                                onKindSelected = { onUpdateSessionKind(it) }
+                            )
+                        }
+                    }
+                    if (!isCalendarSession) {
+                        Text(
+                            "Note: These values push to all linked segments.",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontStyle = FontStyle.Italic,
+                            color = Color.Gray
+                        )
+                    } else {
+                        Text(
+                            "This session is loaded from your device calendar.",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontStyle = FontStyle.Italic,
+                            color = Color(0xFF2196F3)
                         )
                     }
-                    Text(
-                        "Note: These values push to all linked segments.",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontStyle = FontStyle.Italic,
-                        color = Color.Gray
-                    )
                 }
                 
                 Divider()
@@ -700,9 +818,10 @@ fun SessionDetailDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    segments.sortedBy { it.startTime }.forEach { segment ->
+                    segments.sortedByDescending { it.startTime }.forEach { segment ->
                         val isEditing = segmentsWithEditors.contains(segment.id)
                         val isCustom = segment.isNameCustom || segment.isKindCustom
+                        val isCalendarSegment = segment.id.startsWith("cal_")
                         var localSegmentName by remember(segment.id, segment.name) { mutableStateOf(segment.name) }
                         
                         Column(
@@ -722,15 +841,18 @@ fun SessionDetailDialog(
                                 // Sync/Link Indicator (Left-most) - Also toggles editor
                                 IconButton(
                                     onClick = { 
-                                        if (isEditing) segmentsWithEditors.remove(segment.id) 
-                                        else segmentsWithEditors.add(segment.id)
+                                        if (!isCalendarSegment) {
+                                            if (isEditing) segmentsWithEditors.remove(segment.id) 
+                                            else segmentsWithEditors.add(segment.id)
+                                        }
                                     },
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(32.dp),
+                                    enabled = !isCalendarSegment
                                 ) {
                                     Icon(
-                                        imageVector = if (isCustom) Icons.Default.LinkOff else Icons.Default.Link,
-                                        contentDescription = if (isCustom) "Segment has overrides" else "Segment is linked to session",
-                                        tint = if (isCustom) PurplePrimary else Color.Gray.copy(alpha = 0.6f),
+                                        imageVector = if (isCalendarSegment) Icons.Outlined.CalendarToday else if (isCustom) Icons.Default.LinkOff else Icons.Default.Link,
+                                        contentDescription = null,
+                                        tint = if (isCalendarSegment) Color(0xFF2196F3) else if (isCustom) PurplePrimary else Color.Gray.copy(alpha = 0.6f),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -746,8 +868,9 @@ fun SessionDetailDialog(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         TaskKindChip(kind = segment.kind, modifier = Modifier.scale(0.7f).offset(x = (-10).dp))
                                         val segmentDuration = if (segment.isRunning) (ticker - segment.startTime) else segment.duration
+                                        val segPercentage = calculatePercentageOfDay(segmentDuration, segment.startTime)
                                         Text(
-                                            text = " • ${if (segment.isRunning) "Running: ${formatTime(segmentDuration)}" else formatStartEndRange(segment.startTime, segment.endTime)}",
+                                            text = " • ${if (segment.isRunning) "Running: ${formatTime(segmentDuration)}" else formatStartEndRange(segment.startTime, segment.endTime)} • $segPercentage",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = if (segment.isRunning) PurplePrimary else Color.Gray
                                         )
@@ -755,13 +878,29 @@ fun SessionDetailDialog(
                                 }
                                 
                                 // Calendar Icon (The right-most icon)
-                                IconButton(onClick = { onToggleCalendar(segment) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(
-                                        imageVector = if (segment.savedToCalendar) Icons.Default.EventAvailable else Icons.Default.CalendarToday,
-                                        contentDescription = null,
-                                        tint = if (segment.savedToCalendar) Success else Color.Gray,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                if (isCalendarSegment) {
+                                    IconButton(onClick = { openInSystemCalendar(context, segment) }, modifier = Modifier.size(32.dp)) {
+                                        Icon(
+                                            imageVector = Icons.Default.EventAvailable,
+                                            contentDescription = "Open in Calendar",
+                                            tint = Color(0xFF2196F3),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                } else {
+                                    IconButton(onClick = { 
+                                        if (!segment.savedToCalendar) {
+                                            addToGoogleCalendar(context, segment)
+                                        }
+                                        onToggleCalendar(segment)
+                                    }, modifier = Modifier.size(32.dp)) {
+                                        Icon(
+                                            imageVector = if (segment.savedToCalendar) Icons.Default.EventAvailable else Icons.Default.CalendarToday,
+                                            contentDescription = if (segment.savedToCalendar) "Remove from Calendar list" else "Add to Calendar",
+                                            tint = if (segment.savedToCalendar) Success else Color.Gray,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -830,12 +969,15 @@ fun SessionDetailDialog(
                 val totalDuration = segments.sumOf { 
                     if (it.isRunning) (ticker - it.startTime) else it.duration 
                 }
+                val runningTask = segments.find { it.isRunning }
+                val runningDuration = if (runningTask != null) (ticker - runningTask.startTime) else 0L
+                val totalPercentage = calculateSessionPercentage(segments.filter { !it.isRunning }, runningDuration, runningTask)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Total Time:", fontWeight = FontWeight.Bold)
-                    Text(formatDetailedDuration(totalDuration), fontWeight = FontWeight.Bold, color = PurplePrimary)
+                    Text("${formatDetailedDuration(totalDuration)} • $totalPercentage", fontWeight = FontWeight.Bold, color = PurplePrimary)
                 }
             }
         },
@@ -862,6 +1004,7 @@ fun TaskDetailDialog(
     var name by remember(task.name) { mutableStateOf(task.name) }
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     val focusManager = LocalFocusManager.current
+    val isCalendarTask = task.id.startsWith("cal_")
 
     LaunchedEffect(key1 = task.id, key2 = task.savedToCalendar, key3 = task.isRunning) {
         while (task.savedToCalendar || task.isRunning) {
@@ -903,10 +1046,11 @@ fun TaskDetailDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Task Name") },
+                    enabled = !isCalendarTask,
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged {
-                            if (!it.isFocused && name != task.name) {
+                            if (!it.isFocused && name != task.name && !isCalendarTask) {
                                 onSaveName(name)
                             }
                         },
@@ -915,10 +1059,17 @@ fun TaskDetailDialog(
                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
                 )
                 
-                TaskKindDropdownMenu(
-                    selectedKind = task.kind,
-                    onKindSelected = onKindChange
-                )
+                if (isCalendarTask) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Type: ", style = MaterialTheme.typography.bodySmall)
+                        TaskKindChip(kind = task.kind)
+                    }
+                } else {
+                    TaskKindDropdownMenu(
+                        selectedKind = task.kind,
+                        onKindSelected = onKindChange
+                    )
+                }
                 
                 Divider()
                 
@@ -927,42 +1078,72 @@ fun TaskDetailDialog(
                     DetailItem(label = "Date", value = formatDateRange(task.startTime, currentEndTime))
                 }
                 
-                EditableDetailItem(
-                    label = "Started", 
-                    value = formatDateTime(task.startTime),
-                    onEdit = { 
-                        showDateTimePicker(task.startTime) { newStart ->
-                            onUpdateTime(newStart, task.endTime ?: System.currentTimeMillis())
-                        }
-                    }
-                )
-                
-                EditableDetailItem(
-                    label = "Stopped", 
-                    value = if (task.endTime != null) formatDateTime(task.endTime!!) else "Running...",
-                    onEdit = {
-                        if (task.endTime != null) {
-                            showDateTimePicker(task.endTime!!) { newEnd ->
-                                onUpdateTime(task.startTime, newEnd)
+                if (isCalendarTask) {
+                    DetailItem(label = "Started", value = formatDateTime(task.startTime))
+                    DetailItem(label = "Stopped", value = formatDateTime(currentEndTime))
+                } else {
+                    EditableDetailItem(
+                        label = "Started", 
+                        value = formatDateTime(task.startTime),
+                        onEdit = { 
+                            showDateTimePicker(task.startTime) { newStart ->
+                                onUpdateTime(newStart, task.endTime ?: System.currentTimeMillis())
                             }
                         }
-                    }
-                )
+                    )
+                    
+                    EditableDetailItem(
+                        label = "Stopped", 
+                        value = if (task.endTime != null) formatDateTime(task.endTime!!) else "Running...",
+                        onEdit = {
+                            if (task.endTime != null) {
+                                showDateTimePicker(task.endTime!!) { newEnd ->
+                                    onUpdateTime(task.startTime, newEnd)
+                                }
+                            }
+                        }
+                    )
+                }
                 
                 val liveDuration = if (task.isRunning) (currentTime - task.startTime) else task.duration
                 DetailItem(label = "Duration", value = formatDetailedDuration(liveDuration))
                 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = task.savedToCalendar,
-                        onCheckedChange = onToggleCalendar
-                    )
-                    Text("Saved to Calendar")
+                if (!isCalendarTask) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = task.savedToCalendar,
+                            onCheckedChange = onToggleCalendar
+                        )
+                        Text("Auto-delete task in 24 hours")
+                    }
+                    if (!task.savedToCalendar) {
+                        Button(
+                            onClick = { addToGoogleCalendar(context, task) },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.CalendarToday, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add to Google Calendar")
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { openInSystemCalendar(context, task) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.CalendarToday, null, tint = Color(0xFF2196F3), modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Loaded from your device calendar. Tap to view.", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2196F3))
+                    }
                 }
                 
-                if (task.savedToCalendar && task.savedToCalendarAt != null) {
+                if (task.savedToCalendar && task.savedToCalendarAt != null && !isCalendarTask) {
                     val remaining = (24 * 60 * 60 * 1000L) - (currentTime - task.savedToCalendarAt!!)
                     if (remaining > 0) {
                         Text(
@@ -977,7 +1158,7 @@ fun TaskDetailDialog(
         },
         confirmButton = {
             TextButton(onClick = { 
-                if (name != task.name) onSaveName(name)
+                if (name != task.name && !isCalendarTask) onSaveName(name)
                 onDismiss()
             }) {
                 Text("Close")
@@ -1097,6 +1278,32 @@ fun formatStartEndRange(start: Long, end: Long?): String {
     }
 }
 
+fun formatCardDate(timestamp: Long): String {
+    val now = Calendar.getInstance()
+    val target = Calendar.getInstance().apply { timeInMillis = timestamp }
+    
+    val isToday = now.get(Calendar.YEAR) == target.get(Calendar.YEAR) &&
+            now.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
+            
+    if (isToday) return ""
+    
+    val threeDaysAgo = Calendar.getInstance().apply {
+        add(Calendar.DAY_OF_YEAR, -3)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    
+    return if (timestamp >= threeDaysAgo) {
+        val sdf = SimpleDateFormat("EEEE", Locale.getDefault())
+        sdf.format(Date(timestamp))
+    } else {
+        val sdf = SimpleDateFormat("dd MMM", Locale.getDefault())
+        sdf.format(Date(timestamp))
+    }
+}
+
 fun addToGoogleCalendar(context: Context, task: Task) {
     val durationStr = formatDetailedDuration(task.duration)
     
@@ -1114,7 +1321,7 @@ fun addToGoogleCalendar(context: Context, task: Task) {
         TaskKind.SAGE -> 2
     }
 
-    val description = "Type: ${task.kind.displayName}\nDuration: $durationStr\nTracked via Inventoria Task Tracker"
+    val description = "Type: ${task.kind.displayName}\nDuration: $durationStr\nTracked via Inventoria Task Tracker\nTask ID: ${task.id}\nSession ID: ${task.groupId}"
 
     val intent = Intent(Intent.ACTION_INSERT)
         .setData(CalendarContract.Events.CONTENT_URI)
@@ -1126,4 +1333,31 @@ fun addToGoogleCalendar(context: Context, task: Task) {
         .putExtra("eventColorId", googleColorId.toString())
     
     context.startActivity(intent)
+}
+
+fun openInSystemCalendar(context: Context, task: Task) {
+    val isCalendarTask = task.id.startsWith("cal_")
+    if (isCalendarTask) {
+        val eventIdStr = task.id.removePrefix("cal_")
+        val eventId = eventIdStr.toLongOrNull()
+        if (eventId != null) {
+            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+            val intent = Intent(Intent.ACTION_VIEW).setData(uri)
+            try {
+                context.startActivity(intent)
+                return
+            } catch (e: Exception) {
+                Log.e("TaskTracker", "Could not open specific event $eventId", e)
+            }
+        }
+    }
+    
+    // Fallback: Open calendar at specific time
+    val uri = Uri.parse("content://com.android.calendar/time/${task.startTime}")
+    val intent = Intent(Intent.ACTION_VIEW).setData(uri)
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Log.e("TaskTracker", "Could not open calendar view", e)
+    }
 }

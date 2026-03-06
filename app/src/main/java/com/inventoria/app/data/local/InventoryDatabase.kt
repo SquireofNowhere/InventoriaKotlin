@@ -12,6 +12,7 @@ import com.inventoria.app.data.model.*
  * Version 15: Added updatedAt to InventoryCollectionItem for sync resolution.
  * Version 16: Attempted linkedItemId in InventoryItem (reverted in 17).
  * Version 17: Added ItemLink entity for complex directed linking logic.
+ * Version 18: Added isDeleted field to Task and InventoryItem for soft-delete support.
  */
 @Database(
     entities = [
@@ -21,7 +22,7 @@ import com.inventoria.app.data.model.*
         InventoryCollectionItem::class,
         ItemLink::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

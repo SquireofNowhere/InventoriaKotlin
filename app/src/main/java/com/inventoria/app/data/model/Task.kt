@@ -87,6 +87,10 @@ data class Task(
     @set:PropertyName("isKindCustom")
     var isKindCustom: Boolean = false,
     
+    @get:PropertyName("isDeleted")
+    @set:PropertyName("isDeleted")
+    var isDeleted: Boolean = false,
+    
     @get:PropertyName("updatedAt")
     @set:PropertyName("updatedAt")
     var updatedAt: Long = System.currentTimeMillis()

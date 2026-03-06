@@ -77,4 +77,49 @@ Actions on Device A would briefly reflect on Device B, but then Device B would "
 - **Flow Throttling**: Used `collectLatest` on the Firebase listener to ensure only the absolute latest cloud state is processed, canceling any overlapping stale pulls.
 
 ---
-*Last Updated: 2024-05-20*
+
+## 🐞 6. Task Cross-Device State Mismatch
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Closing the app on one device and making task changes on another resulted in tasks not syncing or showing outdated states.
+
+### 🔍 Root Cause
+- **Firebase Race Conditions:** `ref.setValue()` on the task node was overwriting the entire task list, potentially deleting tasks that hadn't synced to the local device yet.
+- **Clock Skew:** If a device's clock was behind, its "new" changes had lower timestamps than existing cloud data, causing them to be ignored.
+
+### 🛠️ Final Fix
+- **Atomic Node Updates:** Switched to `ref.updateChildren()` in `FirebaseSyncRepository.kt` to update only modified tasks rather than overwriting the whole collection.
+- **Version Seeding:** Updated `TaskRepository.kt` to seed its internal clock from the highest timestamp in the database, ensuring strictly monotonic versioning regardless of system clock skew.
+
+---
+
+## 🐞 7. Zombie Data Recovery After Deletion
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Deleting a task on one device would work, but the task would "reappear" when another device synced. This happened because the cloud node for the task was simply missing, and the other device treated its local copy as a "new addition" to the cloud.
+
+### 🔍 Root Cause
+- **Absence of Proof**: There was no timestamped record of a deletion. The sync engine couldn't distinguish between a task that was *deleted* and one that was *never uploaded*.
+
+### 🛠️ Final Fix
+- **Soft Delete (Tombstones)**: Implemented an `isDeleted` flag in the data models. Deletions are now timestamped state changes that sync to all devices.
+- **Auto-Purge**: Added a 24-hour background cleanup job that physically removes these "tombstone" records from the local database once they have had sufficient time to propagate across all devices.
+
+---
+
+## 🐞 8. UI Feedback Lag in Task Details
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Changing a task's type (e.g., from Neutral to Social) in the detail dialog would sync correctly to the database, but the dialog itself wouldn't update its colors or icons until it was closed and reopened.
+
+### 🔍 Root Cause
+- **Stateless Dialog**: The dialog was using a static `Task` object passed at the moment of opening, rather than observing the live state from the ViewModel's session flows.
+
+### 🛠️ Final Fix
+- **Reactive Referencing**: Updated the detail dialog trigger to use a derived "live" reference. The UI now looks up the latest version of the specific task ID from the active session state, ensuring instantaneous visual feedback for all property changes.
+
+---
+*Last Updated: 2024-05-21*

@@ -21,17 +21,21 @@
 - **Mass Operations**: One-tap "Equip All" or "Pack All" for entire collections.
 
 ### ⏱️ Task Tracker
-- **Segmented Sessions**: Track complex activities as grouped segments.
+- **Segmented Sessions**: Track complex activities as grouped sessions with nested segments.
+- **Categorized Tasks**: Tasks are organized into **Default**, **Productivity**, and **Social** groups for better focus.
 - **Precision Sync**: Atomic monotonic timestamping ensures rapid start/stop actions sync perfectly across multiple devices.
-- **Productivity Scoring**: Integrated scoring for Personal, Social, and Neutral task categories.
+- **Smart Calendar Integration**: One-tap export to Google Calendar and direct "Jump to Calendar" event viewing.
+- **Productivity Scoring**: Integrated scoring for Personal (+/-), Social (+/-), and Neutral (0) task categories.
 
 ### 🗺️ Geospatial Tracking
 - **Interactive Map**: Visualize item locations globally using **osmdroid**.
 - **Context-Aware Location**: Equipped items dynamically inherit the user's current coordinates.
 
 ### ☁️ Real-time Cloud Sync
-- **Firebase Integration**: Latest-only bi-directional synchronization ensures your data is safe and accessible across devices.
-- **Automatic Tab Sync**: Triggers a full data refresh every time you switch between app sections.
+- **Firebase Integration**: Robust bi-directional synchronization with specialized handling for soft-deletions.
+- **Soft-Delete (Tombstones)**: Deletions are synced as first-class events with timestamps to prevent "zombie" data from reappearing across devices.
+- **24-Hour Auto-Purge**: To keep the database lean, deleted "tombstones" are automatically purged after 24 hours once they have synced.
+- **Monotonic Conflict Resolution**: Custom timestamping logic that seeds from the highest known database version to handle clock-skew across devices.
 - **Offline First**: Work locally with seamless background syncing when a connection is available.
 
 ---
@@ -67,9 +71,23 @@ app/src/main/java/com/inventoria/app/
 
 ---
 
+## 🚀 Quick Start
+
+1. **Open in Android Studio**: File → Open → Select project folder.
+2. **Sync Gradle**: Wait for the elephant icon to finish working.
+3. **Run**: Click the green "Run" button (Shift + F10) to deploy to an emulator or physical device (API 24+).
+
+## 📱 Deployment
+
+1. **Build Release**: Run `./gradlew bundleRelease` to generate an AAB.
+2. **Signing**: Configure `keystore.properties` in the root (do not commit this file).
+3. **Minification**: Release builds use R8/Proguard to optimize performance and security.
+
+---
+
 ## 🛡️ Robustness Features
 - **Circular Dependency Protection**: Automatically detects and heals self-parenting loops or recursive storage conflicts.
-- **Monotonic Sync**: Guarantees correct ordering of operations even when actions happen in the same millisecond.
+- **Monotonic Sync**: Guarantees correct ordering of operations even when actions happen in the same millisecond and across devices with different system clocks.
 - **Tactile UI**: Integrated haptic feedback for drag-and-drop and state transitions.
 
 ---
