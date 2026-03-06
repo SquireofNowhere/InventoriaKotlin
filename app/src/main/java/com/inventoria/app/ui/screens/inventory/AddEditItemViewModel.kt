@@ -105,7 +105,14 @@ class AddEditItemViewModel @Inject constructor(
             else -> null
         }
         
-        Log.d(TAG, "itemId determined as: $itemId")
+        val parentIdRaw = savedStateHandle.get<Any>("parentId")
+        val initialParentId: Long? = when (parentIdRaw) {
+            is Long -> parentIdRaw
+            is String -> parentIdRaw.toLongOrNull()
+            else -> null
+        }
+        
+        Log.d(TAG, "itemId: $itemId, parentId: $initialParentId")
 
         viewModelScope.launch {
             repository.getStorageItems()
@@ -119,6 +126,7 @@ class AddEditItemViewModel @Inject constructor(
             loadItem(itemId)
         } else {
             Log.d(TAG, "No valid itemId provided, attempting to get current location")
+            parentId = initialParentId
             getCurrentLocation(isManual = false)
         }
 

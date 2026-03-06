@@ -25,7 +25,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.SyncStatus
 import com.inventoria.app.ui.components.SyncStatusIndicator
 import com.inventoria.app.ui.screens.collections.*
@@ -46,14 +45,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoriaApp(
-    syncRepository: FirebaseSyncRepository = hiltViewModel<InventoryListViewModel>().let { 
-        // This is a hacky way to get the singleton repository without complicating the DI further
-        // Ideally, FirebaseSyncRepository should be injected directly into InventoriaApp if using hilt for App entry
-        // For now, I'll assume we can get it via Hilt in a better way or just use the syncStatus flow
-        hiltViewModel<InventoryListViewModel>().syncRepository
-    }
-) {
+fun InventoriaApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -268,7 +260,12 @@ fun InventoriaApp(
                     SettingsScreen()
                 }
 
-                composable("add_item") {
+                composable(
+                    route = "add_item?parentId={parentId}",
+                    arguments = listOf(
+                        navArgument("parentId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                    )
+                ) { _ ->
                     val viewModel: AddEditItemViewModel = hiltViewModel()
                     AddEditItemScreen(
                         viewModel = viewModel,
@@ -296,6 +293,7 @@ fun InventoriaApp(
                             }
                         },
                         onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") },
+                        onAddItemInside = { parentId -> navController.navigate("add_item?parentId=$parentId") },
                         onNavigateToCollection = { id -> navController.navigate("collection/$id") }
                     )
                 }

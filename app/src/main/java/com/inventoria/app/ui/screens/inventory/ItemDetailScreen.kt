@@ -43,6 +43,7 @@ fun ItemDetailScreen(
     onEditItem: (Long) -> Unit,
     onLocationClick: (Double, Double) -> Unit,
     onNavigateToItemDetail: (Long) -> Unit, 
+    onAddItemInside: (Long) -> Unit,
     onNavigateToCollection: (Long) -> Unit = {},
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
@@ -73,7 +74,7 @@ fun ItemDetailScreen(
         floatingActionButton = {
             if (item.storage) {
                 ExtendedFloatingActionButton(
-                    onClick = { /* TODO: Add item to this container */ },
+                    onClick = { onAddItemInside(item.id) },
                     icon = { Icon(Icons.Default.Add, null) },
                     text = { Text("Add Item Inside") }
                 )
