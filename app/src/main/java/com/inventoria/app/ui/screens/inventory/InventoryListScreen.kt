@@ -26,18 +26,25 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
-import com.inventoria.app.ui.screens.dashboard.UnequipRepackDialog
+import com.inventoria.app.ui.components.UnequipRepackDialog
+import java.io.File
 import kotlin.math.roundToInt
 
 @Composable
@@ -58,6 +65,9 @@ fun InventoryListScreen(
     var showGroupMenu by remember { mutableStateOf(false) }
     var showFilterSheet by remember { mutableStateOf(false) }
 
+    // Haptic feedback for a premium feel
+    val haptics = LocalHapticFeedback.current
+
     // Clear collapsed groups when grouping mode changes
     LaunchedEffect(uiState.groupOption) {
         collapsedGroupNames = emptySet()
@@ -73,10 +83,17 @@ fun InventoryListScreen(
 
     // Drag and Drop State logic
     var draggedItem by remember { mutableStateOf<InventoryItem?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var currentPointerPosition by remember { mutableStateOf(Offset.Zero) }
     var dropTargetId by remember { mutableStateOf<Long?>(null) }
+    var containerOffset by remember { mutableStateOf(Offset.Zero) }
     val itemBounds = remember { mutableStateMapOf<Long, Rect>() }
+    
+    var showLinkPrompt by remember { mutableStateOf<Pair<InventoryItem, InventoryItem>?>(null) }
+    var showChoicePrompt by remember { mutableStateOf<Pair<InventoryItem, InventoryItem>?>(null) }
+
+    val density = LocalDensity.current
+    val ghostWidthPx = with(density) { 260.dp.toPx() }
+    val ghostHeightPx = with(density) { 64.dp.toPx() }
 
     LaunchedEffect(fromCollectionId) {
         if (fromCollectionId != 0L) {
@@ -84,11 +101,17 @@ fun InventoryListScreen(
         }
     }
 
+    // Update drop target while dragging
     LaunchedEffect(currentPointerPosition, draggedItem) {
         if (draggedItem != null) {
             val target = itemBounds.entries.find { (id, rect) ->
                 id != draggedItem?.id && rect.contains(currentPointerPosition)
             }?.key
+            
+            // Provide a tiny buzz when hovering over a new valid target
+            if (target != null && target != dropTargetId) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
             dropTargetId = target
         }
     }
@@ -128,7 +151,7 @@ fun InventoryListScreen(
                             Icon(Icons.Default.Sort, "Sort")
                         }
                         DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                            SortOption.values().forEach { option ->
+                            SortOption.entries.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.displayName) },
                                     onClick = {
@@ -145,7 +168,7 @@ fun InventoryListScreen(
                             Icon(Icons.Default.GroupWork, "Group")
                         }
                         DropdownMenu(expanded = showGroupMenu, onDismissRequest = { showGroupMenu = false }) {
-                            GroupOption.values().forEach { option ->
+                            GroupOption.entries.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.displayName) },
                                     onClick = {
@@ -171,7 +194,14 @@ fun InventoryListScreen(
             }
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .onGloballyPositioned { coords ->
+                    containerOffset = coords.positionInWindow()
+                }
+        ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Search Bar
                 OutlinedTextField(
@@ -216,7 +246,7 @@ fun InventoryListScreen(
                                 InputChip(
                                     selected = true,
                                     onClick = { viewModel.clearFilters() },
-                                    label = { Text("Filters Active") },
+                                    label = { Text(if (uiState.isInvertFilterEnabled) "Inclusion Filters Active" else "Exclusion Filters Active") },
                                     trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
                                 )
                             }
@@ -251,6 +281,7 @@ fun InventoryListScreen(
                                     draggedItemId = draggedItem?.id,
                                     dropTargetId = dropTargetId,
                                     collectionItemIds = uiState.collectionItemIds,
+                                    linkedItemIds = uiState.linkedItemIds,
                                     isSelectionMode = fromCollectionId != 0L,
                                     onToggleExpand = { id ->
                                         viewModel.toggleItemExpansion(id)
@@ -276,21 +307,34 @@ fun InventoryListScreen(
                                             }
                                         }
                                     },
-                                    onDragStart = { itm, pos -> 
+                                    onDragStart = { itm, windowPos -> 
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         draggedItem = itm
-                                        dragOffset = Offset.Zero
-                                        currentPointerPosition = pos
+                                        currentPointerPosition = windowPos
                                     },
                                     onDrag = { delta ->
-                                        dragOffset += delta
                                         currentPointerPosition += delta
                                     },
                                     onDragEnd = {
                                         if (draggedItem != null) {
-                                            viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                            if (dropTargetId != null) {
+                                                val target = uiState.items.find { it.id == dropTargetId }
+                                                if (target != null) {
+                                                    if (draggedItem!!.storage && target.storage) {
+                                                        showChoicePrompt = draggedItem!! to target
+                                                    } else if (target.storage) {
+                                                        viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                                    } else {
+                                                        showLinkPrompt = draggedItem!! to target
+                                                    }
+                                                }
+                                            } else {
+                                                // Drop in empty space -> Move to ROOT
+                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                viewModel.moveItem(draggedItem!!.id, null)
+                                            }
                                         }
                                         draggedItem = null
-                                        dragOffset = Offset.Zero
                                         currentPointerPosition = Offset.Zero
                                         dropTargetId = null
                                     },
@@ -354,6 +398,7 @@ fun InventoryListScreen(
                                             draggedItemId = draggedItem?.id,
                                             dropTargetId = dropTargetId,
                                             collectionItemIds = uiState.collectionItemIds,
+                                            linkedItemIds = uiState.linkedItemIds,
                                             isSelectionMode = fromCollectionId != 0L,
                                             onToggleExpand = { id ->
                                                 viewModel.toggleItemExpansion(id)
@@ -379,21 +424,32 @@ fun InventoryListScreen(
                                                     }
                                                 }
                                             },
-                                            onDragStart = { itm, pos -> 
+                                            onDragStart = { itm, windowPos -> 
+                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 draggedItem = itm
-                                                dragOffset = Offset.Zero
-                                                currentPointerPosition = pos
+                                                currentPointerPosition = windowPos
                                             },
                                             onDrag = { delta ->
-                                                dragOffset += delta
                                                 currentPointerPosition += delta
                                             },
                                             onDragEnd = {
                                                 if (draggedItem != null) {
-                                                    viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                                    if (dropTargetId != null) {
+                                                        val target = uiState.items.find { it.id == dropTargetId }
+                                                        if (target != null) {
+                                                            if (draggedItem!!.storage && target.storage) {
+                                                                showChoicePrompt = draggedItem!! to target
+                                                            } else if (target.storage) {
+                                                                viewModel.moveItem(draggedItem!!.id, dropTargetId)
+                                                            } else {
+                                                                showLinkPrompt = draggedItem!! to target
+                                                            }
+                                                        }
+                                                    } else {
+                                                        viewModel.moveItem(draggedItem!!.id, null)
+                                                    }
                                                 }
                                                 draggedItem = null
-                                                dragOffset = Offset.Zero
                                                 currentPointerPosition = Offset.Zero
                                                 dropTargetId = null
                                             },
@@ -408,12 +464,17 @@ fun InventoryListScreen(
                 }
             }
 
-            // Ghost Preview remains the same
+            // Ghost Preview
             draggedItem?.let { item ->
                 Surface(
                     modifier = Modifier
                         .size(width = 260.dp, height = 64.dp)
-                        .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
+                        .offset { 
+                            IntOffset(
+                                (currentPointerPosition.x - containerOffset.x - ghostWidthPx / 2).roundToInt(), 
+                                (currentPointerPosition.y - containerOffset.y - ghostHeightPx / 2).roundToInt()
+                            ) 
+                        }
                         .zIndex(100f)
                         .graphicsLayer { alpha = 0.9f; scaleX = 1.05f; scaleY = 1.05f },
                     shape = RoundedCornerShape(12.dp),
@@ -447,6 +508,7 @@ fun InventoryListScreen(
                 onToggleCategory = viewModel::toggleCategoryVisibility,
                 onToggleCollection = viewModel::toggleCollectionVisibility,
                 onSetHardFilter = viewModel::setHardFilterEnabled,
+                onSetInvertFilter = viewModel::setInvertFilterEnabled,
                 onClearAll = viewModel::clearFilters
             )
         }
@@ -467,6 +529,52 @@ fun InventoryListScreen(
             }
         )
     }
+    
+    showLinkPrompt?.let { (follower, leader) ->
+        AlertDialog(
+            onDismissRequest = { showLinkPrompt = null },
+            title = { Text("Link Items?") },
+            text = { Text("Do you want to link '${follower.name}' to follow '${leader.name}'? '${follower.name}' will automatically update its location whenever '${leader.name}' moves.") },
+            confirmButton = {
+                Button(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.linkItem(follower.id, leader.id)
+                    showLinkPrompt = null
+                }) {
+                    Text("Link Items")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLinkPrompt = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    showChoicePrompt?.let { (dragged, target) ->
+        AlertDialog(
+            onDismissRequest = { showChoicePrompt = null },
+            title = { Text("Move or Link?") },
+            text = { Text("Do you want to put '${dragged.name}' inside '${target.name}', or just link them so they follow each other?") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.moveItem(dragged.id, target.id)
+                    showChoicePrompt = null
+                }) {
+                    Text("Store Inside")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.linkItem(dragged.id, target.id)
+                    showChoicePrompt = null
+                }) {
+                    Text("Link Only")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -476,6 +584,7 @@ fun FilterBottomSheetContent(
     onToggleCategory: (String) -> Unit,
     onToggleCollection: (Long) -> Unit,
     onSetHardFilter: (Boolean) -> Unit,
+    onSetInvertFilter: (Boolean) -> Unit,
     onClearAll: () -> Unit
 ) {
     Column(
@@ -496,70 +605,113 @@ fun FilterBottomSheetContent(
             }
         }
 
-        // Hard Filter Toggle
+        // Filter Logic Toggles
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
         ) {
-            Row(
-                modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Hard Filter", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Items with ANY hidden tag will be hidden",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+            Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Hard Filter", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Items must match ALL selected filters",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isHardFilterEnabled,
+                        onCheckedChange = onSetHardFilter
                     )
                 }
-                Switch(
-                    checked = uiState.isHardFilterEnabled,
-                    onCheckedChange = onSetHardFilter
-                )
+                
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Invert Filter (Show Only Selected)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Only show items matching selected filters",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isInvertFilterEnabled,
+                        onCheckedChange = onSetInvertFilter
+                    )
+                }
             }
         }
 
         Divider()
 
-        Text("Hide Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (uiState.isInvertFilterEnabled) "Include Categories" else "Hide Categories", 
+            style = MaterialTheme.typography.titleMedium, 
+            fontWeight = FontWeight.SemiBold
+        )
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             uiState.allCategories.forEach { category ->
-                val isHidden = uiState.hiddenCategories.contains(category)
+                val isSelected = uiState.hiddenCategories.contains(category)
                 FilterChip(
-                    selected = !isHidden,
+                    selected = isSelected,
                     onClick = { onToggleCategory(category) },
                     label = { Text(category) },
-                    leadingIcon = { if (!isHidden) Icon(Icons.Default.Visibility, null, Modifier.size(18.dp)) else Icon(Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) }
+                    leadingIcon = { 
+                        if (isSelected) {
+                            Icon(if (uiState.isInvertFilterEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) 
+                        } else null
+                    }
                 )
             }
-            val isUncatHidden = uiState.hiddenCategories.contains("Uncategorized")
+            val isUncatSelected = uiState.hiddenCategories.contains("Uncategorized")
             FilterChip(
-                selected = !isUncatHidden,
+                selected = isUncatSelected,
                 onClick = { onToggleCategory("Uncategorized") },
                 label = { Text("Uncategorized") },
-                leadingIcon = { if (!isUncatHidden) Icon(Icons.Default.Visibility, null, Modifier.size(18.dp)) else Icon(Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) }
+                leadingIcon = { 
+                    if (isUncatSelected) {
+                        Icon(if (uiState.isInvertFilterEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, Modifier.size(18.dp))
+                    } else null
+                }
             )
         }
 
         Divider()
 
-        Text("Hide Collections", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (uiState.isInvertFilterEnabled) "Include Collections" else "Hide Collections", 
+            style = MaterialTheme.typography.titleMedium, 
+            fontWeight = FontWeight.SemiBold
+        )
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             uiState.allCollections.forEach { collection ->
-                val isHidden = uiState.hiddenCollections.contains(collection.id)
+                val isSelected = uiState.hiddenCollections.contains(collection.id)
                 FilterChip(
-                    selected = !isHidden,
+                    selected = isSelected,
                     onClick = { onToggleCollection(collection.id) },
                     label = { Text(collection.name) },
-                    leadingIcon = { if (!isHidden) Icon(Icons.Default.Visibility, null, Modifier.size(18.dp)) else Icon(Icons.Default.VisibilityOff, null, Modifier.size(18.dp)) }
+                    leadingIcon = { 
+                        if (isSelected) {
+                            Icon(if (uiState.isInvertFilterEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, Modifier.size(18.dp))
+                        } else null
+                    }
                 )
             }
         }
@@ -576,6 +728,7 @@ fun InventoryItemRow(
     draggedItemId: Long?,
     dropTargetId: Long?,
     collectionItemIds: Set<Long>,
+    linkedItemIds: Set<Long>,
     isSelectionMode: Boolean = false,
     onToggleExpand: (Long) -> Unit,
     onItemClick: (Long) -> Unit,
@@ -590,10 +743,12 @@ fun InventoryItemRow(
 
     val isExpanded = expandedItemIds.contains(item.id)
     val children = remember(item.id, allItems) { allItems.filter { it.parentId == item.id } }
-    val isContainer = item.storage || children.isNotEmpty()
+    val hasChildren = children.isNotEmpty()
+    val isContainer = item.storage || hasChildren
     val isBeingDragged = draggedItemId == item.id
     val isPotentialDropTarget = dropTargetId == item.id && draggedItemId != item.id
     val isInCollection = collectionItemIds.contains(item.id)
+    val isLinked = linkedItemIds.contains(item.id)
     val isDirectMatch = matchedItemIds.contains(item.id) || !isSearchMode
 
     var rowRect by remember { mutableStateOf(Rect.Zero) }
@@ -648,7 +803,7 @@ fun InventoryItemRow(
                     if (isSelectionMode) {
                         onItemClick(item.id)
                     } else {
-                        if (isContainer) onToggleExpand(item.id) else onItemClick(item.id)
+                        if (hasChildren) onToggleExpand(item.id) else onItemClick(item.id)
                     }
                 },
             color = backgroundColor,
@@ -663,7 +818,7 @@ fun InventoryItemRow(
                     .alpha(if (isBeingDragged) 0f else 1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isContainer) {
+                if (hasChildren) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                         contentDescription = null,
@@ -684,22 +839,50 @@ fun InventoryItemRow(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                 } else {
-                    Icon(
-                        imageVector = if (item.storage) Icons.Default.Inventory else Icons.Default.Category,
-                        contentDescription = null,
-                        tint = if (item.storage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (item.imageUrl != null) {
+                        val imageModel = if (item.imageUrl!!.startsWith("http")) {
+                            item.imageUrl
+                        } else {
+                            File(item.imageUrl!!)
+                        }
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Crop,
+                            error = painterResource(id = R.drawable.ic_launcher_foreground) // Placeholder
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (item.storage) Icons.Default.Inventory else Icons.Default.Category,
+                            contentDescription = null,
+                            tint = if (item.storage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(12.dp))
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (isDirectMatch) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isDirectMatch) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isDirectMatch) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isDirectMatch) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (isLinked) {
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = "Linked",
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                     if (item.location.isNotBlank() && depth == 0) {
                         Text(
                             text = item.location,
@@ -749,6 +932,7 @@ fun InventoryItemRow(
                     draggedItemId = draggedItemId,
                     dropTargetId = dropTargetId,
                     collectionItemIds = collectionItemIds,
+                    linkedItemIds = linkedItemIds,
                     isSelectionMode = isSelectionMode,
                     onToggleExpand = onToggleExpand,
                     onItemClick = onItemClick,

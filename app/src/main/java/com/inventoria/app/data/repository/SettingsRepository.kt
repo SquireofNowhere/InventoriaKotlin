@@ -25,6 +25,7 @@ class SettingsRepository @Inject constructor(
     private val INVENTORY_HIDDEN_CATEGORIES = stringSetPreferencesKey("inv_hidden_cats")
     private val INVENTORY_HIDDEN_COLLECTIONS = stringSetPreferencesKey("inv_hidden_colls")
     private val INVENTORY_HARD_FILTER = booleanPreferencesKey("inv_hard_filter")
+    private val INVENTORY_INVERT_FILTER = booleanPreferencesKey("inv_invert_filter")
     private val INVENTORY_EXPANDED_ITEMS = stringSetPreferencesKey("inv_expanded_items")
     
     // Custom Username
@@ -54,6 +55,9 @@ class SettingsRepository @Inject constructor(
 
     val isHardFilterEnabled: Flow<Boolean> = context.dataStore.data
         .map { it[INVENTORY_HARD_FILTER] ?: true }
+
+    val isInvertFilterEnabled: Flow<Boolean> = context.dataStore.data
+        .map { it[INVENTORY_INVERT_FILTER] ?: false }
 
     val expandedItemIds: Flow<Set<String>> = context.dataStore.data
         .map { it[INVENTORY_EXPANDED_ITEMS] ?: emptySet() }
@@ -92,6 +96,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setHardFilterEnabled(enabled: Boolean) {
         context.dataStore.edit { it[INVENTORY_HARD_FILTER] = enabled }
+    }
+
+    suspend fun setInvertFilterEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[INVENTORY_INVERT_FILTER] = enabled }
     }
 
     suspend fun saveExpandedItems(itemIds: Set<String>) {

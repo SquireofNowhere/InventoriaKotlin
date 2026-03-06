@@ -619,6 +619,19 @@ fun SessionDetailDialog(
     
     val segmentsWithEditors = remember { mutableStateListOf<String>() }
 
+    // Live update for running tasks in details
+    var ticker by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val hasRunningTask = segments.any { it.isRunning }
+    
+    LaunchedEffect(hasRunningTask) {
+        if (hasRunningTask) {
+            while (true) {
+                ticker = System.currentTimeMillis()
+                delay(1000)
+            }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Session Details") },
@@ -732,10 +745,11 @@ fun SessionDetailDialog(
                                     )
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         TaskKindChip(kind = segment.kind, modifier = Modifier.scale(0.7f).offset(x = (-10).dp))
+                                        val segmentDuration = if (segment.isRunning) (ticker - segment.startTime) else segment.duration
                                         Text(
-                                            text = " • ${if (segment.isRunning) "Running..." else formatStartEndRange(segment.startTime, segment.endTime)}",
+                                            text = " • ${if (segment.isRunning) "Running: ${formatTime(segmentDuration)}" else formatStartEndRange(segment.startTime, segment.endTime)}",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = Color.Gray
+                                            color = if (segment.isRunning) PurplePrimary else Color.Gray
                                         )
                                     }
                                 }
@@ -813,7 +827,9 @@ fun SessionDetailDialog(
                 
                 Divider()
                 
-                val totalDuration = segments.sumOf { it.duration }
+                val totalDuration = segments.sumOf { 
+                    if (it.isRunning) (ticker - it.startTime) else it.duration 
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -847,12 +863,10 @@ fun TaskDetailDialog(
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(key1 = task.id, key2 = task.savedToCalendar) {
-        if (task.savedToCalendar) {
-            while (true) {
-                currentTime = System.currentTimeMillis()
-                delay(1000L)
-            }
+    LaunchedEffect(key1 = task.id, key2 = task.savedToCalendar, key3 = task.isRunning) {
+        while (task.savedToCalendar || task.isRunning) {
+            currentTime = System.currentTimeMillis()
+            delay(1000L)
         }
     }
 
@@ -908,7 +922,7 @@ fun TaskDetailDialog(
                 
                 Divider()
                 
-                val currentEndTime = task.endTime ?: System.currentTimeMillis()
+                val currentEndTime = task.endTime ?: currentTime
                 if (isSpanningDays(task.startTime, currentEndTime)) {
                     DetailItem(label = "Date", value = formatDateRange(task.startTime, currentEndTime))
                 }
@@ -935,7 +949,8 @@ fun TaskDetailDialog(
                     }
                 )
                 
-                DetailItem(label = "Duration", value = formatDetailedDuration(task.duration))
+                val liveDuration = if (task.isRunning) (currentTime - task.startTime) else task.duration
+                DetailItem(label = "Duration", value = formatDetailedDuration(liveDuration))
                 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

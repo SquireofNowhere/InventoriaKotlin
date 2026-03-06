@@ -1,42 +1,42 @@
 {
   "project_info": {
-    "project_number": "480244418323",
-    "firebase_url": "https://inventoria-18b97-default-rtdb.europe-west1.firebasedatabase.app",
-    "project_id": "inventoria-18b97",
-    "storage_bucket": "inventoria-18b97.firebasestorage.app"
+    "project_number": "572243958143",
+    "firebase_url": "https://inventoriaus-default-rtdb.firebaseio.com",
+    "project_id": "inventoriaus",
+    "storage_bucket": "inventoriaus.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:480244418323:android:8cdcfabaea6b9bbce03ce6",
+        "mobilesdk_app_id": "1:572243958143:android:9d9a9731fd169700e7224a",
         "android_client_info": {
           "package_name": "com.inventoria.app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "480244418323-980a3tsainh34ncl7oqugiokq0kvji4m.apps.googleusercontent.com",
+          "client_id": "572243958143-cu0q6ut0s85fkh1fc3psdebb5vm5mm6v.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.inventoria.app",
-            "certificate_hash": "e961f69f17e7e83ee5159f75dc4335f3feb2df66"
+            "certificate_hash": "7a18210047527b915954d20dc0127b0ed1f73f3e"
           }
         },
         {
-          "client_id": "480244418323-9nrmauhg5tt3ls4rpq3nad3o5kgcr30k.apps.googleusercontent.com",
+          "client_id": "572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBQEdtijHiwJmHuuS7vg1PnG2Ta6ufgyi8"
+          "current_key": "AIzaSyBQd56q4K07ChicSy05YxAv8o6hPpElj04"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "480244418323-9nrmauhg5tt3ls4rpq3nad3o5kgcr30k.apps.googleusercontent.com",
+              "client_id": "572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

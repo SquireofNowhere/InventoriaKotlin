@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.model.ItemLink
 import com.inventoria.app.data.repository.CollectionRepository
 import com.inventoria.app.data.repository.InventoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,6 +19,8 @@ data class ItemDetailUiState(
     val lastParentName: String? = null,
     val collections: List<InventoryCollection> = emptyList(),
     val availableContainers: List<InventoryItem> = emptyList(),
+    val links: List<ItemLink> = emptyList(),
+    val linkNames: Map<Long, String> = emptyMap(),
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -46,6 +49,7 @@ class ItemDetailViewModel @Inject constructor(
             loadItem()
             loadCollections()
             loadAvailableContainers()
+            loadLinks()
             viewModelScope.launch {
                 repository.touchItem(itemId)
             }
@@ -95,7 +99,9 @@ class ItemDetailViewModel @Inject constructor(
         viewModelScope.launch {
             repository.getAllItems().collect { allItems ->
                 val childrenIds = mutableSetOf<Long>()
+                val visited = mutableSetOf<Long>()
                 fun findChildren(parentId: Long) {
+                    if (!visited.add(parentId)) return
                     allItems.filter { it.parentId == parentId }.forEach {
                         childrenIds.add(it.id)
                         findChildren(it.id)
@@ -106,6 +112,25 @@ class ItemDetailViewModel @Inject constructor(
                 val validTargets = allItems.filter { it.id != itemId && !childrenIds.contains(it.id) }
                 _uiState.update { it.copy(availableContainers = validTargets) }
             }
+        }
+    }
+
+    private fun loadLinks() {
+        viewModelScope.launch {
+            repository.getLinksForItemFlow(itemId).collect { links ->
+                val names = mutableMapOf<Long, String>()
+                links.forEach { link ->
+                    val otherId = if (link.followerId == itemId) link.leaderId else link.followerId
+                    repository.getItemById(otherId)?.let { names[otherId] = it.name }
+                }
+                _uiState.update { it.copy(links = links, linkNames = names) }
+            }
+        }
+    }
+
+    fun removeLink(leaderId: Long) {
+        viewModelScope.launch {
+            repository.removeLink(followerId = itemId, leaderId = leaderId)
         }
     }
 

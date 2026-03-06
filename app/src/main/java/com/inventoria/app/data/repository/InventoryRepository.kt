@@ -7,15 +7,15 @@ import android.util.Log
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.inventoria.app.data.local.InventoryDao
+import com.inventoria.app.data.local.ItemLinkDao
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.model.ItemLink
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,6 +26,7 @@ import javax.inject.Singleton
 @Singleton
 class InventoryRepository @Inject constructor(
     private val inventoryDao: InventoryDao,
+    private val itemLinkDao: ItemLinkDao,
     private val syncRepository: FirebaseSyncRepository,
     private val authRepository: FirebaseAuthRepository,
     @ApplicationContext private val context: Context
@@ -35,6 +36,21 @@ class InventoryRepository @Inject constructor(
 
     // Current user location to be used for equipped items
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
+
+    // Ensure monotonic timestamps for rapid operations
+    private val lastTimestamp = AtomicLong(0L)
+
+    private fun getNextTimestamp(): Long {
+        val now = System.currentTimeMillis()
+        var last = lastTimestamp.get()
+        while (true) {
+            val next = if (now > last) now else last + 1
+            if (lastTimestamp.compareAndSet(last, next)) {
+                return next
+            }
+            last = lastTimestamp.get()
+        }
+    }
 
     init {
         // Initialize Firebase Sync
@@ -67,11 +83,9 @@ class InventoryRepository @Inject constructor(
     @SuppressLint("MissingPermission")
     private suspend fun getFreshLocation(): Pair<Double, Double>? = withContext(Dispatchers.IO) {
         try {
-            // Prefer current accurate location
             val currentLoc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
             if (currentLoc != null) return@withContext currentLoc.latitude to currentLoc.longitude
             
-            // Fallback to last known
             val lastLoc = fusedLocationClient.lastLocation.await()
             if (lastLoc != null) return@withContext lastLoc.latitude to lastLoc.longitude
             
@@ -93,29 +107,62 @@ class InventoryRepository @Inject constructor(
     suspend fun touchItem(id: Long) = withContext(Dispatchers.IO) {
         val item = inventoryDao.getItemById(id)
         if (item != null) {
-            inventoryDao.updateItem(item.copy(updatedAt = System.currentTimeMillis()))
+            inventoryDao.updateItem(item.copy(updatedAt = getNextTimestamp()))
         }
     }
 
     fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)
-    
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = inventoryDao.getItemsByCategory(category)
-    
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = inventoryDao.getOutOfStockItems()
-    
     fun getAllCategories(): Flow<List<String>> = inventoryDao.getAllCategories()
-    
     fun getItemCount(): Flow<Int> = inventoryDao.getItemCount()
-    
     fun getTotalValue(): Flow<Double?> = inventoryDao.getTotalValue()
-    
     fun getStorageItems(): Flow<List<InventoryItem>> = inventoryDao.getStorageItems()
-    
     fun getItemsByParent(parentId: Long): Flow<List<InventoryItem>> = inventoryDao.getItemsByParent(parentId)
     
+    fun getAllLinksFlow(): Flow<List<ItemLink>> = itemLinkDao.getAllLinksFlow()
+    fun getLinksForItemFlow(itemId: Long): Flow<List<ItemLink>> = itemLinkDao.getLinksForItemFlow(itemId)
+
     fun getAllItemsWithResolvedLocations(): Flow<List<InventoryItem>> {
-        return combine(getAllItems(), _userLocation) { items, userLoc ->
+        return combine(getAllItems(), getAllLinksFlow(), _userLocation) { items, links, userLoc ->
             val itemMap = items.associateBy { it.id }
+            
+            // Build connected groups of items from links
+            val groups = mutableListOf<MutableSet<Long>>()
+            val itemToGroupIdx = mutableMapOf<Long, Int>()
+            
+            links.forEach { link ->
+                val a = link.followerId
+                val b = link.leaderId
+                val idxA = itemToGroupIdx[a]
+                val idxB = itemToGroupIdx[b]
+                
+                when {
+                    idxA != null && idxB != null -> {
+                        if (idxA != idxB) {
+                            groups[idxA].addAll(groups[idxB])
+                            val bItems = groups[idxB].toList()
+                            bItems.forEach { itemToGroupIdx[it] = idxA }
+                            groups[idxB].clear()
+                        }
+                    }
+                    idxA != null -> {
+                        groups[idxA].add(b)
+                        itemToGroupIdx[b] = idxA
+                    }
+                    idxB != null -> {
+                        groups[idxB].add(a)
+                        itemToGroupIdx[a] = idxB
+                    }
+                    else -> {
+                        val newIdx = groups.size
+                        groups.add(mutableSetOf(a, b))
+                        itemToGroupIdx[a] = newIdx
+                        itemToGroupIdx[b] = newIdx
+                    }
+                }
+            }
+
             val resolvedCache = mutableMapOf<Long, Triple<Double?, Double?, String>>()
 
             fun getResolvedLocation(item: InventoryItem, visited: Set<Long> = emptySet()): Triple<Double?, Double?, String> {
@@ -125,28 +172,48 @@ class InventoryRepository @Inject constructor(
                     Log.w("InventoryRepository", "Circular dependency detected for item ${item.id}")
                     return Triple(item.latitude, item.longitude, item.location)
                 }
-
                 val currentVisited = visited + item.id
 
-                val result = when {
-                    item.equipped && userLoc != null -> {
-                        Triple(userLoc.first, userLoc.second, "With You")
-                    }
-                    item.parentId != null -> {
-                        val parent = itemMap[item.parentId]
-                        if (parent != null) {
-                            getResolvedLocation(parent, currentVisited)
-                        } else {
-                            Triple(item.latitude, item.longitude, item.location)
-                        }
-                    }
-                    else -> {
-                        Triple(item.latitude, item.longitude, item.location)
+                // 1. Equipped always wins for its group
+                if (item.equipped && userLoc != null) {
+                    val res = Triple(userLoc.first, userLoc.second, "With You")
+                    resolvedCache[item.id] = res
+                    return res
+                }
+
+                // 2. Physical Parent resolution
+                if (item.parentId != null && item.parentId != item.id) {
+                    val parent = itemMap[item.parentId]
+                    if (parent != null) {
+                        val res = getResolvedLocation(parent, currentVisited)
+                        resolvedCache[item.id] = res
+                        return res
                     }
                 }
 
-                resolvedCache[item.id] = result
-                return result
+                // 3. Group Resolution (Mutual Following)
+                val gIdx = itemToGroupIdx[item.id]
+                if (gIdx != null && groups[gIdx].isNotEmpty()) {
+                    val groupIds = groups[gIdx]
+                    // An anchor is an item in the group that has an external location:
+                    // - Either it's equipped
+                    // - Or it has a physical parent that is NOT part of this linked group
+                    val anchors = groupIds.mapNotNull { itemMap[it] }
+                        .filter { (it.equipped || (it.parentId != null && !groupIds.contains(it.parentId))) && !visited.contains(it.id) }
+                    
+                    if (anchors.isNotEmpty()) {
+                        val bestAnchor = anchors.maxByOrNull { it.updatedAt }!!
+                        if (bestAnchor.id != item.id) {
+                            val res = getResolvedLocation(bestAnchor, currentVisited)
+                            resolvedCache[item.id] = res
+                            return res
+                        }
+                    }
+                }
+
+                val res = Triple(item.latitude, item.longitude, item.location)
+                resolvedCache[item.id] = res
+                return res
             }
 
             items.map { item ->
@@ -161,27 +228,142 @@ class InventoryRepository @Inject constructor(
     }
     
     suspend fun insertItem(item: InventoryItem): Long = withContext(Dispatchers.IO) {
-        val finalItem = if (item.equipped) {
-            item.copy(parentId = null)
-        } else item
+        // Protection: cannot be own parent
+        val finalItem = if (item.parentId == item.id) item.copy(parentId = null) else item
         
-        val currentTime = System.currentTimeMillis()
-        inventoryDao.insertItem(finalItem.copy(createdAt = currentTime, updatedAt = currentTime))
+        val sanitizedItem = if (finalItem.equipped) {
+            finalItem.copy(parentId = null)
+        } else finalItem
+        
+        val currentTime = getNextTimestamp()
+        inventoryDao.insertItem(sanitizedItem.copy(createdAt = currentTime, updatedAt = currentTime))
     }
-    
+
+    /**
+     * Group movement logic: Find all items connected by links (mutual followers).
+     */
+    suspend fun getLinkedGroupIds(itemId: Long): Set<Long> = withContext(Dispatchers.IO) {
+        val group = mutableSetOf<Long>()
+        val queue = mutableListOf(itemId)
+        val visited = mutableSetOf<Long>()
+
+        while (queue.isNotEmpty()) {
+            val currentId = queue.removeAt(0)
+            if (visited.add(currentId)) {
+                group.add(currentId)
+                val leaders = itemLinkDao.getLeadersForItem(currentId).map { it.leaderId }
+                val followers = itemLinkDao.getFollowersForItem(currentId).map { it.followerId }
+                (leaders + followers).forEach { id ->
+                    if (!visited.contains(id)) queue.add(id)
+                }
+            }
+        }
+        group
+    }
+
+    /**
+     * Link an item to another item. Bidirectional following logic.
+     */
+    suspend fun addLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
+        if (followerId == leaderId) return@withContext
+        itemLinkDao.insertLink(ItemLink(followerId, leaderId))
+        // Link change is a real data change, touch both items to trigger sync
+        touchItem(followerId)
+        touchItem(leaderId)
+    }
+
+    /**
+     * Unlink an item from another.
+     */
+    suspend fun removeLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
+        itemLinkDao.removeLink(followerId, leaderId)
+        // Link change is a real data change
+        touchItem(followerId)
+    }
+
+    /**
+     * Helper to check if childId is physically nested inside potentialParentId (recursively)
+     */
+    private fun isPhysicalDescendant(childId: Long, potentialParentId: Long, itemMap: Map<Long, InventoryItem>): Boolean {
+        if (childId == potentialParentId) return true
+        var currentId: Long? = childId
+        val visited = mutableSetOf<Long>()
+        while (currentId != null && visited.add(currentId)) {
+            val pid = itemMap[currentId]?.parentId
+            if (pid == null) break
+            if (pid == potentialParentId) return true
+            currentId = pid
+        }
+        return false
+    }
+
+    private fun hasMeaningfulChanges(old: InventoryItem, new: InventoryItem): Boolean {
+        return old.name != new.name ||
+                old.quantity != new.quantity ||
+                old.location != new.location ||
+                old.latitude != new.latitude ||
+                old.longitude != new.longitude ||
+                old.price != new.price ||
+                old.storage != new.storage ||
+                old.parentId != new.parentId ||
+                old.lastParentId != new.lastParentId ||
+                old.equipped != new.equipped ||
+                old.category != new.category ||
+                old.tags != new.tags ||
+                old.description != new.description ||
+                old.imageUrl != new.imageUrl ||
+                old.barcode != new.barcode ||
+                old.sku != new.sku ||
+                old.customFields != new.customFields
+    }
+
     /**
      * Batch updates multiple items, optimized for performance and location fetching.
+     * Modified to handle mutual followers automatically.
      */
-    suspend fun updateItems(items: List<InventoryItem>) = withContext(Dispatchers.IO) {
+    suspend fun updateItems(items: List<InventoryItem>, applyToFollowers: Boolean = true) = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext
         
-        val currentItems = inventoryDao.getItemsByIds(items.map { it.id }).associateBy { it.id }
-        val currentTime = System.currentTimeMillis()
+        val allCurrentItems = inventoryDao.getAllItems().first().associateBy { it.id }
+        val currentTime = getNextTimestamp()
 
-        // Determine if we need a fresh location fix for this batch
+        // 1. Expand the list to include linked group members if necessary
+        val itemsToProcess = if (applyToFollowers) {
+            val expandedList = items.toMutableList()
+            val processedIds = items.map { it.id }.toMutableSet()
+            
+            items.forEach { sourceItem ->
+                val groupIds = getLinkedGroupIds(sourceItem.id)
+                groupIds.forEach { gid ->
+                    if (!processedIds.contains(gid)) {
+                        allCurrentItems[gid]?.let { gItem ->
+                            // Linked items inherit the movement state of the source
+                            // BUT: If the linked item is physically inside the source item (or vice versa), 
+                            // we must NOT change its parentId, or we'll eject it from its container!
+                            val isSourceInsideG = isPhysicalDescendant(sourceItem.id, gid, allCurrentItems)
+                            val isGInsideSource = isPhysicalDescendant(gid, sourceItem.id, allCurrentItems)
+                            
+                            if (!isSourceInsideG && !isGInsideSource && gid != sourceItem.parentId) {
+                                expandedList.add(gItem.copy(
+                                    parentId = sourceItem.parentId,
+                                    equipped = sourceItem.equipped,
+                                    location = sourceItem.location,
+                                    latitude = sourceItem.latitude,
+                                    longitude = sourceItem.longitude
+                                ))
+                                processedIds.add(gid)
+                            }
+                        }
+                    }
+                }
+            }
+            expandedList
+        } else items
+
+        // 2. Refresh location fix if any item is being unequipped or moved out of a container
         var needsFreshLocation = false
-        for (item in items) {
-            val current = currentItems[item.id] ?: continue
+        for (item in itemsToProcess) {
+            val current = allCurrentItems[item.id] ?: continue
             val isUnequipping = !item.equipped && current.equipped
             val isMovingToOpenSpace = item.parentId == null && current.parentId != null && !item.equipped
             if (isUnequipping || isMovingToOpenSpace) {
@@ -202,37 +384,15 @@ class InventoryRepository @Inject constructor(
             }
         }
 
-        val updatedItems = items.mapNotNull { item ->
-            val current = currentItems[item.id] ?: return@mapNotNull null
-            var updated = item.copy(updatedAt = currentTime)
+        val updatedItems = itemsToProcess.mapNotNull { item ->
+            val current = allCurrentItems[item.id] ?: return@mapNotNull null
+            
+            // Protection: cannot be own parent
+            var updated = if (item.parentId == item.id) item.copy(parentId = null) else item
 
-            // 1. Handle Equipping Logic: Take out of container if parent is not also being equipped
-            if (updated.equipped && !current.equipped) {
-                if (current.parentId != null) {
-                    val parentId = current.parentId!!
-                    // Check if parent is also in this batch and being equipped
-                    val isParentInBatchAndEquipped = items.any { it.id == parentId && it.equipped }
-                    
-                    if (!isParentInBatchAndEquipped) {
-                        // Parent is NOT being equipped. Take item out and remember where it was.
-                        updated = updated.copy(
-                            parentId = null,
-                            lastParentId = parentId
-                        )
-                    }
-                }
-            }
-
-            // 2. Handle Unequipping Logic
-            if (!updated.equipped && current.equipped) {
-                // If the item has a parentId now, it's being put back (choice made by caller)
-                // If it doesn't have a parentId, it's being left loose.
-            }
-
-            // 3. Inherit location logic
+            // Inherit location logic (modifies the 'updated' object fields)
             if (updated.parentId != null) {
-                // Check if parent is in this batch for location data
-                val parentInBatch = items.find { it.id == updated.parentId }
+                val parentInBatch = itemsToProcess.find { it.id == updated.parentId }
                 if (parentInBatch != null) {
                     if (parentInBatch.equipped && batchLocation != null) {
                         updated = updated.copy(
@@ -248,8 +408,7 @@ class InventoryRepository @Inject constructor(
                         )
                     }
                 } else {
-                    // Check DB for parent
-                    val parent = inventoryDao.getItemById(updated.parentId!!)
+                    val parent = allCurrentItems[updated.parentId!!]
                     if (parent != null) {
                         if (parent.equipped && batchLocation != null) {
                             updated = updated.copy(
@@ -281,11 +440,29 @@ class InventoryRepository @Inject constructor(
                     }
                 }
             }
-            
-            updated
+
+            // Equipping Logic (Repack support)
+            if (updated.equipped && !current.equipped) {
+                if (current.parentId != null) {
+                    val parentId = current.parentId!!
+                    val isParentInBatchAndEquipped = itemsToProcess.any { it.id == parentId && it.equipped }
+                    if (!isParentInBatchAndEquipped) {
+                        updated = updated.copy(parentId = null, lastParentId = parentId)
+                    }
+                }
+            }
+
+            // ONLY apply update if there's a real difference compared to the current database state
+            if (hasMeaningfulChanges(current, updated)) {
+                updated.copy(updatedAt = currentTime)
+            } else {
+                null
+            }
         }
 
-        inventoryDao.updateItems(updatedItems)
+        if (updatedItems.isNotEmpty()) {
+            inventoryDao.updateItems(updatedItems)
+        }
     }
 
     suspend fun updateItem(item: InventoryItem) = updateItems(listOf(item))

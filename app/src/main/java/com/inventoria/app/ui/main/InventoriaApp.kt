@@ -110,16 +110,21 @@ fun InventoriaApp() {
                                 ) 
                             },
                             selected = isSelected,
-                            alwaysShowLabel = false, // This ensures labels only show if there is enough space or when selected
+                            alwaysShowLabel = false,
                             onClick = {
-                                Log.d("InventoriaNav", "Click on ${screen.route}. currentRoute: $currentRoute")
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = false
-                                        inclusive = false
+                                if (!isSelected) {
+                                    Log.d("InventoriaNav", "Click on ${screen.route}. Triggering sync.")
+                                    // Trigger manual sync when switching tabs
+                                    inventoryViewModel.triggerManualSync()
+                                    
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = false
+                                            inclusive = false
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = false
                                     }
-                                    launchSingleTop = true
-                                    restoreState = false
                                 }
                             }
                         )
@@ -128,6 +133,7 @@ fun InventoriaApp() {
             }
         }
     ) { innerPadding ->
+        // Content remains the same
         Box(modifier = Modifier.fillMaxSize()) {
             NavHost(
                 navController = navController,
@@ -217,6 +223,9 @@ fun InventoriaApp() {
                     CollectionDetailScreen(
                         collectionId = id,
                         onNavigateBack = { navController.popBackStack() },
+                        onEditCollection = { collectionId ->
+                            navController.navigate("collection/edit/$collectionId")
+                        },
                         onNavigateToAddItems = { collectionId ->
                             navController.navigate("${Screen.Inventory.route}?fromCollection=$collectionId")
                         },
@@ -251,7 +260,12 @@ fun InventoriaApp() {
                     SettingsScreen()
                 }
 
-                composable("add_item") {
+                composable(
+                    route = "add_item?parentId={parentId}",
+                    arguments = listOf(
+                        navArgument("parentId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                    )
+                ) { _ ->
                     val viewModel: AddEditItemViewModel = hiltViewModel()
                     AddEditItemScreen(
                         viewModel = viewModel,
@@ -278,7 +292,9 @@ fun InventoriaApp() {
                                 launchSingleTop = true
                             }
                         },
-                        onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") }
+                        onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=$origin") },
+                        onAddItemInside = { parentId -> navController.navigate("add_item?parentId=$parentId") },
+                        onNavigateToCollection = { id -> navController.navigate("collection/$id") }
                     )
                 }
 
@@ -321,7 +337,6 @@ fun InventoriaApp() {
                             onNavigateBack = { navController.popBackStack() }
                         )
                     } else {
-                        // Fallback or navigate back if we lost the parent entry
                         LaunchedEffect(Unit) {
                             navController.popBackStack()
                         }
@@ -329,17 +344,22 @@ fun InventoriaApp() {
                 }
             }
             
-            // Subtle, floating sync indicator at the top
+            // Sync status indicator UI remains the same
             if (syncStatus != SyncStatus.Idle) {
-                Surface(
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .wrapContentHeight()
                         .padding(top = 8.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-                    tonalElevation = 4.dp
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    SyncStatusIndicator(syncStatus = syncStatus)
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                        tonalElevation = 4.dp
+                    ) {
+                        SyncStatusIndicator(syncStatus = syncStatus)
+                    }
                 }
             }
         }

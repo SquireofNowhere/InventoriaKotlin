@@ -3,6 +3,8 @@ package com.inventoria.app.ui.splash
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -84,6 +86,7 @@ fun SplashScreenContent(
     val scope = rememberCoroutineScope()
     var startAnimation by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
+    var isSigningIn by remember { mutableStateOf(false) }
     
     val currentUser = authRepository.getCurrentUser()
     val isAuthenticated = currentUser != null && !currentUser.isAnonymous
@@ -93,16 +96,32 @@ fun SplashScreenContent(
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        Log.d("SplashActivity", "Google Sign In result: ${result.resultCode}")
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
             val account = task.getResult(ApiException::class.java)
+            Log.d("SplashActivity", "Google Sign In Success: ${account.email}")
             account.idToken?.let { idToken ->
                 scope.launch {
-                    authRepository.signInWithGoogle(idToken)
-                    onEnterApp()
+                    try {
+                        authRepository.signInWithGoogle(idToken)
+                        onEnterApp()
+                    } catch (e: Exception) {
+                        Log.e("SplashActivity", "Firebase Auth error: ${e.message}")
+                        Toast.makeText(context, "Auth Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    } finally {
+                        isSigningIn = false
+                    }
                 }
+            } ?: run {
+                Log.e("SplashActivity", "ID Token is NULL")
+                isSigningIn = false
             }
-        } catch (e: ApiException) { }
+        } catch (e: ApiException) {
+            Log.e("SplashActivity", "Google Sign In Failed. Status Code: ${e.statusCode}, Message: ${e.message}")
+            Toast.makeText(context, "Sign In Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            isSigningIn = false
+        }
     }
 
     // Animations
@@ -141,7 +160,7 @@ fun SplashScreenContent(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (isAuthenticated) {
+                if (isAuthenticated && !isSigningIn) {
                     onEnterApp()
                 }
             },
@@ -179,7 +198,9 @@ fun SplashScreenContent(
 
             AnimatedVisibility(visible = showActions, enter = fadeIn()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (isAuthenticated) {
+                    if (isSigningIn) {
+                        CircularProgressIndicator(color = Color.White)
+                    } else if (isAuthenticated) {
                         val displayName = customUsername ?: currentUser?.displayName?.split(" ")?.firstOrNull() ?: "User"
                         Text(
                             text = "Welcome back, $displayName",
@@ -196,12 +217,27 @@ fun SplashScreenContent(
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(
                             onClick = {
-                                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                                    .requestIdToken(context.getString(R.string.default_web_client_id))
-                                    .requestEmail()
-                                    .build()
-                                val client = GoogleSignIn.getClient(context, gso)
-                                launcher.launch(client.signInIntent)
+                                isSigningIn = true
+                                try {
+                                    val webClientId = context.getString(R.string.default_web_client_id)
+                                    Log.d("SplashActivity", "Using Web Client ID: $webClientId")
+                                    
+                                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                        .requestIdToken(webClientId)
+                                        .requestEmail()
+                                        .build()
+                                    val client = GoogleSignIn.getClient(context, gso)
+                                    
+                                    // Sign out first to ensure account selection dialog always appears
+                                    client.signOut().addOnCompleteListener {
+                                        Log.d("SplashActivity", "Launching Google Sign In Intent")
+                                        launcher.launch(client.signInIntent)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("SplashActivity", "Error preparing Google Sign In: ${e.message}")
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                    isSigningIn = false
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = GradientStart),
                             modifier = Modifier.fillMaxWidth(0.7f).height(50.dp)

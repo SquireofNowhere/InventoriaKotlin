@@ -1,9 +1,11 @@
 package com.inventoria.app.ui.screens.settings
 
 import android.content.Context
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -17,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -42,12 +43,19 @@ fun SettingsScreen(
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        Log.d("SettingsScreen", "Launcher result received: ${result.resultCode}")
+        val data = result.data
+        val task = GoogleSignIn.getSignedInAccountFromIntent(data)
         try {
             val account = task.getResult(ApiException::class.java)
-            account.idToken?.let { viewModel.onGoogleSignInSuccess(it) }
+            Log.d("SettingsScreen", "Google Sign In Success: ${account.email}")
+            account.idToken?.let { viewModel.onGoogleSignInSuccess(it) } ?: run {
+                Log.e("SettingsScreen", "Google Sign In Success but ID Token is NULL")
+                Toast.makeText(context, "Authentication failed: No ID Token", Toast.LENGTH_SHORT).show()
+            }
         } catch (e: ApiException) {
-            // Handle error
+            Log.e("SettingsScreen", "Google Sign In Failed. Status Code: ${e.statusCode}, Message: ${e.message}")
+            Toast.makeText(context, "Google Sign In Failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -77,12 +85,26 @@ fun SettingsScreen(
                 customUsername = customUsername,
                 onUsernameChange = viewModel::updateCustomUsername,
                 onSignInClick = {
-                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                        .requestIdToken(context.getString(R.string.default_web_client_id)) // Requires google-services plugin
-                        .requestEmail()
-                        .build()
-                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                    launcher.launch(googleSignInClient.signInIntent)
+                    Log.d("SettingsScreen", "onSignInClick called via lambda")
+                    Toast.makeText(context, "Connecting to Google...", Toast.LENGTH_SHORT).show()
+                    try {
+                        val webClientId = context.getString(R.string.default_web_client_id)
+                        Log.d("SettingsScreen", "Using Web Client ID: $webClientId")
+                        
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestIdToken(webClientId)
+                            .requestEmail()
+                            .build()
+                        val googleSignInClient = GoogleSignIn.getClient(context, gso)
+                        
+                        googleSignInClient.signOut().addOnCompleteListener {
+                            Log.d("SettingsScreen", "Launching Google Sign In Intent")
+                            launcher.launch(googleSignInClient.signInIntent)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("SettingsScreen", "Error preparing Google Sign In: ${e.message}")
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
                 },
                 onSignOutClick = viewModel::signOut
             )
@@ -187,14 +209,25 @@ fun AccountSection(
                         Text(text = "Error: ${authState.message}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
                     Button(
-                        onClick = onSignInClick,
+                        onClick = { 
+                            Log.d("SettingsScreen", "Button wrapper clicked")
+                            onSignInClick() 
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(12.dp)
                     ) {
-                        Icon(Icons.Default.Login, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Sign in with Google")
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Login, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Sign in with Google")
+                        }
                     }
+                    
+                    // Invisible fallback for debugging
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).clickable { onSignInClick() })
                 }
                 is AuthState.Loading -> {
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

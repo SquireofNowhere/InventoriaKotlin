@@ -3,6 +3,7 @@ package com.inventoria.app.ui.screens.collections
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.model.InventoryCollection
@@ -11,12 +12,14 @@ import com.inventoria.app.data.repository.CollectionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class AddEditCollectionViewModel @Inject constructor(
-    private val collectionRepository: CollectionRepository
+    private val collectionRepository: CollectionRepository,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     var id by mutableStateOf<Long?>(null)
@@ -30,6 +33,13 @@ class AddEditCollectionViewModel @Inject constructor(
 
     private val _eventFlow = MutableSharedFlow<UiEvent>()
     val eventFlow = _eventFlow.asSharedFlow()
+
+    init {
+        val collectionId = savedStateHandle.get<Long>("id")
+        if (collectionId != null && collectionId != 0L) {
+            loadCollection(collectionId)
+        }
+    }
 
     fun loadCollection(collectionId: Long) {
         viewModelScope.launch {
@@ -70,7 +80,7 @@ class AddEditCollectionViewModel @Inject constructor(
                 requiresSameLocation = requiresSameLocation
             )
 
-            if (id == null) {
+            if (id == null || id == 0L) {
                 collectionRepository.createCollection(collection)
             } else {
                 collectionRepository.updateCollection(collection)

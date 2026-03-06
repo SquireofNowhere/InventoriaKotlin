@@ -119,7 +119,12 @@ data class InventoryCollectionItem(
     @ColumnInfo(name = "added_at")
     @get:PropertyName("addedAt")
     @set:PropertyName("addedAt")
-    var addedAt: Long = System.currentTimeMillis()
+    var addedAt: Long = System.currentTimeMillis(),
+
+    @ColumnInfo(name = "updated_at")
+    @get:PropertyName("updatedAt")
+    @set:PropertyName("updatedAt")
+    var updatedAt: Long = System.currentTimeMillis()
 )
 
 data class InventoryCollectionWithCount(

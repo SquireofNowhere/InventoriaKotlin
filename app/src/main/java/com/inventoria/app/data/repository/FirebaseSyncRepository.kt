@@ -4,11 +4,14 @@ import android.util.Log
 import com.google.firebase.database.*
 import com.inventoria.app.data.local.CollectionDao
 import com.inventoria.app.data.local.InventoryDao
+import com.inventoria.app.data.local.ItemLinkDao
 import com.inventoria.app.data.local.TaskDao
 import com.inventoria.app.data.model.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +27,7 @@ class FirebaseSyncRepository @Inject constructor(
     private val inventoryDao: InventoryDao,
     private val taskDao: TaskDao,
     private val collectionDao: CollectionDao,
+    private val itemLinkDao: ItemLinkDao,
     private val firebaseDatabase: FirebaseDatabase,
     private val authRepository: FirebaseAuthRepository,
     private val settingsRepository: SettingsRepository
@@ -34,7 +38,8 @@ class FirebaseSyncRepository @Inject constructor(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
-    private var isUpdatingFromFirebase = false
+    // Use a counter per sync node to handle overlapping updates more robustly
+    private val syncIgnoreCount = AtomicInteger(0)
     private var userRef: DatabaseReference? = null
 
     /**
@@ -62,46 +67,50 @@ class FirebaseSyncRepository @Inject constructor(
         })
 
         // 1. Inventory Sync
-        val inventoryRef = rootRef.child("inventory")
         setupNodeSync(
-            nodeRef = inventoryRef,
+            nodeRef = rootRef.child("inventory"),
             localFlow = inventoryDao.getAllItems(),
             pushAction = { ref, items -> pushItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullItemsFromFirebase(snapshot) }
         )
 
         // 2. Task Sync
-        val tasksRef = rootRef.child("tasks")
         setupNodeSync(
-            nodeRef = tasksRef,
+            nodeRef = rootRef.child("tasks"),
             localFlow = taskDao.getAllTasks(),
             pushAction = { ref, tasks -> pushTasksToFirebase(ref, tasks) },
             pullAction = { snapshot -> pullTasksFromFirebase(snapshot) }
         )
 
         // 3. Collections Sync
-        val collectionsRef = rootRef.child("collections")
         setupNodeSync(
-            nodeRef = collectionsRef,
+            nodeRef = rootRef.child("collections"),
             localFlow = collectionDao.getAllCollections(),
             pushAction = { ref, colls -> pushCollectionsToFirebase(ref, colls) },
             pullAction = { snapshot -> pullCollectionsFromFirebase(snapshot) }
         )
 
         // 4. Collection Items Sync (Junction Table)
-        val collectionItemsRef = rootRef.child("collection_items")
         setupNodeSync(
-            nodeRef = collectionItemsRef,
+            nodeRef = rootRef.child("collection_items"),
             localFlow = collectionDao.getAllCollectionItemsFlow(),
             pushAction = { ref, items -> pushCollectionItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullCollectionItemsFromFirebase(snapshot) }
         )
 
-        // 5. Settings Sync (Includes Custom Username)
+        // 5. Item Links Sync
+        setupNodeSync(
+            nodeRef = rootRef.child("item_links"),
+            localFlow = itemLinkDao.getAllLinksFlow(),
+            pushAction = { ref, links -> pushLinksToFirebase(ref, links) },
+            pullAction = { snapshot -> pullLinksFromFirebase(snapshot) }
+        )
+
+        // 6. Settings Sync (Includes Custom Username)
         val settingsRef = rootRef.child("settings")
         repositoryScope.launch {
             settingsRepository.customUsername.distinctUntilChanged().collect { username ->
-                if (!isUpdatingFromFirebase) {
+                if (syncIgnoreCount.get() == 0) {
                     settingsRef.child("custom_username").setValue(username)
                 }
             }
@@ -111,10 +120,10 @@ class FirebaseSyncRepository @Inject constructor(
             override fun onDataChange(snapshot: DataSnapshot) {
                 val cloudUsername = snapshot.getValue(String::class.java)
                 repositoryScope.launch {
-                    isUpdatingFromFirebase = true
+                    syncIgnoreCount.incrementAndGet()
                     settingsRepository.saveCustomUsername(cloudUsername)
-                    delay(500)
-                    isUpdatingFromFirebase = false
+                    delay(800)
+                    syncIgnoreCount.decrementAndGet()
                 }
             }
             override fun onCancelled(error: DatabaseError) {}
@@ -127,27 +136,37 @@ class FirebaseSyncRepository @Inject constructor(
         pushAction: suspend (DatabaseReference, List<T>) -> Unit,
         pullAction: suspend (DataSnapshot) -> Unit
     ) {
-        // Local to Firebase
+        // Local to Firebase: Push local changes if we are not currently applying a cloud update
         repositoryScope.launch {
             localFlow.distinctUntilChanged()
                 .collect { data ->
-                    if (!isUpdatingFromFirebase) {
+                    if (syncIgnoreCount.get() == 0) {
                         pushAction(nodeRef, data)
                     }
                 }
         }
 
-        // Firebase to Local
-        nodeRef.addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                repositoryScope.launch {
-                    pullAction(snapshot)
+        // Firebase to Local: Listen for cloud changes and apply them locally
+        // Using callbackFlow + collectLatest ensures that if snapshots arrive rapidly,
+        // we only process the most recent one, canceling any stale pull operations.
+        val firebaseFlow = callbackFlow {
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    trySend(snapshot)
+                }
+                override fun onCancelled(error: DatabaseError) {
+                    _syncStatus.value = SyncStatus.Error(error.message)
                 }
             }
-            override fun onCancelled(error: DatabaseError) {
-                _syncStatus.value = SyncStatus.Error(error.message)
+            nodeRef.addValueEventListener(listener)
+            awaitClose { nodeRef.removeEventListener(listener) }
+        }
+
+        repositoryScope.launch {
+            firebaseFlow.collectLatest { snapshot ->
+                pullAction(snapshot)
             }
-        })
+        }
     }
 
     /**
@@ -179,6 +198,11 @@ class FirebaseSyncRepository @Inject constructor(
                 val ciSnapshot = ref.child("collection_items").get().await()
                 pullCollectionItemsFromFirebase(ciSnapshot)
                 pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getItemsForSync())
+
+                // Item Links
+                val linksSnapshot = ref.child("item_links").get().await()
+                pullLinksFromFirebase(linksSnapshot)
+                pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksFlow().first())
                 
                 // Username
                 val usernameSnapshot = ref.child("settings").child("custom_username").get().await()
@@ -199,6 +223,7 @@ class FirebaseSyncRepository @Inject constructor(
             ref.setValue(itemsMap).await()
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Push items failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Push items failed")
         }
     }
@@ -207,26 +232,40 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             _syncStatus.value = SyncStatus.Syncing
             val cloudItems = snapshot.children.mapNotNull { it.getValue(InventoryItem::class.java) }
+            val localItems = inventoryDao.getAllItems().first().associateBy { it.id }
             val cloudIds = cloudItems.map { it.id }.toSet()
             
-            isUpdatingFromFirebase = true
+            val toUpdateLocal = mutableListOf<InventoryItem>()
             
-            // Mirroring: Delete local items not in cloud
-            val localItems = inventoryDao.getAllItems().first()
-            localItems.forEach { local ->
-                if (!cloudIds.contains(local.id)) {
-                    inventoryDao.deleteItemById(local.id)
+            cloudItems.forEach { cloud ->
+                val local = localItems[cloud.id]
+                if (local == null || cloud.updatedAt > local.updatedAt) {
+                    toUpdateLocal.add(cloud)
                 }
             }
-            
-            if (cloudItems.isNotEmpty()) {
-                inventoryDao.insertItems(cloudItems)
+
+            if (toUpdateLocal.isNotEmpty() || localItems.size != cloudIds.size) {
+                syncIgnoreCount.incrementAndGet()
+                
+                if (toUpdateLocal.isNotEmpty()) {
+                    inventoryDao.insertItems(toUpdateLocal)
+                }
+                
+                localItems.values.forEach { local ->
+                    if (!cloudIds.contains(local.id)) {
+                        val isLikelyNewLocal = System.currentTimeMillis() - local.updatedAt < 30000
+                        if (!isLikelyNewLocal) {
+                            inventoryDao.deleteItemById(local.id)
+                        }
+                    }
+                }
+                
+                delay(800)
+                syncIgnoreCount.decrementAndGet()
             }
-            
-            delay(500)
-            isUpdatingFromFirebase = false
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Pull items failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Pull items failed")
         }
     }
@@ -239,6 +278,7 @@ class FirebaseSyncRepository @Inject constructor(
             ref.setValue(tasksMap).await()
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Push tasks failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Push tasks failed")
         }
     }
@@ -247,26 +287,40 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             _syncStatus.value = SyncStatus.Syncing
             val cloudTasks = snapshot.children.mapNotNull { it.getValue(Task::class.java) }
+            val localTasks = taskDao.getAllTasks().first().associateBy { it.id }
             val cloudIds = cloudTasks.map { it.id }.toSet()
 
-            isUpdatingFromFirebase = true
+            val toUpdateLocal = mutableListOf<Task>()
             
-            // Mirroring: Delete local tasks not in cloud
-            val localTasks = taskDao.getAllTasks().first()
-            localTasks.forEach { local ->
-                if (!cloudIds.contains(local.id)) {
-                    taskDao.deleteTaskById(local.id)
+            cloudTasks.forEach { cloud ->
+                val local = localTasks[cloud.id]
+                if (local == null || cloud.updatedAt > local.updatedAt) {
+                    toUpdateLocal.add(cloud)
                 }
             }
 
-            if (cloudTasks.isNotEmpty()) {
-                taskDao.insertTasks(cloudTasks)
+            if (toUpdateLocal.isNotEmpty() || localTasks.size != cloudIds.size) {
+                syncIgnoreCount.incrementAndGet()
+                
+                if (toUpdateLocal.isNotEmpty()) {
+                    taskDao.insertTasks(toUpdateLocal)
+                }
+                
+                localTasks.values.forEach { local ->
+                    if (!cloudIds.contains(local.id)) {
+                        val isLikelyNewLocal = System.currentTimeMillis() - local.updatedAt < 30000
+                        if (!isLikelyNewLocal) {
+                            taskDao.deleteTaskById(local.id)
+                        }
+                    }
+                }
+
+                delay(800)
+                syncIgnoreCount.decrementAndGet()
             }
-            
-            delay(500)
-            isUpdatingFromFirebase = false
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Pull tasks failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Pull tasks failed")
         }
     }
@@ -279,6 +333,7 @@ class FirebaseSyncRepository @Inject constructor(
             ref.setValue(collsMap).await()
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Push collections failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Push collections failed")
         }
     }
@@ -287,26 +342,40 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             _syncStatus.value = SyncStatus.Syncing
             val cloudColls = snapshot.children.mapNotNull { it.getValue(InventoryCollection::class.java) }
+            val localColls = collectionDao.getAllCollections().first().associateBy { it.id }
             val cloudIds = cloudColls.map { it.id }.toSet()
 
-            isUpdatingFromFirebase = true
+            val toUpdateLocal = mutableListOf<InventoryCollection>()
             
-            // Mirroring: Delete local collections not in cloud
-            val localColls = collectionDao.getAllCollections().first()
-            localColls.forEach { local ->
-                if (!cloudIds.contains(local.id)) {
-                    collectionDao.deleteCollection(local)
+            cloudColls.forEach { cloud ->
+                val local = localColls[cloud.id]
+                if (local == null || cloud.updatedAt > local.updatedAt) {
+                    toUpdateLocal.add(cloud)
                 }
             }
 
-            if (cloudColls.isNotEmpty()) {
-                cloudColls.forEach { collectionDao.insertCollection(it) }
+            if (toUpdateLocal.isNotEmpty() || localColls.size != cloudIds.size) {
+                syncIgnoreCount.incrementAndGet()
+                
+                if (toUpdateLocal.isNotEmpty()) {
+                    toUpdateLocal.forEach { collectionDao.insertCollection(it) }
+                }
+                
+                localColls.values.forEach { local ->
+                    if (!cloudIds.contains(local.id)) {
+                        val isLikelyNewLocal = System.currentTimeMillis() - local.updatedAt < 30000
+                        if (!isLikelyNewLocal) {
+                            collectionDao.deleteCollection(local)
+                        }
+                    }
+                }
+
+                delay(800)
+                syncIgnoreCount.decrementAndGet()
             }
-            
-            delay(500)
-            isUpdatingFromFirebase = false
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Pull collections failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Pull collections failed")
         }
     }
@@ -319,6 +388,7 @@ class FirebaseSyncRepository @Inject constructor(
             ref.setValue(itemsMap).await()
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Push collection items failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Push collection items failed")
         }
     }
@@ -327,27 +397,100 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             _syncStatus.value = SyncStatus.Syncing
             val cloudItems = snapshot.children.mapNotNull { it.getValue(InventoryCollectionItem::class.java) }
-            val cloudCompositeKeys = cloudItems.map { "${it.collectionId}_${it.itemId}" }.toSet()
+            val localItems = collectionDao.getItemsForSync().associateBy { "${it.collectionId}_${it.itemId}" }
+            val cloudKeys = cloudItems.map { "${it.collectionId}_${it.itemId}" }.toSet()
 
-            isUpdatingFromFirebase = true
+            val toUpdateLocal = mutableListOf<InventoryCollectionItem>()
             
-            // Mirroring: Delete local links not in cloud
-            val localItems = collectionDao.getItemsForSync()
-            localItems.forEach { local ->
-                if (!cloudCompositeKeys.contains("${local.collectionId}_${local.itemId}")) {
-                    collectionDao.deleteCollectionItem(local)
+            cloudItems.forEach { cloud ->
+                val key = "${cloud.collectionId}_${cloud.itemId}"
+                val local = localItems[key]
+                if (local == null || cloud.updatedAt > local.updatedAt) {
+                    toUpdateLocal.add(cloud)
                 }
             }
 
-            if (cloudItems.isNotEmpty()) {
-                cloudItems.forEach { collectionDao.insertCollectionItem(it) }
+            if (toUpdateLocal.isNotEmpty() || localItems.size != cloudKeys.size) {
+                syncIgnoreCount.incrementAndGet()
+                
+                if (toUpdateLocal.isNotEmpty()) {
+                    toUpdateLocal.forEach { collectionDao.insertCollectionItem(it) }
+                }
+                
+                localItems.values.forEach { local ->
+                    val key = "${local.collectionId}_${local.itemId}"
+                    if (!cloudKeys.contains(key)) {
+                        val isLikelyNewLocal = System.currentTimeMillis() - local.updatedAt < 30000
+                        if (!isLikelyNewLocal) {
+                            collectionDao.deleteCollectionItem(local)
+                        }
+                    }
+                }
+
+                delay(800)
+                syncIgnoreCount.decrementAndGet()
             }
-            
-            delay(500)
-            isUpdatingFromFirebase = false
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
+            Log.e(TAG, "Pull collection items failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Pull collection items failed")
+        }
+    }
+
+    // --- Item Links Sync ---
+    private suspend fun pushLinksToFirebase(ref: DatabaseReference, links: List<ItemLink>) {
+        try {
+            _syncStatus.value = SyncStatus.Syncing
+            val linksMap = links.associateBy { "${it.followerId}_${it.leaderId}" }
+            ref.setValue(linksMap).await()
+            _syncStatus.value = SyncStatus.Synced
+        } catch (e: Exception) {
+            Log.e(TAG, "Push item links failed", e)
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Push item links failed")
+        }
+    }
+
+    private suspend fun pullLinksFromFirebase(snapshot: DataSnapshot) {
+        try {
+            _syncStatus.value = SyncStatus.Syncing
+            val cloudLinks = snapshot.children.mapNotNull { it.getValue(ItemLink::class.java) }
+            val localLinks = itemLinkDao.getAllLinks().associateBy { "${it.followerId}_${it.leaderId}" }
+            val cloudKeys = cloudLinks.map { "${it.followerId}_${it.leaderId}" }.toSet()
+
+            val toUpdateLocal = mutableListOf<ItemLink>()
+            
+            cloudLinks.forEach { cloud ->
+                val key = "${cloud.followerId}_${cloud.leaderId}"
+                val local = localLinks[key]
+                if (local == null || cloud.updatedAt > local.updatedAt) {
+                    toUpdateLocal.add(cloud)
+                }
+            }
+
+            if (toUpdateLocal.isNotEmpty() || localLinks.size != cloudKeys.size) {
+                syncIgnoreCount.incrementAndGet()
+                
+                if (toUpdateLocal.isNotEmpty()) {
+                    toUpdateLocal.forEach { itemLinkDao.insertLink(it) }
+                }
+                
+                localLinks.values.forEach { local ->
+                    val key = "${local.followerId}_${local.leaderId}"
+                    if (!cloudKeys.contains(key)) {
+                        val isLikelyNewLocal = System.currentTimeMillis() - local.updatedAt < 30000
+                        if (!isLikelyNewLocal) {
+                            itemLinkDao.removeLink(local.followerId, local.leaderId)
+                        }
+                    }
+                }
+
+                delay(800)
+                syncIgnoreCount.decrementAndGet()
+            }
+            _syncStatus.value = SyncStatus.Synced
+        } catch (e: Exception) {
+            Log.e(TAG, "Pull item links failed", e)
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Pull item links failed")
         }
     }
 }
