@@ -6,6 +6,7 @@ import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.inventoria.app.ui.main.MainActivity
 import kotlinx.coroutines.*
@@ -38,8 +39,10 @@ class TaskTimerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Start foreground immediately on Android 14+ to prevent crashes
+        startForegroundService()
+        
         if (!isServiceRunning) {
-            startForegroundService()
             isServiceRunning = true
             startTimerLoop()
         }
@@ -84,11 +87,15 @@ class TaskTimerService : Service() {
         val notification = createNotification("Task Tracking Active", emptyMap())
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID, 
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
+            try {
+                startForeground(
+                    NOTIFICATION_ID, 
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } catch (e: Exception) {
+                Log.e("TaskTimerService", "Failed to start foreground service", e)
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
