@@ -36,32 +36,12 @@ import java.util.*
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
-    onNavigateToInventory: () -> Unit,
     onNavigateToAddItem: () -> Unit,
     onNavigateToItemDetail: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var itemToUnequip by remember { mutableStateOf<InventoryItem?>(null) }
     var containerName by remember { mutableStateOf<String?>(null) }
-    
-    val shimmerTranslate = rememberInfiniteTransition(label = "shimmer")
-    val translateAnim = shimmerTranslate.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmer"
-    )
-
-    LaunchedEffect(itemToUnequip) {
-        if (itemToUnequip?.lastParentId != null) {
-            containerName = viewModel.getContainerName(itemToUnequip!!.lastParentId!!)
-        } else {
-            containerName = null
-        }
-    }
     
     Scaffold(
         topBar = {
@@ -91,8 +71,7 @@ fun DashboardScreen(
             
             item {
                 StatisticsSection(
-                    uiState = uiState,
-                    shimmerOffset = translateAnim.value
+                    uiState = uiState
                 )
             }
             
@@ -147,6 +126,14 @@ fun DashboardScreen(
                 itemToUnequip = null
             }
         )
+    }
+
+    LaunchedEffect(itemToUnequip) {
+        if (itemToUnequip?.lastParentId != null) {
+            containerName = viewModel.getContainerName(itemToUnequip!!.lastParentId!!)
+        } else {
+            containerName = null
+        }
     }
 }
 
@@ -218,15 +205,14 @@ fun GradientHeaderCard() {
 }
 
 @Composable
-fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
+fun StatisticsSection(uiState: DashboardUiState) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         StatCard(
             modifier = Modifier.weight(1f),
             title = "Total Items",
             value = uiState.totalItems.toString(),
             icon = Icons.Default.Inventory,
-            color = PurplePrimary,
-            shimmerOffset = shimmerOffset
+            color = PurplePrimary
         )
         if (uiState.showTotalValue) {
             StatCard(
@@ -234,15 +220,14 @@ fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
                 title = "Total Value",
                 value = NumberFormat.getCurrencyInstance().format(uiState.totalValue),
                 icon = Icons.Default.AttachMoney,
-                color = Success,
-                shimmerOffset = shimmerOffset
+                color = Success
             )
         }
     }
 }
 
 @Composable
-fun StatCard(modifier: Modifier, title: String, value: String, icon: ImageVector, color: Color, shimmerOffset: Float) {
+fun StatCard(modifier: Modifier, title: String, value: String, icon: ImageVector, color: Color) {
     Card(
         modifier = modifier.shadow(4.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),

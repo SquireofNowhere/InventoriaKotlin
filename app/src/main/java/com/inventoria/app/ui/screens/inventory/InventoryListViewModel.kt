@@ -50,6 +50,7 @@ data class InventoryUiState(
     val sortOption: SortOption = SortOption.DATE_DESC,
     val groupOption: GroupOption = GroupOption.NONE,
     val isFiltering: Boolean = false,
+    val searchQuery: String = "",
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -237,7 +238,7 @@ class InventoryListViewModel @Inject constructor(
                     hiddenCategories = selectedCats, hiddenCollections = selectedColls, 
                     isHardFilterEnabled = isHardFilter, isInvertFilterEnabled = isInvertFilter,
                     collectionItemIds = selectionIds, sortOption = sort, groupOption = group, isFiltering = isFiltering,
-                    isLoading = false, allLinks = allLinks, linkedItemIds = linkedItemIds
+                    searchQuery = query, isLoading = false, allLinks = allLinks, linkedItemIds = linkedItemIds
                 )
             }
             .catch { e -> Log.e("InventoryListViewModel", "Error observing items", e); _uiState.value = InventoryUiState(isLoading = false, error = e.message) }

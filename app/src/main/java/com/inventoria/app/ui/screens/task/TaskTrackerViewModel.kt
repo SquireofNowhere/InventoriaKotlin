@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
+import android.content.ServiceConnection
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
@@ -25,7 +25,6 @@ import java.util.Calendar
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.abs
-import android.content.ServiceConnection
 
 // UI wrapper for a session (group of task segments)
 data class TaskSessionUI(
@@ -45,7 +44,7 @@ data class RunningTaskUI(
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class TaskTrackerViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val repository: TaskRepository,
     private val calendarRepository: CalendarRepository
 ) : ViewModel() {
@@ -84,6 +83,12 @@ class TaskTrackerViewModel @Inject constructor(
         sessions.flatten()
             .filter { it.startTime >= todayStart }
             .filter { it.kind.category == TaskCategory.SOCIAL }
+            .sumOf { it.score }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val totalScore = _completedSessions.map { sessions ->
+        sessions.flatten()
+            .filter { it.startTime >= todayStart }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -192,7 +197,7 @@ class TaskTrackerViewModel @Inject constructor(
                 _activeSessions.value = active
 
                 // Completed Sessions: All segments have isSessionActive = false
-                val completed = groups.filter { (groupId, segments) -> 
+                val completed = groups.filter { (_, segments) -> 
                     // Session is completed if NO segment is sessionActive
                     // AND it has a groupId (none session tasks will be grouped or treated as sessions too)
                     segments.all { !it.isSessionActive }
@@ -313,7 +318,7 @@ class TaskTrackerViewModel @Inject constructor(
                 repository.updateTask(pausedTask)
             } else {
                 // Resume
-                val firstSegment = session.segments.lastOrNull() ?: session.activeSegment?.task 
+                val firstSegment = session.segments.firstOrNull() 
                 if (firstSegment != null) {
                     val newSegment = Task(
                         id = UUID.randomUUID().toString(),
@@ -464,5 +469,6 @@ class TaskTrackerViewModel @Inject constructor(
             context.unbindService(serviceConnection)
             isBound = false
         }
+        timerService = null
     }
 }

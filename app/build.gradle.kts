@@ -102,8 +102,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     
-    // DataStore
+    // DataStore & Preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+    implementation("androidx.preference:preference-ktx:1.2.1")
     
     // OpenStreetMap (osmdroid)
     implementation("org.osmdroid:osmdroid-android:6.1.18")

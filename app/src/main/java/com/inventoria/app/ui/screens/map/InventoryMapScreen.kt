@@ -1,7 +1,6 @@
 package com.inventoria.app.ui.screens.map
 
 import android.Manifest
-import android.preference.PreferenceManager
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -23,6 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.preference.PreferenceManager
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -65,8 +65,8 @@ fun InventoryMapScreen(
         Manifest.permission.ACCESS_FINE_LOCATION
     )
 
-    var currentZoom by remember { mutableStateOf(10.0) }
-    val isZoomedIn = currentZoom > 16.0
+    var currentZoom by remember { mutableDoubleStateOf(10.0) }
+    val isZoomedIn by remember { derivedStateOf { currentZoom > 16.0 } }
 
     val mapView = remember {
         MapView(context).apply {
@@ -200,7 +200,7 @@ fun InventoryMapScreen(
                 try {
                     val existingMarkers = mapView.overlays.filterIsInstance<Marker>()
                     existingMarkers.forEach { it.closeInfoWindow() }
-                    mapView.overlays.removeAll(existingMarkers.filter { it !is MyLocationNewOverlay })
+                    mapView.overlays.removeAll(existingMarkers)
 
                     val markerDrawable = ContextCompat.getDrawable(context, R.drawable.map_marker_dot)
                     
@@ -254,12 +254,10 @@ fun InventoryMapScreen(
 
             LaunchedEffect(isZoomedIn) {
                 mapView.overlays.filterIsInstance<Marker>().forEach { marker ->
-                    if(marker !is MyLocationNewOverlay) {
-                        if (isZoomedIn) {
-                            marker.showInfoWindow()
-                        } else {
-                            marker.closeInfoWindow()
-                        }
+                    if (isZoomedIn) {
+                        marker.showInfoWindow()
+                    } else {
+                        marker.closeInfoWindow()
                     }
                 }
                 mapView.invalidate()

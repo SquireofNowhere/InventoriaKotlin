@@ -1,36 +1,23 @@
 package com.inventoria.app.ui.main
 
-import android.os.Build
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.inventoria.app.R
-import com.inventoria.app.data.repository.SyncStatus
 import com.inventoria.app.ui.screens.collections.AddEditCollectionScreen
 import com.inventoria.app.ui.screens.collections.CollectionDetailScreen
 import com.inventoria.app.ui.screens.collections.CollectionsScreen
@@ -43,9 +30,6 @@ import com.inventoria.app.ui.screens.inventory.LocationPickerScreen
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.SettingsScreen
 import com.inventoria.app.ui.screens.task.*
-import com.inventoria.app.ui.theme.InventoriaTheme
-import com.inventoria.app.ui.theme.PurplePrimary
-import com.inventoria.app.ui.theme.Success
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
@@ -106,16 +90,6 @@ fun InventoriaApp() {
             ) {
                 composable(Screen.Dashboard.route) {
                     DashboardScreen(
-                        onNavigateToInventory = { 
-                            navController.navigate("${Screen.Inventory.route}?fromDashboard=true") {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = false
-                                    inclusive = false
-                                }
-                                launchSingleTop = true
-                                restoreState = false
-                            }
-                        },
                         onNavigateToAddItem = { navController.navigate("add_item") },
                         onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id?origin=${Screen.Dashboard.route}") }
                     )
@@ -326,39 +300,5 @@ fun InventoriaApp() {
                 }
             }
         }
-    }
-}
-
-@Composable
-fun SyncStatusIndicator(syncStatus: SyncStatus) {
-    Row(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        if (syncStatus == SyncStatus.Syncing) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary
-            )
-        } else {
-            Icon(
-                imageVector = if (syncStatus == SyncStatus.Synced) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = if (syncStatus == SyncStatus.Synced) Success else MaterialTheme.colorScheme.error
-            )
-        }
-        val statusText = when (syncStatus) {
-            SyncStatus.Syncing -> "Syncing with cloud..."
-            SyncStatus.Synced -> "Cloud sync complete"
-            is SyncStatus.Error -> "Sync failed"
-            else -> ""
-        }
-        Text(
-            text = statusText,
-            style = MaterialTheme.typography.labelMedium
-        )
     }
 }
