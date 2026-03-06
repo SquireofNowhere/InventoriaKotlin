@@ -327,4 +327,14 @@ class InventoryListViewModel @Inject constructor(
             }
         }
     }
+
+    fun unlinkItem(followerId: Long, leaderId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.removeLink(followerId = followerId, leaderId = leaderId)
+            } catch (e: Exception) {
+                Log.e("InventoryListViewModel", "Failed to unlink items", e)
+            }
+        }
+    }
 }

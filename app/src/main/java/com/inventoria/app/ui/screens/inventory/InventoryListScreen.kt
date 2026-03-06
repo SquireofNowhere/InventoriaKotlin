@@ -89,6 +89,7 @@ fun InventoryListScreen(
     val itemBounds = remember { mutableStateMapOf<Long, Rect>() }
     
     var showLinkPrompt by remember { mutableStateOf<Pair<InventoryItem, InventoryItem>?>(null) }
+    var showUnlinkPrompt by remember { mutableStateOf<Pair<InventoryItem, InventoryItem>?>(null) }
     var showChoicePrompt by remember { mutableStateOf<Pair<InventoryItem, InventoryItem>?>(null) }
 
     val density = LocalDensity.current
@@ -320,12 +321,20 @@ fun InventoryListScreen(
                                             if (dropTargetId != null) {
                                                 val target = uiState.items.find { it.id == dropTargetId }
                                                 if (target != null) {
+                                                    val existingLink = uiState.allLinks.find {
+                                                        (it.followerId == draggedItem!!.id && it.leaderId == target.id) ||
+                                                        (it.followerId == target.id && it.leaderId == draggedItem!!.id)
+                                                    }
                                                     if (draggedItem!!.storage && target.storage) {
                                                         showChoicePrompt = draggedItem!! to target
                                                     } else if (target.storage) {
                                                         viewModel.moveItem(draggedItem!!.id, dropTargetId)
                                                     } else {
-                                                        showLinkPrompt = draggedItem!! to target
+                                                        if (existingLink != null) {
+                                                            showUnlinkPrompt = draggedItem!! to target
+                                                        } else {
+                                                            showLinkPrompt = draggedItem!! to target
+                                                        }
                                                     }
                                                 }
                                             } else {
@@ -437,12 +446,20 @@ fun InventoryListScreen(
                                                     if (dropTargetId != null) {
                                                         val target = uiState.items.find { it.id == dropTargetId }
                                                         if (target != null) {
+                                                            val existingLink = uiState.allLinks.find {
+                                                                (it.followerId == draggedItem!!.id && it.leaderId == target.id) ||
+                                                                (it.followerId == target.id && it.leaderId == draggedItem!!.id)
+                                                            }
                                                             if (draggedItem!!.storage && target.storage) {
                                                                 showChoicePrompt = draggedItem!! to target
                                                             } else if (target.storage) {
                                                                 viewModel.moveItem(draggedItem!!.id, dropTargetId)
                                                             } else {
-                                                                showLinkPrompt = draggedItem!! to target
+                                                                if (existingLink != null) {
+                                                                    showUnlinkPrompt = draggedItem!! to target
+                                                                } else {
+                                                                    showLinkPrompt = draggedItem!! to target
+                                                                }
                                                             }
                                                         }
                                                     } else {
@@ -552,11 +569,45 @@ fun InventoryListScreen(
         )
     }
 
+    showUnlinkPrompt?.let { (itemA, itemB) ->
+        val link = uiState.allLinks.find {
+            (it.followerId == itemA.id && it.leaderId == itemB.id) ||
+            (it.followerId == itemB.id && it.leaderId == itemA.id)
+        }
+        AlertDialog(
+            onDismissRequest = { showUnlinkPrompt = null },
+            title = { Text("Unlink Items?") },
+            text = { Text("Do you want to unlink '${itemA.name}' and '${itemB.name}'? They will no longer follow each other's movements.") },
+            confirmButton = {
+                Button(onClick = {
+                    if (link != null) {
+                        viewModel.unlinkItem(link.followerId, link.leaderId)
+                    }
+                    showUnlinkPrompt = null
+                }) {
+                    Text("Unlink Items")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUnlinkPrompt = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     showChoicePrompt?.let { (dragged, target) ->
+        val existingLink = uiState.allLinks.find {
+            (it.followerId == dragged.id && it.leaderId == target.id) ||
+            (it.followerId == target.id && it.leaderId == dragged.id)
+        }
         AlertDialog(
             onDismissRequest = { showChoicePrompt = null },
-            title = { Text("Move or Link?") },
-            text = { Text("Do you want to put '${dragged.name}' inside '${target.name}', or just link them so they follow each other?") },
+            title = { Text(if (existingLink != null) "Move or Unlink?" else "Move or Link?") },
+            text = { 
+                val actionText = if (existingLink != null) "unlink them" else "link them so they follow each other"
+                Text("Do you want to put '${dragged.name}' inside '${target.name}', or $actionText?") 
+            },
             confirmButton = {
                 Button(onClick = {
                     viewModel.moveItem(dragged.id, target.id)
@@ -567,10 +618,14 @@ fun InventoryListScreen(
             },
             dismissButton = {
                 TextButton(onClick = {
-                    viewModel.linkItem(dragged.id, target.id)
+                    if (existingLink != null) {
+                        viewModel.unlinkItem(existingLink.followerId, existingLink.leaderId)
+                    } else {
+                        viewModel.linkItem(dragged.id, target.id)
+                    }
                     showChoicePrompt = null
                 }) {
-                    Text("Link Only")
+                    Text(if (existingLink != null) "Unlink" else "Link Only")
                 }
             }
         )

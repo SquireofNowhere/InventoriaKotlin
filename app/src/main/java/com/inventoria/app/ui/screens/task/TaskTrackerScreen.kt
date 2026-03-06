@@ -31,6 +31,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -65,8 +68,31 @@ fun TaskTrackerScreen(
     val completedSessions by viewModel.completedSessions.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     
-    var selectedSessionForDetail by remember { mutableStateOf<List<Task>?>(null) }
-    var selectedTaskForDetail by remember { mutableStateOf<Task?>(null) }
+    val personalScore by viewModel.personalScore.collectAsState()
+    val socialScore by viewModel.socialScore.collectAsState()
+    val scoreBreakdown by viewModel.scoreBreakdown.collectAsState()
+    
+    var selectedGroupId by remember { mutableStateOf<String?>(null) }
+    var selectedTaskId by remember { mutableStateOf<String?>(null) }
+
+    val selectedSessionSegments = remember(selectedGroupId, activeSessions, completedSessions) {
+        val groupId = selectedGroupId ?: return@remember null
+        val active = activeSessions.find { it.groupId == groupId }
+        if (active != null) {
+            return@remember (active.segments + listOfNotNull(active.activeSegment?.task)).sortedByDescending { it.startTime }
+        }
+        completedSessions.find { it.firstOrNull()?.groupId == groupId }
+    }
+
+    val selectedTask = remember(selectedTaskId, activeSessions, completedSessions) {
+        val taskId = selectedTaskId ?: return@remember null
+        activeSessions.forEach { session ->
+            if (session.activeSegment?.task?.id == taskId) return@remember session.activeSegment.task
+            val seg = session.segments.find { it.id == taskId }
+            if (seg != null) return@remember seg
+        }
+        completedSessions.flatten().find { it.id == taskId }
+    }
 
     Scaffold(
         topBar = {
@@ -104,6 +130,16 @@ fun TaskTrackerScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Productivity Card
+                item {
+                    ProductivityScoreCard(
+                        personalScore = personalScore,
+                        socialScore = socialScore,
+                        scoreBreakdown = scoreBreakdown,
+                        onViewStats = onNavigateToStats
+                    )
+                }
+
                 if (activeSessions.isNotEmpty()) {
                     item {
                         Text(
@@ -121,7 +157,7 @@ fun TaskTrackerScreen(
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
                             onKindChange = { viewModel.updateSessionKind(session.groupId, it) },
                             onSessionClick = { 
-                                selectedSessionForDetail = session.segments + listOfNotNull(session.activeSegment?.task)
+                                selectedGroupId = session.groupId
                             }
                         )
                     }
@@ -152,14 +188,14 @@ fun TaskTrackerScreen(
                             if (session.size > 1) {
                                 CompletedSessionCard(
                                     segments = session,
-                                    onClick = { selectedSessionForDetail = session },
+                                    onClick = { selectedGroupId = session.first().groupId },
                                     onDelete = { viewModel.clearSession(session.first().groupId) }
                                 )
                             } else {
                                 val task = session.first()
                                 SingleTaskItemCard(
                                     task = task,
-                                    onClick = { selectedTaskForDetail = task },
+                                    onClick = { selectedTaskId = task.id },
                                     onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
                                     onDelete = { viewModel.clearSegment(task) },
                                     onAddToCalendar = { addToGoogleCalendar(context, task) }
@@ -178,10 +214,10 @@ fun TaskTrackerScreen(
         }
     }
 
-    selectedSessionForDetail?.let { segments ->
+    selectedSessionSegments?.let { segments ->
         SessionDetailDialog(
             segments = segments,
-            onDismiss = { selectedSessionForDetail = null },
+            onDismiss = { selectedGroupId = null },
             onUpdateSessionName = { name -> viewModel.updateSessionName(segments.first().groupId, name) },
             onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
             onUpdateSegment = { viewModel.updateSegment(it) },
@@ -190,10 +226,10 @@ fun TaskTrackerScreen(
         )
     }
 
-    selectedTaskForDetail?.let { task ->
+    selectedTask?.let { task ->
         TaskDetailDialog(
             task = task,
-            onDismiss = { selectedTaskForDetail = null },
+            onDismiss = { selectedTaskId = null },
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
@@ -672,17 +708,10 @@ fun SessionDetailDialog(
     onFlatten: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
-    // Determine the reference session values (the first segment that isn't custom)
-    val sessionRef = segments.find { !it.isNameCustom && !it.isKindCustom } ?: segments.firstOrNull() ?: return
-    var sessionNameInput by remember(sessionRef.name) { mutableStateOf(sessionRef.name) }
-    val focusManager = LocalFocusManager.current
     
-    val segmentsWithEditors = remember { mutableStateListOf<String>() }
-
-    // Live update for running tasks in details
+    // Ticker for running tasks
     var ticker by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val hasRunningTask = segments.any { it.isRunning }
-    
     LaunchedEffect(hasRunningTask) {
         if (hasRunningTask) {
             while (true) {
@@ -692,6 +721,12 @@ fun SessionDetailDialog(
         }
     }
 
+    // Reference values
+    val sessionRef = segments.find { !it.isNameCustom && !it.isKindCustom } ?: segments.firstOrNull() ?: return
+    var sessionNameInput by remember(sessionRef.name) { mutableStateOf(sessionRef.name) }
+    val focusManager = LocalFocusManager.current
+    
+    val segmentsWithEditors = remember { mutableStateListOf<String>() }
     var showFlattenConfirm by remember { mutableStateOf(false) }
 
     if (showFlattenConfirm) {

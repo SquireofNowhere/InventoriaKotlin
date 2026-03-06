@@ -156,6 +156,12 @@ class CollectionDetailViewModel @Inject constructor(
         }
     }
 
+    fun unlinkItem(followerId: Long, leaderId: Long) {
+        viewModelScope.launch {
+            inventoryRepository.removeLink(followerId, leaderId)
+        }
+    }
+
     fun packIntoContainer(containerId: Long) {
         viewModelScope.launch {
             _collectionId.value?.let { collectionId ->
