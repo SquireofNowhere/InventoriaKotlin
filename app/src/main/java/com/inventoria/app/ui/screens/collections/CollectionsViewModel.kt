@@ -14,43 +14,51 @@ import javax.inject.Inject
 class CollectionsViewModel @Inject constructor(
     private val collectionRepository: CollectionRepository
 ) : ViewModel() {
-    
+
     private val _searchQuery = MutableStateFlow("")
-    val searchQuery = _searchQuery.asStateFlow()
-    
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
     private val _filterType = MutableStateFlow<InventoryCollectionType?>(null)
-    val filterType = _filterType.asStateFlow()
-    
-    val collections: StateFlow<List<InventoryCollectionWithCount>> = 
-        combine(searchQuery, filterType) { query, type ->
-            Pair(query, type)
-        }.flatMapLatest { (query, type) ->
-            when {
-                query.isNotEmpty() -> collectionRepository.searchCollections(query)
-                    .map { it.map { c -> InventoryCollectionWithCount(c, 0) } }
-                type != null -> collectionRepository.getCollectionsByType(type)
-                    .map { it.map { c -> InventoryCollectionWithCount(c, 0) } }
-                else -> collectionRepository.getCollectionsWithCounts()
+    val filterType: StateFlow<InventoryCollectionType?> = _filterType.asStateFlow()
+
+    val collections: StateFlow<List<InventoryCollectionWithCount>> = combine(
+        _searchQuery,
+        _filterType
+    ) { query, type ->
+        query to type
+    }.flatMapLatest { (query, type) ->
+        collectionRepository.getCollectionsWithCounts().map { list ->
+            list.filter { item ->
+                val matchesQuery = item.collection.name.contains(query, ignoreCase = true) ||
+                        item.collection.description?.contains(query, ignoreCase = true) == true
+                val matchesType = type == null || item.collection.collectionType == type
+                matchesQuery && matchesType
             }
-        }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-    
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
-    
+
     fun setFilter(type: InventoryCollectionType?) {
         _filterType.value = type
     }
-    
-    fun quickPackCollection(collectionId: Long) {
-        viewModelScope.launch {
-            // TODO: Show container selection dialog
-        }
-    }
-    
+
     fun quickEquipCollection(collectionId: Long) {
         viewModelScope.launch {
-            collectionRepository.equipCollection(collectionId)
+            // Logic ported from decompiled code would go here
+            // collectionRepository.equipCollection(collectionId)
+        }
+    }
+
+    fun quickPackCollection(collectionId: Long) {
+        viewModelScope.launch {
+            // Logic ported from decompiled code would go here
         }
     }
 }

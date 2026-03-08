@@ -1,9 +1,8 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.dagger.hilt.android")
-    id("androidx.navigation.safeargs.kotlin")
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.hilt.android)
     id("com.google.gms.google-services")
 }
 
@@ -26,33 +25,27 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
     }
-    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    
     kotlinOptions {
         jvmTarget = "17"
     }
-    
     buildFeatures {
         compose = true
-        viewBinding = true
         buildConfig = true
     }
-    
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
-    
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -60,85 +53,70 @@ android {
     }
 }
 
-dependencies {
-    // Core Android
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    
-    // Jetpack Compose
-    implementation(platform("androidx.compose:compose-bom:2023.10.01"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-    
-    // Navigation
-    implementation("androidx.navigation:navigation-fragment-ktx:2.7.6")
-    implementation("androidx.navigation:navigation-ui-ktx:2.7.6")
-    implementation("androidx.navigation:navigation-compose:2.7.6")
-    
-    // Lifecycle
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    
-    // Room Database
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
-    
-    // Hilt Dependency Injection
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    ksp("com.google.dagger:hilt-android-compiler:2.51.1")
-    implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
-    
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-    
-    // DataStore & Preferences
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-    implementation("androidx.preference:preference-ktx:1.2.1")
-    
-    // OpenStreetMap (osmdroid)
-    implementation("org.osmdroid:osmdroid-android:6.1.18")
-    
-    // Location Services
-    implementation("com.google.android.gms:play-services-location:21.2.0")
+kapt {
+    correctErrorTypes = true
+    javacOptions {
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED")
+        option("--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED")
+    }
+}
 
-    // Gson for JSON serialization
-    implementation("com.google.code.gson:gson:2.10.1")
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.material)
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.constraintlayout)
     
-    // Accompanist (for system UI controller and permissions)
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")
-    implementation("com.google.accompanist:accompanist-permissions:0.32.0")
-    
-    // Lottie for animations
-    implementation("com.airbnb.android:lottie:6.2.0")
-    implementation("com.airbnb.android:lottie-compose:6.2.0")
+    // Compose
+    implementation(libs.androidx.lifecycle.runtime)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.tooling)
+    implementation(libs.androidx.compose.material.icons.extended)
+
+    // Navigation
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.hilt.navigation.compose)
+
+    // Hilt
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
 
     // Firebase
-    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
-    implementation("com.google.firebase:firebase-database")
-    implementation("com.google.firebase:firebase-auth")
-    implementation("com.google.firebase:firebase-storage")
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.database)
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.storage)
+    implementation(libs.google.play.services.auth)
 
-    // Image Loading
-    implementation("io.coil-kt:coil-compose:2.5.0")
-    
-    // Testing
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.10.01"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Google Play Services
+    implementation(libs.google.play.services.location)
+
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    kapt(libs.androidx.room.compiler)
+
+    // DataStore & Preferences
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.preference.ktx)
+
+    // Maps & UI
+    implementation(libs.osmdroid)
+    implementation(libs.coil.compose)
+    implementation(libs.accompanist.permissions)
+    implementation(libs.gson)
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }

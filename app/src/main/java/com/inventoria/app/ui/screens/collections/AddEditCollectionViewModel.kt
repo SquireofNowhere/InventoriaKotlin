@@ -10,9 +10,7 @@ import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.repository.CollectionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -26,7 +24,7 @@ class AddEditCollectionViewModel @Inject constructor(
     var name by mutableStateOf("")
     var description by mutableStateOf("")
     var icon by mutableStateOf("📦")
-    var color by mutableStateOf(0xFF2196F3.toInt()) // Default Blue
+    var color by mutableStateOf(-14575885) // Default color
     var tags by mutableStateOf("")
     var collectionType by mutableStateOf(InventoryCollectionType.OTHER)
     var requiresSameLocation by mutableStateOf(false)
@@ -41,7 +39,7 @@ class AddEditCollectionViewModel @Inject constructor(
         }
     }
 
-    fun loadCollection(collectionId: Long) {
+    private fun loadCollection(collectionId: Long) {
         viewModelScope.launch {
             collectionRepository.getCollectionWithItems(collectionId).collect { data ->
                 data?.collection?.let { collection ->
@@ -61,31 +59,32 @@ class AddEditCollectionViewModel @Inject constructor(
     fun onSave() {
         viewModelScope.launch {
             if (name.isBlank()) {
-                _eventFlow.emit(UiEvent.ShowSnackbar("Name cannot be empty"))
+                _eventFlow.emit(UiEvent.ShowSnackbar("Name is required"))
                 return@launch
             }
 
-            val tagList = tags.split(",")
-                .map { it.trim().lowercase() }
-                .filter { it.isNotEmpty() }
-
             val collection = InventoryCollection(
-                id = id ?: 0,
+                id = id ?: 0L,
                 name = name,
-                description = description.ifBlank { null },
+                description = description.takeIf { it.isNotBlank() },
                 icon = icon,
                 color = color,
-                tags = tagList,
+                tags = tags.split(",").map { it.trim() }.filter { it.isNotBlank() },
                 collectionType = collectionType,
-                requiresSameLocation = requiresSameLocation
+                requiresSameLocation = requiresSameLocation,
+                updatedAt = System.currentTimeMillis()
             )
 
-            if (id == null || id == 0L) {
-                collectionRepository.createCollection(collection)
-            } else {
-                collectionRepository.updateCollection(collection)
+            try {
+                if (id == null || id == 0L) {
+                    collectionRepository.createCollection(collection)
+                } else {
+                    collectionRepository.updateCollection(collection)
+                }
+                _eventFlow.emit(UiEvent.SaveSuccess)
+            } catch (e: Exception) {
+                _eventFlow.emit(UiEvent.ShowSnackbar("Error saving collection: ${e.message}"))
             }
-            _eventFlow.emit(UiEvent.SaveSuccess)
         }
     }
 

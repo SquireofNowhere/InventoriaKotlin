@@ -11,21 +11,24 @@ import androidx.core.app.NotificationCompat
 import com.inventoria.app.ui.main.MainActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 class TaskTimerService : Service() {
+    companion object {
+        const val CHANNEL_ID = "task_tracker_channel"
+        const val NOTIFICATION_ID = 1
+    }
 
+    private var isServiceRunning = false
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val binder = TimerBinder()
     
-    // Track start time AND previous duration for each task
-    private val runningTasks = mutableMapOf<String, Pair<Long, Long>>() 
-    private val _taskUpdates = MutableStateFlow<Map<String, Long>>(emptyMap())
-    val taskUpdates = _taskUpdates
-    
+    private val runningTasks = mutableMapOf<String, Pair<Long, Long>>() // id -> (startTime, prevDuration)
     private val taskNames = mutableMapOf<String, String>()
     
-    private var isServiceRunning = false
+    private val _taskUpdates = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val taskUpdates: MutableStateFlow<Map<String, Long>> = _taskUpdates
 
     inner class TimerBinder : Binder() {
         fun getService(): TaskTimerService = this@TaskTimerService
@@ -39,9 +42,7 @@ class TaskTimerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Start foreground immediately on Android 14+ to prevent crashes
         startForegroundService()
-        
         if (!isServiceRunning) {
             isServiceRunning = true
             startTimerLoop()
@@ -53,13 +54,13 @@ class TaskTimerService : Service() {
         serviceScope.launch {
             while (isActive) {
                 val now = System.currentTimeMillis()
-                val updates = runningTasks.mapValues { (_, data) -> 
+                val updates = runningTasks.mapValues { (_, data) ->
                     val (startTime, prevDuration) = data
                     prevDuration + (now - startTime)
                 }
                 _taskUpdates.value = updates
                 updateNotification(updates)
-                delay(1000)
+                delay(1000L)
             }
         }
     }
@@ -70,7 +71,7 @@ class TaskTimerService : Service() {
             taskNames[id] = "Task"
         }
     }
-    
+
     fun updateTaskName(id: String, name: String) {
         taskNames[id] = name
     }
@@ -85,35 +86,32 @@ class TaskTimerService : Service() {
 
     private fun startForegroundService() {
         val notification = createNotification("Task Tracking Active", emptyMap())
-        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             try {
-                startForeground(
-                    NOTIFICATION_ID, 
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                )
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                return
             } catch (e: Exception) {
                 Log.e("TaskTimerService", "Failed to start foreground service", e)
             }
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
         }
+        startForeground(NOTIFICATION_ID, notification)
     }
 
     private fun updateNotification(updates: Map<String, Long>) {
         val count = runningTasks.size
         if (count > 0) {
             val notification = createNotification("$count active task(s) being tracked", updates)
-            val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(NOTIFICATION_ID, notification)
+            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIFICATION_ID, notification)
         }
     }
 
     private fun createNotification(content: String, updates: Map<String, Long>): Notification {
-        val pendingIntent = Intent(this, MainActivity::class.java).let {
-            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
-        }
+        val intent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE
+        )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Inventoria Task Tracker")
@@ -137,9 +135,9 @@ class TaskTimerService : Service() {
 
     private fun formatTime(milliseconds: Long): String {
         val hours = TimeUnit.MILLISECONDS.toHours(milliseconds)
-        val minutes = TimeUnit.MILLISECONDS.toMinutes(milliseconds) % 60
-        val seconds = TimeUnit.MILLISECONDS.toSeconds(milliseconds) % 60
-        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+        val minutes = (TimeUnit.MILLISECONDS.toMinutes(milliseconds) % 60)
+        val seconds = (TimeUnit.MILLISECONDS.toSeconds(milliseconds) % 60)
+        return String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
     }
 
     private fun createNotificationChannel() {
@@ -157,10 +155,5 @@ class TaskTimerService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
-    }
-
-    companion object {
-        const val CHANNEL_ID = "task_tracker_channel"
-        const val NOTIFICATION_ID = 1
     }
 }

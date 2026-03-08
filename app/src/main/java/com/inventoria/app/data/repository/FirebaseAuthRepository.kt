@@ -1,6 +1,5 @@
 package com.inventoria.app.data.repository
 
-import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -15,53 +14,42 @@ import javax.inject.Singleton
 class FirebaseAuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth
 ) {
-    /**
-     * Flow that emits the current FirebaseUser whenever the auth state changes.
-     */
     val authStateFlow: Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth ->
             trySend(auth.currentUser)
         }
         firebaseAuth.addAuthStateListener(listener)
-        awaitClose { firebaseAuth.removeAuthStateListener(listener) }
-    }
-
-    /**
-     * Ensures the user is signed in anonymously if not already signed in.
-     * Returns the Firebase UID.
-     */
-    suspend fun getOrCreateUserId(): String {
-        val currentUser = firebaseAuth.currentUser
-        if (currentUser != null) {
-            return currentUser.uid
+        awaitClose {
+            firebaseAuth.removeAuthStateListener(listener)
         }
-        
-        return firebaseAuth.signInAnonymously().await().user?.uid 
-            ?: throw IllegalStateException("Failed to sign in anonymously")
     }
 
-    /**
-     * Signs in with Google credentials.
-     */
+    suspend fun getOrCreateUserId(): String {
+        firebaseAuth.currentUser?.let { return it.uid }
+        
+        val result = firebaseAuth.signInAnonymously().await()
+        return result.user?.uid ?: throw IllegalStateException("Failed to sign in anonymously")
+    }
+
     suspend fun signInWithGoogle(idToken: String): FirebaseUser? {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
-        return firebaseAuth.signInWithCredential(credential).await().user
+        val result = firebaseAuth.signInWithCredential(credential).await()
+        return result.user
     }
 
-    /**
-     * Returns the current authenticated user.
-     */
     fun getCurrentUser(): FirebaseUser? = firebaseAuth.currentUser
 
-    /**
-     * Returns current user ID if available, otherwise null.
-     */
     fun getCurrentUserId(): String? = firebaseAuth.currentUser?.uid
-    
-    /**
-     * Signs out the current user.
-     */
+
     fun signOut() {
         firebaseAuth.signOut()
+    }
+    
+    // Helper for Splash screen Google Sign In
+    fun getGoogleSignInIntent(): android.content.Intent {
+        // This usually requires a GoogleSignInClient configured with options
+        // For the sake of restoration, we assume the caller handles the client creation
+        // but we could provide a helper if we port the full AuthModule
+        throw UnsupportedOperationException("Intent should be requested via GoogleSignIn.getClient(...)")
     }
 }

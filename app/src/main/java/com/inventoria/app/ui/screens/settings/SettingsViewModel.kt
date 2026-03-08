@@ -6,20 +6,9 @@ import com.google.firebase.auth.FirebaseUser
 import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-sealed class AuthState {
-    object Idle : AuthState()
-    object Loading : AuthState()
-    data class Authenticated(val user: FirebaseUser) : AuthState()
-    data class Error(val message: String) : AuthState()
-}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -27,20 +16,20 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: FirebaseAuthRepository
 ) : ViewModel() {
 
-    val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    val notificationsEnabled: StateFlow<Boolean> = settingsRepository.notificationsEnabled
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val showValueOnDashboard: StateFlow<Boolean> = settingsRepository.showValueOnDashboard
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-        
-    val customUsername: StateFlow<String?> = settingsRepository.customUsername
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
+
+    val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val notificationsEnabled: StateFlow<Boolean> = settingsRepository.getNotificationsEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val showValueOnDashboard: StateFlow<Boolean> = settingsRepository.getShowValueOnDashboard()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val customUsername: StateFlow<String?> = settingsRepository.customUsername
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
         checkCurrentUser()
@@ -76,12 +65,6 @@ class SettingsViewModel @Inject constructor(
         _authState.value = AuthState.Idle
     }
 
-    fun updateCustomUsername(name: String?) {
-        viewModelScope.launch {
-            settingsRepository.saveCustomUsername(name)
-        }
-    }
-
     fun toggleDarkMode(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.toggleDarkMode(enabled)
@@ -97,6 +80,12 @@ class SettingsViewModel @Inject constructor(
     fun toggleShowValue(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.toggleShowValue(enabled)
+        }
+    }
+
+    fun updateCustomUsername(name: String) {
+        viewModelScope.launch {
+            settingsRepository.saveCustomUsername(name)
         }
     }
 }

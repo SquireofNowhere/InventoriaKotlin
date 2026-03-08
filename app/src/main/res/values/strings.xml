@@ -1,13 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- App & General -->
     <string name="app_name">Inventoria</string>
+    <string name="about">About</string>
+    <string name="about_message">This software uses map data provided by OpenStreetMap.org</string>
+    <string name="add_item">Add Item</string>
     <string name="dashboard">Dashboard</string>
     <string name="inventory">Inventory</string>
     <string name="settings">Settings</string>
-    <string name="add_item">Add Item</string>
     <string name="search">Search</string>
-    <string name="total_items">Total Items</string>
-    <string name="total_value">Total Value</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="ok">OK</string>
+
+    <!-- Inventory & Stats -->
     <string name="low_stock">Low Stock</string>
     <string name="out_of_stock">Out of Stock</string>
+    <string name="total_items">Total Items</string>
+    <string name="total_value">Total Value</string>
+    <string name="in_progress">In progress</string>
+
+    <!-- Task Tracker -->
+    <string name="task_tracker">Task Tracker</string>
+    <string name="active_sessions">Active Sessions</string>
+    <string name="recent_sessions">Recent Sessions</string>
+    <string name="no_recent_sessions">No sessions in the last 24 hours.</string>
+    <string name="new_task">New Task</string>
+    <string name="stop">Stop</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+
+    <!-- Firebase Config -->
+    <string name="google_api_key">AIzaSyBQd56q4K07ChicSy05YxAv8o6hPpElj04</string>
+    <string name="google_app_id">1:572243958143:android:9d9a9731fd169700e7224a</string>
+    <string name="google_crash_reporting_api_key">AIzaSyBQd56q4K07ChicSy05YxAv8o6hPpElj04</string>
+    <string name="google_storage_bucket">inventoriaus.firebasestorage.app</string>
+    <string name="firebase_database_url">https://inventoriaus-default-rtdb.firebaseio.com</string>
+    <string name="project_id">inventoriaus</string>
+    <string name="gcm_defaultSenderId">572243958143</string>
+    <string name="default_web_client_id">572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com</string>
+
+    <!-- Map Resources (from OSMDroid) -->
+    <string name="map_mode">Map Source</string>
+    <string name="my_location">My location</string>
 </resources>

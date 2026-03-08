@@ -1,10 +1,14 @@
 package com.inventoria.app.ui.screens.collections
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -15,34 +19,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.unit.sp
 import com.inventoria.app.data.model.InventoryCollectionType
+import kotlinx.coroutines.flow.collectLatest
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddEditCollectionScreen(
     collectionId: Long? = null,
     onNavigateBack: () -> Unit,
-    viewModel: AddEditCollectionViewModel = hiltViewModel()
+    viewModel: AddEditCollectionViewModel
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val isEditing = collectionId != null && collectionId != 0L
 
     LaunchedEffect(Unit) {
-        viewModel.eventFlow.collect { event ->
+        viewModel.eventFlow.collectLatest { event ->
             when (event) {
                 is AddEditCollectionViewModel.UiEvent.SaveSuccess -> onNavigateBack()
-                is AddEditCollectionViewModel.UiEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
+                is AddEditCollectionViewModel.UiEvent.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
             }
         }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text(if (!isEditing) "Create Collection" else "Edit Collection") },
+            CenterAlignedTopAppBar(
+                title = { Text(if (!isEditing) "Create Collection" else "Edit Collection", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -54,20 +62,39 @@ fun AddEditCollectionScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Icon and Color Selection
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(Color(viewModel.color).copy(alpha = 0.2f))
+                        .clickable { /* Show Icon/Color Picker Dialog */ },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(viewModel.icon, fontSize = 40.sp)
+                }
+            }
+
             OutlinedTextField(
                 value = viewModel.name,
                 onValueChange = { viewModel.name = it },
-                label = { Text("Name") },
+                label = { Text("Collection Name") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -80,89 +107,43 @@ fun AddEditCollectionScreen(
                 minLines = 3
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = viewModel.icon,
-                    onValueChange = { if (it.length <= 2) viewModel.icon = it },
-                    label = { Text("Icon") },
-                    modifier = Modifier.width(80.dp),
-                    placeholder = { Text("📦") }
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text("Theme Color", style = MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val colors = listOf(0xFF2196F3, 0xFF4CAF50, 0xFFFFC107, 0xFFF44336, 0xFF9C27B0)
-                        for (colorInt in colors) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(colorInt.toInt()))
-                                    .clickable { viewModel.color = colorInt.toInt() }
-                                    .padding(4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (viewModel.color == colorInt.toInt()) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            var expanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
-            ) {
-                OutlinedTextField(
-                    value = viewModel.collectionType.name,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Type") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
-                )
-                ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    for (type in InventoryCollectionType.entries) {
-                        DropdownMenuItem(
-                            text = { Text(type.name) },
-                            onClick = {
-                                viewModel.collectionType = type
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
             OutlinedTextField(
                 value = viewModel.tags,
                 onValueChange = { viewModel.tags = it },
-                label = { Text("Tags (comma separated)") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("travel, tech, essentials") }
+                label = { Text("Tags (Comma separated)") },
+                modifier = Modifier.fillMaxWidth()
             )
+
+            Text("Collection Type", style = MaterialTheme.typography.labelLarge)
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                InventoryCollectionType.entries.forEach { type ->
+                    FilterChip(
+                        selected = viewModel.collectionType == type,
+                        onClick = { viewModel.collectionType = type },
+                        label = { Text(type.name.replace("_", " ").lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }) }
+                    )
+                }
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
                     checked = viewModel.requiresSameLocation,
                     onCheckedChange = { viewModel.requiresSameLocation = it }
                 )
-                Text("Requires same location for all items")
+                Text("Require items to be in the same location")
             }
+
+            Spacer(Modifier.height(32.dp))
             
             Button(
                 onClick = { viewModel.onSave() },
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text(if (isEditing) "Update Collection" else "Save Collection")
+                Text(if (!isEditing) "Create Collection" else "Update Collection")
             }
         }
     }

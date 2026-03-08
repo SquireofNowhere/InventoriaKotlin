@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-object FirebaseModule {
+class FirebaseModule {
 
     @Provides
     @Singleton
@@ -20,7 +20,6 @@ object FirebaseModule {
     @Provides
     @Singleton
     fun provideFirebaseDatabase(): FirebaseDatabase {
-        // Updated to the new project URL from google-services.json
         val url = "https://inventoriaus-default-rtdb.firebaseio.com"
         return FirebaseDatabase.getInstance(url)
     }
@@ -28,7 +27,6 @@ object FirebaseModule {
     @Provides
     @Singleton
     fun provideFirebaseStorage(): FirebaseStorage {
-        // Updated to the new storage bucket from google-services.json
         val bucketUrl = "gs://inventoriaus.firebasestorage.app"
         return FirebaseStorage.getInstance(bucketUrl)
     }

@@ -18,12 +18,10 @@ class TaskRepository @Inject constructor(
     private val taskDao: TaskDao
 ) {
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    // Ensure monotonic timestamps for rapid operations
     private val lastTimestamp = AtomicLong(0L)
 
     init {
         repositoryScope.launch {
-            // Seed lastTimestamp with the highest value in the database to prevent clock-skew downgrades
             val tasks = taskDao.getAllTasks().first()
             val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
             lastTimestamp.set(maxT)
@@ -33,13 +31,12 @@ class TaskRepository @Inject constructor(
     private fun getNextTimestamp(minTimestamp: Long = 0L): Long {
         val now = System.currentTimeMillis()
         val base = maxOf(now, minTimestamp)
-        var last = lastTimestamp.get()
         while (true) {
+            val last = lastTimestamp.get()
             val next = if (base > last) base else last + 1
             if (lastTimestamp.compareAndSet(last, next)) {
                 return next
             }
-            last = lastTimestamp.get()
         }
     }
 
@@ -60,77 +57,70 @@ class TaskRepository @Inject constructor(
     }
 
     fun getRunningTasks(): Flow<List<Task>> = taskDao.getRunningTasks()
-    
     fun getCompletedTasks(): Flow<List<Task>> = taskDao.getCompletedTasks()
-    
     fun getVisibleTasks(): Flow<List<Task>> = taskDao.getVisibleTasks()
-
-    // Used for sync to ensure tombstones are shared
     fun getAllTasksForSync(): Flow<List<Task>> = taskDao.getAllTasks()
 
     suspend fun insertTask(task: Task) {
-        taskDao.insertTask(task.copy(updatedAt = getNextTimestamp(task.updatedAt)))
+        val timestamp = getNextTimestamp(task.updatedAt)
+        taskDao.insertTask(task.copy(updatedAt = timestamp))
     }
 
     suspend fun insertTasks(tasks: List<Task>) {
         if (tasks.isEmpty()) return
-        val maxInBatch = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        val maxInBatch = tasks.maxOf { it.updatedAt }
         val baseTime = getNextTimestamp(maxInBatch)
-        taskDao.insertTasks(tasks.mapIndexed { index, task -> 
-            task.copy(updatedAt = baseTime + index) 
-        })
+        val tasksWithTimestamps = tasks.mapIndexed { index, task ->
+            task.copy(updatedAt = baseTime + index)
+        }
+        taskDao.insertTasks(tasksWithTimestamps)
     }
 
     suspend fun updateTask(task: Task) {
-        val current = taskDao.getTaskById(task.id)
-        if (current == null || hasMeaningfulChanges(current, task)) {
-            taskDao.updateTask(task.copy(updatedAt = getNextTimestamp(current?.updatedAt ?: 0L)))
+        val existing = taskDao.getTaskById(task.id)
+        if (existing == null || hasMeaningfulChanges(existing, task)) {
+            val timestamp = getNextTimestamp(existing?.updatedAt ?: 0L)
+            taskDao.updateTask(task.copy(updatedAt = timestamp))
         }
     }
 
     suspend fun updateSessionName(groupId: String, newName: String) {
         val tasks = taskDao.getTasksByGroupId(groupId)
-        val needsUpdate = tasks.any { !it.isNameCustom && it.name != newName }
-        if (needsUpdate) {
-            val maxCurrent = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-            taskDao.updateSessionName(groupId, newName, getNextTimestamp(maxCurrent))
-        }
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        val timestamp = getNextTimestamp(maxT)
+        taskDao.updateSessionName(groupId, newName, timestamp)
     }
 
     suspend fun updateSessionKind(groupId: String, newKind: TaskKind) {
         val tasks = taskDao.getTasksByGroupId(groupId)
-        val needsUpdate = tasks.any { !it.isKindCustom && it.kind != newKind }
-        if (needsUpdate) {
-            val maxCurrent = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-            taskDao.updateSessionKind(groupId, newKind, getNextTimestamp(maxCurrent))
-        }
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        val timestamp = getNextTimestamp(maxT)
+        taskDao.updateSessionKind(groupId, newKind, timestamp)
     }
 
     suspend fun endSession(groupId: String) {
         val tasks = taskDao.getTasksByGroupId(groupId)
-        val needsUpdate = tasks.any { it.isSessionActive }
-        if (needsUpdate) {
-            val maxCurrent = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-            taskDao.endSession(groupId, getNextTimestamp(maxCurrent))
-        }
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        val timestamp = getNextTimestamp(maxT)
+        taskDao.endSession(groupId, timestamp)
     }
 
     suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long) {
-        val tasks = taskDao.getTasksByGroupId(groupId)
-        val maxCurrent = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-        taskDao.stopTaskAndSession(taskId, groupId, endTime, duration, getNextTimestamp(maxCurrent))
+        val timestamp = getNextTimestamp()
+        taskDao.stopTaskAndSession(taskId, groupId, endTime, duration, timestamp)
     }
 
     suspend fun softDeleteTask(id: String) {
-        val current = taskDao.getTaskById(id)
-        val timestamp = getNextTimestamp(current?.updatedAt ?: 0L)
+        val existing = taskDao.getTaskById(id)
+        val timestamp = getNextTimestamp(existing?.updatedAt ?: 0L)
         taskDao.softDeleteTaskById(id, timestamp)
     }
 
     suspend fun softDeleteSession(groupId: String) {
         val tasks = taskDao.getTasksByGroupId(groupId)
-        val maxCurrent = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-        taskDao.softDeleteTasksByGroupId(groupId, getNextTimestamp(maxCurrent))
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        val timestamp = getNextTimestamp(maxT)
+        taskDao.softDeleteTasksByGroupId(groupId, timestamp)
     }
 
     suspend fun purgeOldDeletedTasks(threshold: Long) {

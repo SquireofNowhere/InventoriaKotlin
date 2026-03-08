@@ -14,9 +14,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-/**
- * Hilt module for database dependencies
- */
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -31,8 +28,6 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            // Enabling destructive migration to "reset" the local database.
-            // Data will be re-synced from Firebase if available.
             .fallbackToDestructiveMigration()
             .build()
     }
