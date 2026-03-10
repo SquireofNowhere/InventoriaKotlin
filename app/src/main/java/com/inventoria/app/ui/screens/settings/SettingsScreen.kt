@@ -19,7 +19,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -42,6 +44,7 @@ fun SettingsScreen(
     val customUsername by viewModel.customUsername.collectAsState()
     val currencyCode by viewModel.currencyCode.collectAsState()
     val autoCurrencyEnabled by viewModel.autoCurrencyEnabled.collectAsState()
+    val manualSyncId by viewModel.manualSyncId.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -120,11 +123,14 @@ fun SettingsScreen(
             AccountSection(
                 authState = authState,
                 customUsername = customUsername,
+                manualSyncId = manualSyncId,
+                currentUserId = viewModel.getCurrentUserId(),
                 onUsernameChange = { viewModel.updateCustomUsername(it) },
                 onSignInClick = { 
                     launcher.launch(viewModel.getGoogleSignInIntent())
                 },
-                onSignOutClick = { viewModel.signOut() }
+                onSignOutClick = { viewModel.signOut() },
+                onManualSyncIdChange = { viewModel.setManualSyncId(it) }
             )
 
             SettingsCategoryHeader("About")
@@ -233,10 +239,16 @@ fun CurrencySettings(
 fun AccountSection(
     authState: AuthState,
     customUsername: String?,
+    manualSyncId: String?,
+    currentUserId: String?,
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
-    onSignOutClick: () -> Unit
+    onSignOutClick: () -> Unit,
+    onManualSyncIdChange: (String?) -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium
@@ -286,6 +298,68 @@ fun AccountSection(
                 else -> {
                     Text("Sync your inventory across devices by signing in.")
                     SignInButton(onSignInClick)
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            
+            Text("Database Sync", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            
+            if (currentUserId != null) {
+                OutlinedTextField(
+                    value = currentUserId,
+                    onValueChange = {},
+                    label = { Text("Your Database ID") },
+                    readOnly = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            clipboardManager.setText(AnnotatedString(currentUserId))
+                            Toast.makeText(context, "ID copied to clipboard", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy ID")
+                        }
+                    },
+                    supportingText = { Text("Share this ID with others to let them sync to your database") }
+                )
+            }
+
+            var syncIdInput by remember(manualSyncId) { mutableStateOf(manualSyncId ?: "") }
+            
+            OutlinedTextField(
+                value = syncIdInput,
+                onValueChange = { syncIdInput = it },
+                label = { Text("Sync with Database ID") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Paste Database ID here") },
+                trailingIcon = {
+                    if (syncIdInput.isNotEmpty() && syncIdInput != (manualSyncId ?: "")) {
+                        IconButton(onClick = { onManualSyncIdChange(syncIdInput) }) {
+                            Icon(Icons.Default.Sync, contentDescription = "Sync")
+                        }
+                    }
+                },
+                supportingText = { 
+                    if (manualSyncId != null) {
+                        Text("Currently synced with external database", color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        Text("Paste another user's ID to access their database")
+                    }
+                }
+            )
+
+            if (manualSyncId != null) {
+                Button(
+                    onClick = { onManualSyncIdChange(null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.Person, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Switch back to local account")
                 }
             }
         }

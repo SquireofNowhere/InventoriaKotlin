@@ -117,18 +117,37 @@ class InventoryListViewModel @Inject constructor(
 
             val resolvedItems = resolveLocations(allItems, allLinks, userLoc)
 
-            val filtered = filterAndSortItems(
+            // 1. Identify items that explicitly match filters
+            val matchedItems = filterAndSortItems(
                 resolvedItems, query, _currentCollectionId.value, currentCollItemIds, activeTags, 
                 activeCollections, itemToCollections, isHardFilter, isInvertFilter, sortOption
             )
+            val matchedItemIds = matchedItems.map { it.id }.toSet()
+            val isFiltering = query.isNotEmpty() || activeTags.isNotEmpty() || activeCollections.isNotEmpty()
 
-            val grouped = groupItems(filtered, groupOption, allCollections, itemToCollections)
+            val itemDepths = mutableMapOf<Long, Int>()
+            val itemHasChildren = mutableMapOf<Long, Boolean>()
+            val finalItems: List<InventoryItem>
+
+            // 2. Build Hierarchy preserving matches and their ancestors
+            if (groupOption == GroupOption.NONE) {
+                val hierarchy = buildHierarchy(resolvedItems, matchedItemIds, expandedItemIds, sortOption, isFiltering)
+                finalItems = hierarchy.items
+                itemDepths.putAll(hierarchy.depths)
+                itemHasChildren.putAll(hierarchy.hasChildren)
+            } else {
+                finalItems = matchedItems
+            }
+
+            val grouped = if (groupOption == GroupOption.NONE) emptyList() else groupItems(finalItems, groupOption, allCollections, itemToCollections)
 
             InventoryUiState(
                 items = allItems,
-                filteredItems = filtered,
-                matchedItemIds = filtered.map { it.id }.toSet(),
+                filteredItems = finalItems,
+                matchedItemIds = matchedItemIds,
                 expandedItemIds = expandedItemIds,
+                itemDepths = itemDepths,
+                itemHasChildren = itemHasChildren,
                 selectedItemIds = selectedIds,
                 allLinks = allLinks,
                 linkedItemIds = allLinks.map { it.followerId }.toSet(),
@@ -142,7 +161,7 @@ class InventoryListViewModel @Inject constructor(
                 collectionItemIds = currentCollItemIds,
                 sortOption = sortOption,
                 groupOption = groupOption,
-                isFiltering = query.isNotEmpty() || activeTags.isNotEmpty() || activeCollections.isNotEmpty(),
+                isFiltering = isFiltering,
                 isLoading = false
             )
         }.onEach { 
@@ -151,6 +170,84 @@ class InventoryListViewModel @Inject constructor(
             Log.e("InventoryListViewModel", "Error observing items", e)
             _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
         }.launchIn(viewModelScope)
+    }
+
+    private data class HierarchyResult(
+        val items: List<InventoryItem>,
+        val depths: Map<Long, Int>,
+        val hasChildren: Map<Long, Boolean>
+    )
+
+    private fun buildHierarchy(
+        allItems: List<InventoryItem>,
+        matchedIds: Set<Long>,
+        expandedIds: Set<Long>,
+        sortOption: SortOption,
+        isFiltering: Boolean
+    ): HierarchyResult {
+        val childrenMap = allItems.groupBy { it.parentId }
+        val resultItems = mutableListOf<InventoryItem>()
+        val depths = mutableMapOf<Long, Int>()
+        val hasChildren = mutableMapOf<Long, Boolean>()
+
+        // Helper to check if an item or any of its descendants match
+        val memoMatch = mutableMapOf<Long, Boolean>()
+        fun doesMatchOrHaveMatchingDescendant(itemId: Long): Boolean {
+            if (memoMatch.containsKey(itemId)) return memoMatch[itemId]!!
+            
+            val matches = matchedIds.contains(itemId)
+            val children = childrenMap[itemId] ?: emptyList()
+            val descendantMatches = children.any { doesMatchOrHaveMatchingDescendant(it.id) }
+            
+            val result = matches || descendantMatches
+            memoMatch[itemId] = result
+            return result
+        }
+
+        fun addChildren(parentId: Long?, depth: Int) {
+            val children = childrenMap[parentId] ?: return
+            
+            // If filtering, only include items that match OR have matching descendants
+            val filteredChildren = if (isFiltering) {
+                children.filter { doesMatchOrHaveMatchingDescendant(it.id) }
+            } else {
+                children
+            }
+
+            val sortedChildren = when (sortOption) {
+                SortOption.NAME_ASC -> filteredChildren.sortedBy { it.name }
+                SortOption.NAME_DESC -> filteredChildren.sortedByDescending { it.name }
+                SortOption.DATE_DESC -> filteredChildren.sortedByDescending { it.updatedAt }
+                SortOption.QUANTITY_DESC -> filteredChildren.sortedByDescending { it.quantity }
+                SortOption.PRICE_DESC -> filteredChildren.sortedByDescending { it.price ?: 0.0 }
+            }
+
+            for (child in sortedChildren) {
+                resultItems.add(child)
+                depths[child.id] = depth
+                
+                val grandChildren = childrenMap[child.id]
+                val visibleGrandChildren = if (isFiltering) {
+                    grandChildren?.filter { doesMatchOrHaveMatchingDescendant(it.id) }
+                } else {
+                    grandChildren
+                }
+                
+                hasChildren[child.id] = !visibleGrandChildren.isNullOrEmpty()
+                
+                // Expand if:
+                // 1. User expanded it manually
+                // 2. OR we are filtering and it has matching descendants (auto-reveal matches)
+                val shouldExpand = expandedIds.contains(child.id) || (isFiltering && !visibleGrandChildren.isNullOrEmpty())
+                
+                if (shouldExpand) {
+                    addChildren(child.id, depth + 1)
+                }
+            }
+        }
+
+        addChildren(null, 0)
+        return HierarchyResult(resultItems, depths, hasChildren)
     }
 
     private fun resolveLocations(

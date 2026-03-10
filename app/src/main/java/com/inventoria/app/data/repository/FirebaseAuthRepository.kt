@@ -8,6 +8,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,7 +16,8 @@ import javax.inject.Singleton
 @Singleton
 class FirebaseAuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
-    private val googleSignInClient: GoogleSignInClient
+    private val googleSignInClient: GoogleSignInClient,
+    private val settingsRepository: SettingsRepository
 ) {
     val authStateFlow: Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth ->
@@ -28,6 +30,9 @@ class FirebaseAuthRepository @Inject constructor(
     }
 
     suspend fun getOrCreateUserId(): String {
+        val manualId = settingsRepository.manualSyncId.first()
+        if (manualId != null) return manualId
+
         firebaseAuth.currentUser?.let { return it.uid }
         
         val result = firebaseAuth.signInAnonymously().await()

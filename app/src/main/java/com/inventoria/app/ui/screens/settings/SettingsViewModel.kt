@@ -37,6 +37,9 @@ class SettingsViewModel @Inject constructor(
 
     val autoCurrencyEnabled: StateFlow<Boolean> = settingsRepository.isAutoCurrencyEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        
+    val manualSyncId: StateFlow<String?> = settingsRepository.manualSyncId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
         checkCurrentUser()
@@ -111,4 +114,12 @@ class SettingsViewModel @Inject constructor(
             settingsRepository.setAutoCurrencyEnabled(enabled)
         }
     }
+    
+    fun setManualSyncId(syncId: String?) {
+        viewModelScope.launch {
+            settingsRepository.saveManualSyncId(syncId)
+        }
+    }
+    
+    fun getCurrentUserId(): String? = authRepository.getCurrentUserId()
 }

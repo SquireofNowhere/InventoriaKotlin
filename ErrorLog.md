@@ -195,4 +195,18 @@ The app would become unresponsive ("frozen") when saving an item with multiple p
 - **Progress Tracking**: Added an `ImageUpload` helper class to track `isUploading` and `isError` states, providing real-time feedback (spinners/error icons) on thumbnails while the background process runs.
 
 ---
-*Last Updated: 2024-05-23*
+
+## 🐞 14. Context Menu Suppressed by Drag Gestures
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Holding down an item in the inventory list to open the context menu would often fail. The drag-and-drop feature worked, but the long-press for the menu was unreliable.
+
+### 🔍 Root Cause
+- **Gesture Collision**: The `detectDragGesturesAfterLongPress` modifier on the list was consuming the long-press event. The logic to trigger the menu in `onDragEnd` only worked if the user released the touch perfectly still, which rarely happened in practice.
+
+### 🛠️ Final Fix
+- **Combined Clickable**: Implemented `.combinedClickable` on the individual item rows. By explicitly defining `onLongClick` at the row level, the menu is triggered immediately upon the long-press threshold being met, regardless of minor pointer movements, while still allowing the parent `pointerInput` to detect dragging.
+
+---
+*Last Updated: 2024-05-24*

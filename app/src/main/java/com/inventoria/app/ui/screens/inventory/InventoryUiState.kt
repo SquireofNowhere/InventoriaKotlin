@@ -9,6 +9,8 @@ data class InventoryUiState(
     val filteredItems: List<InventoryItem> = emptyList(),
     val matchedItemIds: Set<Long> = emptySet(),
     val expandedItemIds: Set<Long> = emptySet(),
+    val itemDepths: Map<Long, Int> = emptyMap(),
+    val itemHasChildren: Map<Long, Boolean> = emptyMap(),
     val selectedItemIds: Set<Long> = emptySet(),
     val allLinks: List<ItemLink> = emptyList(),
     val linkedItemIds: Set<Long> = emptySet(),

@@ -29,6 +29,7 @@ class SettingsRepository @Inject constructor(
     private val CUSTOM_USERNAME = stringPreferencesKey("custom_username")
     private val CURRENCY_CODE = stringPreferencesKey("currency_code")
     private val AUTO_CURRENCY = booleanPreferencesKey("auto_currency")
+    private val MANUAL_SYNC_ID = stringPreferencesKey("manual_sync_id")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -45,6 +46,8 @@ class SettingsRepository @Inject constructor(
     
     fun getCurrencyCode(): Flow<String> = context.dataStore.data.map { it[CURRENCY_CODE] ?: "USD" }
     fun isAutoCurrencyEnabled(): Flow<Boolean> = context.dataStore.data.map { it[AUTO_CURRENCY] ?: true }
+    
+    val manualSyncId: Flow<String?> = context.dataStore.data.map { it[MANUAL_SYNC_ID] }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }
@@ -99,5 +102,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAutoCurrencyEnabled(enabled: Boolean) {
         context.dataStore.edit { it[AUTO_CURRENCY] = enabled }
+    }
+
+    suspend fun saveManualSyncId(syncId: String?) {
+        context.dataStore.edit {
+            if (syncId.isNullOrBlank()) it.remove(MANUAL_SYNC_ID)
+            else it[MANUAL_SYNC_ID] = syncId
+        }
     }
 }

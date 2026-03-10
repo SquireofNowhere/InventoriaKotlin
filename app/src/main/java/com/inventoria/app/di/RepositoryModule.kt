@@ -23,9 +23,10 @@ class RepositoryModule {
     @Singleton
     fun provideFirebaseAuthRepository(
         auth: FirebaseAuth,
-        googleSignInClient: GoogleSignInClient
+        googleSignInClient: GoogleSignInClient,
+        settingsRepository: SettingsRepository
     ): FirebaseAuthRepository {
-        return FirebaseAuthRepository(auth, googleSignInClient)
+        return FirebaseAuthRepository(auth, googleSignInClient, settingsRepository)
     }
 
     @Provides

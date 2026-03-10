@@ -29,12 +29,22 @@ class FirebaseSyncRepository @Inject constructor(
     
     private val syncIgnoreCount = AtomicInteger(0)
     private var userRef: DatabaseReference? = null
+    private var syncJobs = mutableListOf<Job>()
 
     fun startSync() {
-        val userId = authRepository.getCurrentUserId() ?: run {
-            Log.w(TAG, "Cannot start sync: User not authenticated")
-            return
+        repositoryScope.launch {
+            settingsRepository.manualSyncId.collect { manualId ->
+                val userId = manualId ?: authRepository.getCurrentUserId() ?: return@collect
+                restartSyncForUser(userId)
+            }
         }
+    }
+
+    private fun restartSyncForUser(userId: String) {
+        // Cancel existing sync jobs
+        syncJobs.forEach { it.cancel() }
+        syncJobs.clear()
+        
         Log.d(TAG, "Starting sync for user: $userId")
         
         val rootRef = firebaseDatabase.getReference("users").child(userId)
@@ -50,46 +60,46 @@ class FirebaseSyncRepository @Inject constructor(
         })
 
         // Sync Items
-        setupNodeSync(
+        syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("items"),
             localFlow = inventoryDao.getAllItems(),
             pushAction = { ref, items -> pushItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullItemsFromFirebase(snapshot) }
-        )
+        ))
 
         // Sync Item Links
-        setupNodeSync(
+        syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("item_links"),
             localFlow = itemLinkDao.getAllLinksFlow(),
             pushAction = { ref, links -> pushLinksToFirebase(ref, links) },
             pullAction = { snapshot -> pullLinksFromFirebase(snapshot) }
-        )
+        ))
 
         // Sync Tasks
-        setupNodeSync(
+        syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("tasks"),
             localFlow = taskDao.getAllTasks(),
             pushAction = { ref, tasks -> pushTasksToFirebase(ref, tasks) },
             pullAction = { snapshot -> pullTasksFromFirebase(snapshot) }
-        )
+        ))
 
         // Sync Collections
-        setupNodeSync(
+        syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("collections"),
             localFlow = collectionDao.getAllCollections(),
             pushAction = { ref, colls -> pushCollectionsToFirebase(ref, colls) },
             pullAction = { snapshot -> pullCollectionsFromFirebase(snapshot) }
-        )
+        ))
 
         // Sync Collection Items
-        setupNodeSync(
+        syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("collection_items"),
             localFlow = collectionDao.getAllCollectionItemsFlow(),
             pushAction = { ref, items -> pushCollectionItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullCollectionItemsFromFirebase(snapshot) }
-        )
+        ))
         
-        setupSettingsSync(rootRef.child("settings"))
+        syncJobs.add(setupSettingsSync(rootRef.child("settings")))
     }
 
     private fun <T> setupNodeSync(
@@ -97,8 +107,11 @@ class FirebaseSyncRepository @Inject constructor(
         localFlow: Flow<List<T>>,
         pushAction: suspend (DatabaseReference, List<T>) -> Unit,
         pullAction: suspend (DataSnapshot) -> Unit
-    ) {
-        repositoryScope.launch {
+    ): Job {
+        val job = Job()
+        val scope = CoroutineScope(Dispatchers.IO + job)
+        
+        scope.launch {
             localFlow.distinctUntilChanged().collect { list ->
                 if (syncIgnoreCount.get() == 0) {
                     pushAction(nodeRef, list)
@@ -115,15 +128,20 @@ class FirebaseSyncRepository @Inject constructor(
             awaitClose { nodeRef.removeEventListener(listener) }
         }
 
-        repositoryScope.launch {
+        scope.launch {
             firebaseFlow.collect { snapshot ->
                 pullAction(snapshot)
             }
         }
+        
+        return job
     }
 
-    private fun setupSettingsSync(settingsRef: DatabaseReference) {
-        repositoryScope.launch {
+    private fun setupSettingsSync(settingsRef: DatabaseReference): Job {
+        val job = Job()
+        val scope = CoroutineScope(Dispatchers.IO + job)
+        
+        scope.launch {
             settingsRepository.customUsername.distinctUntilChanged().collect { username ->
                 if (syncIgnoreCount.get() == 0) {
                     settingsRef.child("custom_username").setValue(username)
@@ -134,7 +152,7 @@ class FirebaseSyncRepository @Inject constructor(
         settingsRef.child("custom_username").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val cloudUsername = snapshot.getValue(String::class.java)
-                repositoryScope.launch {
+                scope.launch {
                     syncIgnoreCount.incrementAndGet()
                     settingsRepository.saveCustomUsername(cloudUsername)
                     syncIgnoreCount.decrementAndGet()
@@ -142,6 +160,8 @@ class FirebaseSyncRepository @Inject constructor(
             }
             override fun onCancelled(error: DatabaseError) {}
         })
+        
+        return job
     }
 
     private suspend fun pushItemsToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
