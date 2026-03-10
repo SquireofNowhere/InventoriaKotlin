@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +29,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -43,6 +47,9 @@ import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.ui.theme.Warning
 import java.text.NumberFormat
 import kotlin.math.roundToInt
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class DragAction { MOVE, LINK, NONE }
 
@@ -240,77 +247,7 @@ fun InventoryListScreen(
                     LazyColumn(
                         state = lazyListState,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(uiState.groupOption) {
-                                if (uiState.groupOption != GroupOption.NONE) return@pointerInput
-                                
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { offset ->
-                                        val item = lazyListState.layoutInfo.visibleItemsInfo.find { 
-                                            offset.y.toInt() in it.offset..(it.offset + it.size) 
-                                        }
-                                        item?.let {
-                                            val id = it.key as? Long
-                                            if (id != null) {
-                                                draggedItemId = id
-                                                dragOffset = offset
-                                                grabOffset = Offset(offset.x, offset.y - it.offset.toFloat())
-                                                isDraggingActive = false 
-                                                cumulativeDragAmount = Offset.Zero
-                                            }
-                                        }
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        cumulativeDragAmount += dragAmount
-                                        dragOffset += dragAmount
-                                        
-                                        if (cumulativeDragAmount.getDistance() > 15f) {
-                                            isDraggingActive = true
-                                        }
-                                        
-                                        if (isDraggingActive) {
-                                            val hoverItem = lazyListState.layoutInfo.visibleItemsInfo.find {
-                                                dragOffset.y.toInt() in it.offset..(it.offset + it.size)
-                                            }
-                                            val newHoverId = hoverItem?.key as? Long
-                                            
-                                            if (newHoverId != draggedItemId) {
-                                                hoverItemId = newHoverId
-                                                val target = uiState.items.find { it.id == newHoverId }
-                                                dragAction = when {
-                                                    target == null -> DragAction.NONE
-                                                    target.storage -> DragAction.MOVE
-                                                    else -> DragAction.LINK
-                                                }
-                                            } else {
-                                                hoverItemId = null
-                                                dragAction = DragAction.NONE
-                                            }
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        if (isDraggingActive) {
-                                            if (draggedItemId != null && hoverItemId != null) {
-                                                if (dragAction == DragAction.MOVE) {
-                                                    viewModel.moveItem(draggedItemId!!, hoverItemId)
-                                                    Toast.makeText(context, "Moved into container", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        }
-                                        draggedItemId = null
-                                        hoverItemId = null
-                                        dragAction = DragAction.NONE
-                                        isDraggingActive = false
-                                    },
-                                    onDragCancel = {
-                                        draggedItemId = null
-                                        hoverItemId = null
-                                        dragAction = DragAction.NONE
-                                        isDraggingActive = false
-                                    }
-                                )
-                            },
+                            .fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
                         if (uiState.groupOption == GroupOption.NONE) {
@@ -344,6 +281,55 @@ fun InventoryListScreen(
                                     onLongClick = {
                                         contextMenuItemId = item.id
                                     },
+                                    onDragStart = { localOffset ->
+                                        contextMenuItemId = null
+                                        val visibleItem = lazyListState.layoutInfo.visibleItemsInfo
+                                            .find { it.key == item.id }
+                                        visibleItem?.let {
+                                            draggedItemId = it.key as? Long
+                                            dragOffset = localOffset + Offset(0f, it.offset.toFloat())
+                                            grabOffset = localOffset
+                                            isDraggingActive = false
+                                            cumulativeDragAmount = Offset.Zero
+                                        }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        cumulativeDragAmount += dragAmount
+                                        dragOffset += dragAmount
+                                        if (cumulativeDragAmount.getDistance() > 15f) isDraggingActive = true
+                                        if (isDraggingActive) {
+                                            val hoverItem = lazyListState.layoutInfo.visibleItemsInfo
+                                                .find { dragOffset.y.toInt() in it.offset..(it.offset + it.size) }
+                                            val newHoverId = hoverItem?.key as? Long
+                                            if (newHoverId != draggedItemId) {
+                                                hoverItemId = newHoverId
+                                                val target = uiState.items.find { it.id == newHoverId }
+                                                dragAction = when {
+                                                    target == null -> DragAction.NONE
+                                                    target.storage -> DragAction.MOVE
+                                                    else -> DragAction.LINK
+                                                }
+                                            } else {
+                                                hoverItemId = null
+                                                dragAction = DragAction.NONE
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        if (isDraggingActive && draggedItemId != null && hoverItemId != null) {
+                                            if (dragAction == DragAction.MOVE) {
+                                                viewModel.moveItem(draggedItemId!!, hoverItemId)
+                                                Toast.makeText(context, "Moved into container", Toast.LENGTH_SHORT).show()
+                                            } else if (dragAction == DragAction.LINK) {
+                                                viewModel.linkItem(draggedItemId!!, hoverItemId!!)
+                                            }
+                                        }
+                                        draggedItemId = null
+                                        hoverItemId = null
+                                        dragAction = DragAction.NONE
+                                        isDraggingActive = false
+                                    },
                                     onToggleExpansion = { viewModel.toggleItemExpansion(item.id) },
                                     onToggleSelection = { viewModel.toggleSelection(item.id) },
                                     onEdit = { onEditItem(item.id) },
@@ -372,6 +358,10 @@ fun InventoryListScreen(
                                     InventoryItemRow(
                                         item = item,
                                         isSelected = item.id in uiState.selectedItemIds,
+                                        isMatched = uiState.matchedItemIds.contains(item.id),
+                                        isFiltering = uiState.isFiltering,
+                                        showContextMenu = contextMenuItemId == item.id,
+                                        onDismissContextMenu = { contextMenuItemId = null },
                                         onClick = { 
                                             if (isSelectionMode) {
                                                 viewModel.toggleSelection(item.id)
@@ -490,12 +480,21 @@ fun InventoryItemRow(
     onDismissContextMenu: () -> Unit = {},
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    onDragStart: (Offset) -> Unit = {},
+    onDrag: (PointerInputChange, Offset) -> Unit = { _, _ -> },
+    onDragEnd: () -> Unit = {},
     onToggleExpansion: () -> Unit = {},
     onToggleSelection: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
     onToggleEquip: () -> Unit = {}
 ) {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongClick by rememberUpdatedState(onLongClick)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+
     val backgroundColor = when {
         isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         isHovered && dragAction == DragAction.MOVE -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
@@ -608,10 +607,58 @@ fun InventoryItemRow(
                 }
             },
             modifier = Modifier
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                )
+                .pointerInput(Unit) {
+                    coroutineScope {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val pointerId = down.id
+                                var isLongPressed = false
+                                var dragStarted = false
+
+                                // Launch long-press timer
+                                val longPressJob = launch {
+                                    delay(viewConfiguration.longPressTimeoutMillis)
+                                    isLongPressed = true
+                                    currentOnLongClick()   // ← fires context menu
+                                }
+
+                                // Track movement
+                                var dragOffset = Offset.Zero
+                                loop@ while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break@loop
+
+                                    if (change.changedToUp()) {
+                                        longPressJob.cancel()
+                                        if (!isLongPressed && !dragStarted) currentOnClick()
+                                        break@loop
+                                    }
+
+                                    dragOffset += change.positionChange()
+
+                                    if (!dragStarted && dragOffset.getDistance() > viewConfiguration.touchSlop) {
+                                        longPressJob.cancel()
+                                        if (!isLongPressed) {
+                                            // Moved before long-press: treat as scroll, don't consume
+                                            break@loop
+                                        }
+                                        // Long-press already fired, now dragging
+                                        dragStarted = true
+                                        currentOnDragStart(change.position)
+                                    }
+
+                                    if (dragStarted) {
+                                        change.consume()
+                                        currentOnDrag(change, change.positionChange())
+                                    }
+                                }
+
+                                if (dragStarted) currentOnDragEnd()
+                            }
+                        }
+                    }
+                }
                 .background(backgroundColor)
                 .then(if (isHovered) Modifier.border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)) else Modifier)
         )
