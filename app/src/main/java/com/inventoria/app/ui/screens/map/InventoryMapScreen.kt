@@ -1,7 +1,7 @@
 package com.inventoria.app.ui.screens.map
 
-import android.Manifest
-import android.preference.PreferenceManager
+import android.content.Context
+import android.graphics.drawable.Drawable
 import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -12,15 +12,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.preference.PreferenceManager
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import com.inventoria.app.R
 import com.inventoria.app.ui.screens.inventory.InventoryListViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.DelayedMapListener
@@ -31,272 +31,192 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.infowindow.MarkerInfoWindow
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun InventoryMapScreen(
     onItemClick: (Long) -> Unit,
     initialLocation: Pair<Double, Double>? = null,
-    viewModel: InventoryListViewModel = hiltViewModel()
+    viewModel: InventoryListViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
     val defaultLocation = GeoPoint(-26.2041, 28.0473)
+    val streetLevelZoom = 18.5
 
-    Log.d("InventoryMap", "InventoryMapScreen: Composition started")
-
-    // Important for osmdroid: Initialize configuration
     LaunchedEffect(Unit) {
-        try {
-            Log.d("InventoryMap", "LaunchedEffect[Unit]: Initializing osmdroid config")
-            Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
-            Configuration.getInstance().userAgentValue = context.packageName
-            Log.d("InventoryMap", "LaunchedEffect[Unit]: Config initialized for ${context.packageName}")
-        } catch (e: Exception) {
-            Log.e("InventoryMap", "LaunchedEffect[Unit]: Error initializing config", e)
-        }
+        Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
+        Configuration.getInstance().userAgentValue = context.packageName
     }
 
     val locationPermissionState = rememberPermissionState(
-        Manifest.permission.ACCESS_FINE_LOCATION
+        android.Manifest.permission.ACCESS_FINE_LOCATION
     )
 
-    var currentZoom by remember { mutableStateOf(10.0) }
-    val isZoomedIn = currentZoom > 15.0
+    var currentZoom by remember { mutableDoubleStateOf(10.0) }
+    val isZoomedIn by remember { derivedStateOf { currentZoom > 16.0 } }
 
     val mapView = remember {
-        try {
-            Log.d("InventoryMap", "remember: Creating MapView")
-            MapView(context).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
-                setMultiTouchControls(true)
-                controller.setZoom(10.0)
-                controller.setCenter(defaultLocation)
-                
-                addMapListener(DelayedMapListener(object : MapListener {
-                    override fun onScroll(event: ScrollEvent?): Boolean = false
-                    override fun onZoom(event: ZoomEvent?): Boolean {
-                        event?.let { currentZoom = it.zoomLevel }
-                        return true
-                    }
-                }, 100))
-                Log.d("InventoryMap", "remember: MapView created and listener added")
-            }
-        } catch (e: Exception) {
-            Log.e("InventoryMap", "remember: Error creating MapView", e)
-            throw e 
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            controller.setZoom(10.0)
+            controller.setCenter(defaultLocation)
         }
     }
 
     val myLocationOverlay = remember {
-        try {
-            Log.d("InventoryMap", "remember: Creating MyLocationNewOverlay")
-            val provider = GpsMyLocationProvider(context)
-            MyLocationNewOverlay(provider, mapView).apply {
-                Log.d("InventoryMap", "remember: MyLocationNewOverlay created")
-            }
-        } catch (e: Exception) {
-            Log.e("InventoryMap", "remember: Error creating myLocationOverlay", e)
-            throw e
+        MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply {
+            setEnableAutoStop(false)
         }
     }
 
+    LaunchedEffect(mapView, myLocationOverlay) {
+        mapView.addMapListener(DelayedMapListener(object : MapListener {
+            override fun onScroll(event: ScrollEvent?): Boolean {
+                myLocationOverlay.disableFollowLocation()
+                return true
+            }
+
+            override fun onZoom(event: ZoomEvent?): Boolean {
+                event?.let { currentZoom = it.zoomLevel }
+                return true
+            }
+        }, 100))
+    }
+
     LaunchedEffect(initialLocation) {
-        Log.d("InventoryMap", "LaunchedEffect[initialLocation]: initialLocation=$initialLocation")
         initialLocation?.let { (lat, lon) ->
-            mapView.controller.setZoom(17.0)
+            mapView.controller.setZoom(streetLevelZoom)
             mapView.controller.animateTo(GeoPoint(lat, lon))
         }
     }
 
     LaunchedEffect(locationPermissionState.status.isGranted) {
-        Log.d("InventoryMap", "LaunchedEffect[permission]: isGranted=${locationPermissionState.status.isGranted}")
         if (locationPermissionState.status.isGranted) {
-            try {
-                myLocationOverlay.enableMyLocation()
-                myLocationOverlay.runOnFirstFix {
-                    val loc = myLocationOverlay.myLocation
-                    Log.d("InventoryMap", "runOnFirstFix: location=$loc")
-                    if (loc != null) {
-                        viewModel.updateUserLocation(loc.latitude, loc.longitude)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("InventoryMap", "LaunchedEffect[permission]: Error enabling location", e)
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        while(true) {
-            val loc = myLocationOverlay.myLocation
-            if (loc != null) {
-                viewModel.updateUserLocation(loc.latitude, loc.longitude)
-            }
-            kotlinx.coroutines.delay(5000)
-        }
-    }
-
-    LaunchedEffect(locationPermissionState.status.isGranted) {
-        if (locationPermissionState.status.isGranted) {
+            myLocationOverlay.enableMyLocation()
             if (!mapView.overlays.contains(myLocationOverlay)) {
-                Log.d("InventoryMap", "Adding myLocationOverlay to mapView")
                 mapView.overlays.add(myLocationOverlay)
+            }
+            myLocationOverlay.runOnFirstFix {
+                myLocationOverlay.myLocation?.let { loc ->
+                    viewModel.updateUserLocation(loc.latitude, loc.longitude)
+                }
             }
         }
     }
 
     DisposableEffect(lifecycleOwner) {
-        Log.d("InventoryMap", "DisposableEffect: Adding lifecycle observer")
         val observer = LifecycleEventObserver { _, event ->
-            Log.d("InventoryMap", "Lifecycle Event: $event")
             when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    mapView.onResume()
-                    if (locationPermissionState.status.isGranted) {
-                        myLocationOverlay.enableMyLocation()
-                    }
-                }
-                Lifecycle.Event.ON_PAUSE -> {
-                    mapView.onPause()
-                    myLocationOverlay.disableMyLocation()
-                }
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            Log.d("InventoryMap", "DisposableEffect: Disposing")
             lifecycleOwner.lifecycle.removeObserver(observer)
             mapView.onDetach()
         }
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("Inventory Map", fontWeight = FontWeight.Bold) })
-        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    Log.d("InventoryMap", "FAB Clicked: Permission granted=${locationPermissionState.status.isGranted}")
                     if (locationPermissionState.status.isGranted) {
-                        myLocationOverlay.enableFollowLocation()
-                        val myLocation = myLocationOverlay.myLocation
-                        if (myLocation != null) {
-                            mapView.controller.setZoom(15.0)
-                            mapView.controller.animateTo(myLocation)
-                        } else {
-                            mapView.controller.setZoom(15.0)
+                        myLocationOverlay.myLocation?.let { loc ->
+                            mapView.controller.setZoom(streetLevelZoom)
+                            mapView.controller.animateTo(loc)
                         }
                     } else {
                         locationPermissionState.launchPermissionRequest()
                     }
                 },
-                modifier = Modifier.padding(bottom = 16.dp)
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "My Location")
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Log.d("InventoryMap", "Rendering AndroidView")
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { 
-                    Log.d("InventoryMap", "AndroidView: Factory called")
-                    mapView 
-                }
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize()
             )
-            
-            LaunchedEffect(uiState.filteredItems) {
-                Log.d("InventoryMap", "LaunchedEffect[filteredItems]: Item count=${uiState.filteredItems.size}")
-                try {
-                    val existingMarkers = mapView.overlays.filterIsInstance<Marker>()
-                    existingMarkers.forEach { it.closeInfoWindow() }
-                    mapView.overlays.removeAll(existingMarkers)
-                    
-                    val itemsToShow = uiState.filteredItems.filter { !it.equipped && it.parentId == null }
-                    Log.d("InventoryMap", "Processing ${itemsToShow.size} markers")
 
-                    itemsToShow.forEach { item ->
-                        val lat = item.latitude
-                        val lon = item.longitude
-                        val coords = if (lat != null && lon != null) {
-                            GeoPoint(lat, lon)
-                        } else {
-                            parseLocationToGeoPoint(item.location)
-                        }
-                        
-                        if (coords != null) {
-                            val itemId = item.id
-                            val marker = Marker(mapView)
-                            marker.position = coords
-                            marker.title = item.name
-                            marker.snippet = "Qty: ${item.quantity}\n${item.location}"
-                            
-                            marker.infoWindow = object : MarkerInfoWindow(org.osmdroid.library.R.layout.bonuspack_bubble, mapView) {
-                                override fun onOpen(item: Any?) {
-                                    super.onOpen(item)
-                                    view.setOnClickListener {
-                                        onItemClick(itemId)
-                                        close()
-                                    }
-                                }
-                            }
-
-                            if (isZoomedIn) {
-                                marker.showInfoWindow()
-                            }
-
-                            marker.setOnMarkerClickListener { m, _ ->
-                                if (m.isInfoWindowShown) {
-                                    onItemClick(itemId)
-                                } else {
-                                    m.showInfoWindow()
-                                }
-                                true
-                            }
-                            mapView.overlays.add(marker)
-                        }
-                    }
-                    mapView.invalidate()
-                    Log.d("InventoryMap", "Markers updated and map invalidated")
-                } catch (e: Exception) {
-                    Log.e("InventoryMap", "Error processing markers", e)
-                }
+            if (uiState.isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = com.inventoria.app.ui.theme.PurplePrimary
+                )
             }
 
-            LaunchedEffect(isZoomedIn) {
-                mapView.overlays.filterIsInstance<Marker>().forEach { marker ->
-                    if (isZoomedIn) {
-                        marker.showInfoWindow()
+            // Sync Markers with UI State
+            val itemsToShow = remember(uiState.filteredItems) {
+                uiState.filteredItems.filter { !it.equipped && it.parentId == null }
+            }
+
+            val markerDrawable = remember { ContextCompat.getDrawable(context, R.drawable.map_marker_dot) }
+
+            LaunchedEffect(itemsToShow, isZoomedIn) {
+                // Clear existing markers
+                val existingMarkers = mapView.overlays.filterIsInstance<Marker>()
+                existingMarkers.forEach { it.closeInfoWindow() }
+                mapView.overlays.removeAll(existingMarkers)
+
+                // Add new markers
+                itemsToShow.forEach { item ->
+                    val point = if (item.latitude != null && item.longitude != null) {
+                        GeoPoint(item.latitude!!, item.longitude!!)
                     } else {
-                        marker.closeInfoWindow()
+                        parseLocationToGeoPoint(item.location)
+                    }
+
+                    if (point != null) {
+                        val marker = Marker(mapView)
+                        marker.position = point
+                        marker.title = item.name
+                        marker.snippet = "Qty: ${item.quantity}\n${item.location}"
+                        marker.setIcon(markerDrawable)
+                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        
+                        marker.setOnMarkerClickListener { m, _ ->
+                            if (m.isInfoWindowShown) {
+                                onItemClick(item.id)
+                            } else {
+                                m.showInfoWindow()
+                            }
+                            true
+                        }
+                        
+                        mapView.overlays.add(marker)
+                        if (isZoomedIn) {
+                            marker.showInfoWindow()
+                        }
                     }
                 }
                 mapView.invalidate()
-            }
-            
-            if (uiState.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
         }
     }
 }
 
 private fun parseLocationToGeoPoint(location: String): GeoPoint? {
+    if (location.isEmpty()) return null
     return try {
         val parts = location.split(",")
-        if (parts.size == 2) {
-            val lat = parts[0].trim().toDoubleOrNull()
-            val lon = parts[1].trim().toDoubleOrNull()
-            if (lat != null && lon != null) GeoPoint(lat, lon) else null
-        } else null
+        if (parts.size != 2) return null
+        val lat = parts[0].trim().toDoubleOrNull()
+        val lon = parts[1].trim().toDoubleOrNull()
+        if (lat == null || lon == null) null
+        else GeoPoint(lat, lon)
     } catch (e: Exception) {
         Log.e("InventoryMap", "parseLocationToGeoPoint: Error parsing '$location'", e)
         null

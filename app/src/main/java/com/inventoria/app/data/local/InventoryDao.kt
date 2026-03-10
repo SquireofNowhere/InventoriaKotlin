@@ -4,111 +4,80 @@ import androidx.room.*
 import com.inventoria.app.data.model.InventoryItem
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Data Access Object for inventory items
- */
 @Dao
 interface InventoryDao {
-    
-    // Query all items - Updated to sort by updated_at to reflect recent activity
-    @Query("SELECT * FROM inventory_items ORDER BY updated_at DESC")
+    @Query("SELECT * FROM InventoryItem WHERE isDeleted = 0")
     fun getAllItems(): Flow<List<InventoryItem>>
-    
-    // Query by ID
-    @Query("SELECT * FROM inventory_items WHERE id = :itemId")
+
+    @Query("SELECT * FROM InventoryItem WHERE isDeleted = 0")
+    suspend fun getAllItemsList(): List<InventoryItem>
+
+    @Query("SELECT * FROM InventoryItem WHERE id = :itemId LIMIT 1")
     suspend fun getItemById(itemId: Long): InventoryItem?
 
-    // Query multiple by IDs
-    @Query("SELECT * FROM inventory_items WHERE id IN (:itemIds)")
-    suspend fun getItemsByIds(itemIds: List<Long>): List<InventoryItem>
-    
-    // Query by ID as Flow
-    @Query("SELECT * FROM inventory_items WHERE id = :itemId")
+    @Query("SELECT * FROM InventoryItem WHERE id = :itemId LIMIT 1")
     fun getItemByIdFlow(itemId: Long): Flow<InventoryItem?>
-    
-    // Search items
-    @Query("""
-        SELECT * FROM inventory_items 
-        WHERE name LIKE '%' || :query || '%' 
-        OR location LIKE '%' || :query || '%'
-        OR description LIKE '%' || :query || '%'
-        ORDER BY name ASC
-    """)
-    fun searchItems(query: String): Flow<List<InventoryItem>>
-    
-    // Filter by category
-    @Query("SELECT * FROM inventory_items WHERE category = :category ORDER BY name ASC")
-    fun getItemsByCategory(category: String): Flow<List<InventoryItem>>
-    
-    // Get items by storage container
-    @Query("SELECT * FROM inventory_items WHERE parent_id = :parentId ORDER BY name ASC")
+
+    @Query("SELECT * FROM InventoryItem WHERE id IN (:itemIds)")
+    suspend fun getItemsByIds(itemIds: List<Long>): List<InventoryItem>
+
+    @Query("SELECT * FROM InventoryItem WHERE parentId = :parentId AND isDeleted = 0")
     fun getItemsByParent(parentId: Long): Flow<List<InventoryItem>>
-    
-    // Get all storage containers - Updated column name
-    @Query("SELECT * FROM inventory_items WHERE storage = 1 ORDER BY name ASC")
-    fun getStorageItems(): Flow<List<InventoryItem>>
-    
-    // Get out of stock items
-    @Query("SELECT * FROM inventory_items WHERE quantity = 0 ORDER BY name ASC")
-    fun getOutOfStockItems(): Flow<List<InventoryItem>>
-    
-    // Get items by location
-    @Query("SELECT * FROM inventory_items WHERE location = :location ORDER BY name ASC")
+
+    @Query("SELECT * FROM InventoryItem WHERE category = :category AND isDeleted = 0")
+    fun getItemsByCategory(category: String): Flow<List<InventoryItem>>
+
+    @Query("SELECT * FROM InventoryItem WHERE location = :location AND isDeleted = 0")
     fun getItemsByLocation(location: String): Flow<List<InventoryItem>>
-    
-    // Get all categories
-    @Query("SELECT DISTINCT category FROM inventory_items WHERE category IS NOT NULL ORDER BY category ASC")
+
+    @Query("SELECT * FROM InventoryItem WHERE storage = 1 AND isDeleted = 0")
+    fun getStorageItems(): Flow<List<InventoryItem>>
+
+    @Query("SELECT * FROM InventoryItem WHERE quantity <= 0 AND isDeleted = 0")
+    fun getOutOfStockItems(): Flow<List<InventoryItem>>
+
+    @Query("SELECT DISTINCT category FROM InventoryItem WHERE category IS NOT NULL AND isDeleted = 0")
     fun getAllCategories(): Flow<List<String>>
-    
-    // Get all locations
-    @Query("SELECT DISTINCT location FROM inventory_items ORDER BY location ASC")
+
+    @Query("SELECT DISTINCT location FROM InventoryItem WHERE location != '' AND isDeleted = 0")
     fun getAllLocations(): Flow<List<String>>
-    
-    // Get total item count
-    @Query("SELECT COUNT(*) FROM inventory_items")
+
+    @Query("SELECT COUNT(*) FROM InventoryItem WHERE isDeleted = 0")
     fun getItemCount(): Flow<Int>
-    
-    // Get total value
-    @Query("SELECT SUM(price * quantity) FROM inventory_items WHERE price IS NOT NULL")
+
+    @Query("SELECT SUM(price * quantity) FROM InventoryItem WHERE isDeleted = 0")
     fun getTotalValue(): Flow<Double?>
-    
-    // Insert item - Using Upsert to avoid CASCADE DELETE on replace
-    @Upsert
+
+    @Query("SELECT * FROM InventoryItem WHERE (name LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR barcode LIKE '%' || :query || '%' OR sku LIKE '%' || :query || '%') AND isDeleted = 0")
+    fun searchItems(query: String): Flow<List<InventoryItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItem(item: InventoryItem): Long
-    
-    // Insert multiple items - Using Upsert to avoid CASCADE DELETE on replace
-    @Upsert
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItems(items: List<InventoryItem>)
-    
-    // Update item
+
     @Update
     suspend fun updateItem(item: InventoryItem)
 
-    // Update multiple items
     @Update
     suspend fun updateItems(items: List<InventoryItem>)
-    
-    // Delete item
+
     @Delete
     suspend fun deleteItem(item: InventoryItem)
-    
-    // Delete by ID
-    @Query("DELETE FROM inventory_items WHERE id = :itemId")
-    suspend fun deleteItemById(itemId: Long)
-    
-    // Delete all items
-    @Query("DELETE FROM inventory_items")
-    suspend fun deleteAllItems()
-    
-    // Update quantity
-    @Query("UPDATE inventory_items SET quantity = :newQuantity, updated_at = :updateTime WHERE id = :itemId")
+
+    @Query("UPDATE InventoryItem SET isDeleted = 1, updatedAt = :updateTime WHERE id = :itemId")
+    suspend fun deleteItemById(itemId: Long, updateTime: Long = System.currentTimeMillis())
+
+    @Query("UPDATE InventoryItem SET quantity = :newQuantity, updatedAt = :updateTime WHERE id = :itemId")
     suspend fun updateQuantity(itemId: Long, newQuantity: Int, updateTime: Long = System.currentTimeMillis())
-    
-    // Increment quantity
-    @Query("UPDATE inventory_items SET quantity = quantity + :amount, updated_at = :updateTime WHERE id = :itemId")
+
+    @Query("UPDATE InventoryItem SET quantity = quantity + :amount, updatedAt = :updateTime WHERE id = :itemId")
     suspend fun incrementQuantity(itemId: Long, amount: Int, updateTime: Long = System.currentTimeMillis())
-    
-    // Decrement quantity
-    @Query("UPDATE inventory_items SET quantity = quantity - :amount, updated_at = :updateTime WHERE id = :itemId")
+
+    @Query("UPDATE InventoryItem SET quantity = quantity - :amount, updatedAt = :updateTime WHERE id = :itemId")
     suspend fun decrementQuantity(itemId: Long, amount: Int, updateTime: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM InventoryItem")
+    suspend fun deleteAllItems()
 }

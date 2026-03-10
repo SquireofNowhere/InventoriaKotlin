@@ -1,25 +1,15 @@
 package com.inventoria.app.ui.screens.settings
 
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
 import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-sealed class AuthState {
-    object Idle : AuthState()
-    object Loading : AuthState()
-    data class Authenticated(val user: FirebaseUser) : AuthState()
-    data class Error(val message: String) : AuthState()
-}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -27,20 +17,29 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: FirebaseAuthRepository
 ) : ViewModel() {
 
-    val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
+    val authState: StateFlow<AuthState> = _authState.asStateFlow()
+
+    val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val notificationsEnabled: StateFlow<Boolean> = settingsRepository.notificationsEnabled
+    val notificationsEnabled: StateFlow<Boolean> = settingsRepository.getNotificationsEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val showValueOnDashboard: StateFlow<Boolean> = settingsRepository.showValueOnDashboard
+    val showValueOnDashboard: StateFlow<Boolean> = settingsRepository.getShowValueOnDashboard()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-        
+
     val customUsername: StateFlow<String?> = settingsRepository.customUsername
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
-    val authState: StateFlow<AuthState> = _authState.asStateFlow()
+    val currencyCode: StateFlow<String> = settingsRepository.getCurrencyCode()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "USD")
+
+    val autoCurrencyEnabled: StateFlow<Boolean> = settingsRepository.isAutoCurrencyEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+        
+    val manualSyncId: StateFlow<String?> = settingsRepository.manualSyncId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
         checkCurrentUser()
@@ -71,15 +70,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun getGoogleSignInIntent(): Intent {
+        return authRepository.getGoogleSignInIntent()
+    }
+
     fun signOut() {
         authRepository.signOut()
         _authState.value = AuthState.Idle
-    }
-
-    fun updateCustomUsername(name: String?) {
-        viewModelScope.launch {
-            settingsRepository.saveCustomUsername(name)
-        }
     }
 
     fun toggleDarkMode(enabled: Boolean) {
@@ -99,4 +96,30 @@ class SettingsViewModel @Inject constructor(
             settingsRepository.toggleShowValue(enabled)
         }
     }
+
+    fun updateCustomUsername(name: String) {
+        viewModelScope.launch {
+            settingsRepository.saveCustomUsername(name)
+        }
+    }
+
+    fun updateCurrencyCode(code: String) {
+        viewModelScope.launch {
+            settingsRepository.saveCurrencyCode(code)
+        }
+    }
+
+    fun toggleAutoCurrency(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setAutoCurrencyEnabled(enabled)
+        }
+    }
+    
+    fun setManualSyncId(syncId: String?) {
+        viewModelScope.launch {
+            settingsRepository.saveManualSyncId(syncId)
+        }
+    }
+    
+    fun getCurrentUserId(): String? = authRepository.getCurrentUserId()
 }

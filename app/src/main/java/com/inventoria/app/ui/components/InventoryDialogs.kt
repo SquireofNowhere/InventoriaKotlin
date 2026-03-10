@@ -16,9 +16,9 @@ fun UnequipRepackDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Unequip $itemName") },
-        text = { 
+        text = {
             val containerText = if (containerName != null) " back to $containerName" else " into its original container"
-            Text("Would you like to repack this item$containerText or leave it at your current location?") 
+            Text("Would you like to repack this item$containerText or leave it at your current location?")
         },
         confirmButton = {
             TextButton(onClick = onRepack) {
@@ -27,7 +27,7 @@ fun UnequipRepackDialog(
         },
         dismissButton = {
             TextButton(onClick = onUnequipOnly) {
-                Text("Leave Here")
+                Text("Leave here")
             }
         }
     )

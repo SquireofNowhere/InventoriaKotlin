@@ -14,13 +14,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.osmdroid.events.MapEventsReceiver
@@ -30,7 +29,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationPickerScreen(
     initialLocation: GeoPoint? = null,
@@ -39,14 +38,14 @@ fun LocationPickerScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val defaultLocation = GeoPoint(-26.2041, 28.0473) // Johannesburg default
-    
+
+    val defaultLocation = GeoPoint(-26.2041, 28.0473)
     var markerPosition by remember { mutableStateOf(initialLocation ?: defaultLocation) }
+
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     
-    // Create the marker once
     val marker = remember {
         Marker(MapView(context)).apply {
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
@@ -61,54 +60,46 @@ fun LocationPickerScreen(
             controller.setZoom(15.0)
             controller.setCenter(markerPosition)
             
-            // Add the tap listener once
-            val eventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
+            overlays.add(MapEventsOverlay(object : MapEventsReceiver {
                 override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
                     markerPosition = p
                     return true
                 }
+
                 override fun longPressHelper(p: GeoPoint): Boolean = false
-            })
-            overlays.add(eventsOverlay)
+            }))
             overlays.add(marker)
         }
     }
 
-    // Sync marker position state with the actual marker object
     LaunchedEffect(markerPosition) {
         marker.position = markerPosition
         mapView.invalidate()
     }
-    
-    // Ensure initial centering happens even if MapView takes time to load
+
     LaunchedEffect(Unit) {
         mapView.controller.setCenter(markerPosition)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
+        ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val isGranted = permissions.values.all { it }
         if (isGranted) {
-            scope.launch {
+            coroutineScope.launch {
                 try {
-                    val locationResult = fusedLocationClient.getCurrentLocation(
-                        Priority.PRIORITY_HIGH_ACCURACY,
-                        null
-                    ).await()
-                    if (locationResult != null) {
-                        val geoPoint = GeoPoint(locationResult.latitude, locationResult.longitude)
-                        markerPosition = geoPoint
-                        mapView.controller.animateTo(geoPoint)
-                    } else {
-                        snackbarHostState.showSnackbar("Unable to retrieve location. Please ensure GPS is enabled.")
+                    val location = fusedLocationClient.lastLocation.await()
+                    location?.let {
+                        val point = GeoPoint(it.latitude, it.longitude)
+                        markerPosition = point
+                        mapView.controller.animateTo(point)
                     }
                 } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("Error fetching location: ${e.message}")
+                    snackbarHostState.showSnackbar("Error getting location: ${e.message}")
                 }
             }
         } else {
-            scope.launch {
+            coroutineScope.launch {
                 snackbarHostState.showSnackbar("Location permission denied.")
             }
         }
@@ -130,24 +121,22 @@ fun LocationPickerScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Pick Location") },
+                title = { Text("Pick Location", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        onLocationSelected(markerPosition)
-                    }) {
-                        Icon(Icons.Default.Check, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
+                    IconButton(onClick = { onLocationSelected(markerPosition) }) {
+                        Icon(Icons.Default.Check, contentDescription = "Select")
                     }
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 permissionLauncher.launch(
@@ -161,17 +150,17 @@ fun LocationPickerScreen(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { mapView }
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize()
             )
-            
+
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(16.dp, 80.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 80.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -179,7 +168,7 @@ fun LocationPickerScreen(
                         "Tap on the map to select a location",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         "Lat: ${String.format("%.4f", markerPosition.latitude)}, Lng: ${String.format("%.4f", markerPosition.longitude)}",
                         style = MaterialTheme.typography.bodySmall,

@@ -4,7 +4,7 @@ import android.net.Uri
 import android.util.Log
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
-import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,30 +15,24 @@ class FirebaseStorageRepository @Inject constructor(
 ) {
     private val TAG = "FirebaseStorage"
 
-    suspend fun uploadItemImage(localPath: String): Result<String> {
+    suspend fun uploadItemImage(uri: Uri): Result<String> {
         val userId = authRepository.getCurrentUserId() 
             ?: return Result.failure(Exception("User not authenticated"))
             
-        val file = File(localPath)
-        if (!file.exists()) {
-            return Result.failure(Exception("Local file not found at $localPath"))
-        }
+        // Generate a unique filename using UUID and timestamp to prevent overwriting
+        val fileName = "img_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
 
-        // Ensure we are using a proper file Uri
-        val fileUri = Uri.fromFile(file)
-
-        // Create reference
         val storageRef = storage.reference
             .child("users")
             .child(userId)
             .child("item_images")
-            .child(file.name)
+            .child(fileName)
 
         return try {
             Log.d(TAG, "Starting upload to: ${storageRef.path}")
             
             // Upload the file
-            storageRef.putFile(fileUri).await()
+            storageRef.putFile(uri).await()
             
             // Get the download URL
             val downloadUrl = storageRef.downloadUrl.await()

@@ -6,27 +6,27 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ItemLinkDao {
+    @Query("SELECT * FROM ItemLink")
+    fun getAllLinksFlow(): Flow<List<ItemLink>>
+
+    @Query("SELECT * FROM ItemLink")
+    suspend fun getAllLinksList(): List<ItemLink>
+
+    @Query("SELECT * FROM ItemLink WHERE followerId = :itemId OR leaderId = :itemId")
+    fun getLinksForItemFlow(itemId: Long): Flow<List<ItemLink>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLink(link: ItemLink)
 
-    @Delete
-    suspend fun deleteLink(link: ItemLink)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLinks(links: List<ItemLink>)
 
-    @Query("DELETE FROM item_links WHERE follower_id = :followerId AND leader_id = :leaderId")
+    @Query("DELETE FROM ItemLink WHERE followerId = :followerId AND leaderId = :leaderId")
     suspend fun removeLink(followerId: Long, leaderId: Long)
 
-    @Query("SELECT * FROM item_links WHERE follower_id = :itemId")
-    suspend fun getLeadersForItem(itemId: Long): List<ItemLink>
+    @Query("DELETE FROM ItemLink WHERE followerId = :itemId OR leaderId = :itemId")
+    suspend fun removeLinksForItem(itemId: Long)
 
-    @Query("SELECT * FROM item_links WHERE leader_id = :itemId")
-    suspend fun getFollowersForItem(itemId: Long): List<ItemLink>
-
-    @Query("SELECT * FROM item_links WHERE follower_id = :itemId OR leader_id = :itemId")
-    fun getLinksForItemFlow(itemId: Long): Flow<List<ItemLink>>
-    
-    @Query("SELECT * FROM item_links")
-    suspend fun getAllLinks(): List<ItemLink>
-
-    @Query("SELECT * FROM item_links")
-    fun getAllLinksFlow(): Flow<List<ItemLink>>
+    @Query("DELETE FROM ItemLink")
+    suspend fun deleteAllLinks()
 }

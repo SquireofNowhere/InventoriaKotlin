@@ -5,6 +5,8 @@ import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -12,22 +14,23 @@ import javax.inject.Singleton
 @Singleton
 class CollectionRepository @Inject constructor(
     private val collectionDao: CollectionDao,
-    private val inventoryDao: InventoryDao,
-    private val inventoryRepository: InventoryRepository
+    private val inventoryDao: InventoryDao
 ) {
     fun getAllCollections(): Flow<List<InventoryCollection>> = collectionDao.getAllCollections()
     
+    suspend fun getAllCollectionsList(): List<InventoryCollection> = collectionDao.getAllCollectionsList()
+
     fun getCollectionsWithCounts(): Flow<List<InventoryCollectionWithCount>> = collectionDao.getCollectionsWithCounts()
     
     fun getCollectionWithItems(id: Long): Flow<InventoryCollectionWithItems?> = collectionDao.getCollectionWithItems(id)
     
-    fun getCollectionReadiness(id: Long): Flow<InventoryCollectionReadiness> = collectionDao.getCollectionReadiness(id)
-    
-    fun searchCollections(query: String): Flow<List<InventoryCollection>> = collectionDao.searchCollections(query)
-    
-    fun getCollectionsByType(type: InventoryCollectionType): Flow<List<InventoryCollection>> = collectionDao.getCollectionsByType(type)
+    fun getItemsForCollection(collectionId: Long): Flow<List<InventoryCollectionItem>> = collectionDao.getAllCollectionItemsFlow().map { items ->
+        items.filter { it.collectionId == collectionId }
+    }
 
     fun getCollectionsForItem(itemId: Long): Flow<List<InventoryCollection>> = collectionDao.getCollectionsForItem(itemId)
+
+    fun getCollectionReadiness(collectionId: Long): Flow<InventoryCollectionReadiness?> = collectionDao.getCollectionReadiness(collectionId)
 
     suspend fun createCollection(collection: InventoryCollection): Long = withContext(Dispatchers.IO) {
         collectionDao.insertCollection(collection)
@@ -38,9 +41,8 @@ class CollectionRepository @Inject constructor(
     }
 
     suspend fun deleteCollection(collectionId: Long) = withContext(Dispatchers.IO) {
-        val collection = collectionDao.getCollectionById(collectionId)
-        if (collection != null) {
-            collectionDao.deleteCollection(collection)
+        collectionDao.getCollectionById(collectionId)?.let {
+            collectionDao.deleteCollection(it)
         }
     }
 
@@ -53,92 +55,80 @@ class CollectionRepository @Inject constructor(
     }
 
     suspend fun packCollectionIntoContainer(collectionId: Long, containerId: Long): PackResult = withContext(Dispatchers.IO) {
-        val collectionItems = collectionDao.getItemsForCollection(collectionId)
-        val container = inventoryDao.getItemById(containerId)
-        
-        if (container == null || !container.storage) {
-            return@withContext PackResult.Error("Target is not a valid container")
-        }
+        try {
+            val itemsInColl = getItemsForCollection(collectionId).first()
+            val itemsToUpdate = mutableListOf<InventoryItem>()
+            val errors = mutableListOf<String>()
 
-        val errors = mutableListOf<String>()
-        val itemsToUpdate = mutableListOf<InventoryItem>()
-
-        for (ci in collectionItems) {
-            // Prevent packing the container into itself
-            if (ci.itemId == containerId) continue
-
-            val item = inventoryDao.getItemById(ci.itemId)
-            if (item == null) {
-                errors.add("Item not found: ID ${ci.itemId}")
-                continue
+            itemsInColl.forEach { ci ->
+                val item = inventoryDao.getItemById(ci.itemId)
+                if (item != null) {
+                    itemsToUpdate.add(item.copy(parentId = containerId, equipped = false, updatedAt = System.currentTimeMillis()))
+                } else {
+                    errors.add("Item ${ci.itemId} not found")
+                }
             }
-            if (item.quantity < ci.requiredQuantity) {
-                errors.add("Insufficient quantity for ${item.name}: has ${item.quantity}, needs ${ci.requiredQuantity}")
-            }
-            itemsToUpdate.add(item.copy(parentId = containerId, equipped = false, lastParentId = null))
+            
+            inventoryDao.updateItems(itemsToUpdate)
+            if (errors.isEmpty()) PackResult.Success("All items packed into container")
+            else PackResult.Partial("Packed with some errors", errors)
+        } catch (e: Exception) {
+            PackResult.Error(e.message ?: "Unknown error during packing")
         }
-
-        if (errors.isNotEmpty()) {
-            return@withContext PackResult.ValidationFailed(errors)
-        }
-
-        inventoryRepository.updateItems(itemsToUpdate)
-        PackResult.Success("Successfully packed into ${container.name}", itemsToUpdate.map { it.id })
     }
 
     suspend fun unpackCollection(collectionId: Long): PackResult = withContext(Dispatchers.IO) {
-        val collectionItems = collectionDao.getItemsForCollection(collectionId)
-        val itemsToUpdate = mutableListOf<InventoryItem>()
-        
-        for (ci in collectionItems) {
-            val item = inventoryDao.getItemById(ci.itemId)
-            if (item != null && item.parentId != null) {
-                itemsToUpdate.add(item.copy(parentId = null, lastParentId = null))
+        try {
+            val itemsInColl = getItemsForCollection(collectionId).first()
+            val itemsToUpdate = mutableListOf<InventoryItem>()
+            
+            itemsInColl.forEach { ci ->
+                val item = inventoryDao.getItemById(ci.itemId)
+                if (item != null) {
+                    itemsToUpdate.add(item.copy(parentId = null, updatedAt = System.currentTimeMillis()))
+                }
             }
+            inventoryDao.updateItems(itemsToUpdate)
+            PackResult.Success("Collection items unpacked")
+        } catch (e: Exception) {
+            PackResult.Error(e.message ?: "Unknown error during unpacking")
         }
-        
-        inventoryRepository.updateItems(itemsToUpdate)
-        PackResult.Success("Collection unpacked")
     }
 
     suspend fun equipCollection(collectionId: Long): PackResult = withContext(Dispatchers.IO) {
-        val collectionItems = collectionDao.getItemsForCollection(collectionId)
-        val itemsToUpdate = mutableListOf<InventoryItem>()
-        val errors = mutableListOf<String>()
-        
-        for (ci in collectionItems) {
-            val item = inventoryDao.getItemById(ci.itemId)
-            if (item == null) {
-                errors.add("Item not found: ID ${ci.itemId}")
-                continue
+        try {
+            val itemsInColl = getItemsForCollection(collectionId).first()
+            val itemsToUpdate = mutableListOf<InventoryItem>()
+            
+            itemsInColl.forEach { ci ->
+                val item = inventoryDao.getItemById(ci.itemId)
+                if (item != null) {
+                    itemsToUpdate.add(item.copy(equipped = true, parentId = null, updatedAt = System.currentTimeMillis()))
+                }
             }
-            itemsToUpdate.add(item.copy(equipped = true))
+            inventoryDao.updateItems(itemsToUpdate)
+            PackResult.Success("Collection equipped")
+        } catch (e: Exception) {
+            PackResult.Error(e.message ?: "Unknown error during equipping")
         }
-
-        inventoryRepository.updateItems(itemsToUpdate)
-
-        if (errors.isNotEmpty()) {
-            return@withContext PackResult.Error("Some items could not be equipped: ${errors.joinToString()}")
-        }
-        PackResult.Success("Collection equipped")
     }
 
     suspend fun unequipCollection(collectionId: Long, repack: Boolean = false): PackResult = withContext(Dispatchers.IO) {
-        val collectionItems = collectionDao.getItemsForCollection(collectionId)
-        val itemsToUpdate = mutableListOf<InventoryItem>()
-        
-        for (ci in collectionItems) {
-            val item = inventoryDao.getItemById(ci.itemId)
-            if (item != null && item.equipped) {
-                if (repack && item.lastParentId != null) {
-                    itemsToUpdate.add(item.copy(equipped = false, parentId = item.lastParentId, lastParentId = null))
-                } else {
-                    itemsToUpdate.add(item.copy(equipped = false, lastParentId = null))
+        try {
+            val itemsInColl = getItemsForCollection(collectionId).first()
+            val itemsToUpdate = mutableListOf<InventoryItem>()
+            
+            itemsInColl.forEach { ci ->
+                val item = inventoryDao.getItemById(ci.itemId)
+                if (item != null && item.equipped) {
+                    val newParentId = if (repack) item.lastParentId else null
+                    itemsToUpdate.add(item.copy(equipped = false, parentId = newParentId, updatedAt = System.currentTimeMillis()))
                 }
             }
+            inventoryDao.updateItems(itemsToUpdate)
+            PackResult.Success("Collection unequipped")
+        } catch (e: Exception) {
+            PackResult.Error(e.message ?: "Unknown error during unequipping")
         }
-        
-        inventoryRepository.updateItems(itemsToUpdate)
-        PackResult.Success(if (repack) "Collection unequipped and repacked" else "Collection unequipped")
     }
 }

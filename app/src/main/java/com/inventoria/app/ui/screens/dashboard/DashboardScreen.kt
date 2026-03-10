@@ -5,9 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -25,17 +22,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
-import com.inventoria.app.ui.theme.*
+import com.inventoria.app.ui.theme.PurplePrimary
+import com.inventoria.app.ui.theme.Success
 import java.text.NumberFormat
-import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    viewModel: DashboardViewModel = hiltViewModel(),
+    viewModel: DashboardViewModel,
     onNavigateToInventory: () -> Unit,
     onNavigateToAddItem: () -> Unit,
     onNavigateToItemDetail: (Long) -> Unit
@@ -43,9 +39,9 @@ fun DashboardScreen(
     val uiState by viewModel.uiState.collectAsState()
     var itemToUnequip by remember { mutableStateOf<InventoryItem?>(null) }
     var containerName by remember { mutableStateOf<String?>(null) }
-    
+
     val shimmerTranslate = rememberInfiniteTransition(label = "shimmer")
-    val translateAnim = shimmerTranslate.animateFloat(
+    val shimmerOffset by shimmerTranslate.animateFloat(
         initialValue = 0f,
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(
@@ -56,75 +52,70 @@ fun DashboardScreen(
     )
 
     LaunchedEffect(itemToUnequip) {
-        if (itemToUnequip?.lastParentId != null) {
-            containerName = viewModel.getContainerName(itemToUnequip!!.lastParentId!!)
-        } else {
-            containerName = null
+        itemToUnequip?.let { item ->
+            if (item.lastParentId != null) {
+                containerName = viewModel.getContainerName(item.lastParentId!!)
+            } else {
+                containerName = null
+            }
         }
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { 
-                    Text(
-                        "Dashboard",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Inventoria", fontWeight = FontWeight.Bold) 
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
             )
         }
-    ) { paddingValues ->
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
+                .padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { GradientHeaderCard() }
-            
             item {
-                StatisticsSection(
-                    uiState = uiState,
-                    shimmerOffset = translateAnim.value
-                )
+                GradientHeaderCard()
             }
-            
+
             item {
-                QuickActionsSection(
-                    onAddItem = onNavigateToAddItem
-                )
+                StatisticsSection(uiState, shimmerOffset)
             }
-            
+
+            item {
+                QuickActionsSection(onNavigateToAddItem)
+            }
+
             if (uiState.recentItems.isNotEmpty()) {
                 item {
                     Text(
                         "Recent Items",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-                
+
                 items(uiState.recentItems) { item ->
                     RecentItemCard(
                         item = item,
                         onClick = { onNavigateToItemDetail(item.id) },
-                        onToggleEquip = { 
+                        onToggleEquip = {
                             if (item.equipped) {
-                                if (item.lastParentId != null) {
-                                    itemToUnequip = item
+                                if (item.lastParentId == null) {
+                                    viewModel.toggleEquip(item.id, false)
                                 } else {
-                                    viewModel.toggleEquip(item.id, repack = false)
+                                    itemToUnequip = item
                                 }
                             } else {
-                                viewModel.toggleEquip(item.id)
+                                viewModel.toggleEquip(item.id, false)
                             }
                         }
                     )
@@ -139,43 +130,15 @@ fun DashboardScreen(
             containerName = containerName,
             onDismiss = { itemToUnequip = null },
             onUnequipOnly = {
-                viewModel.toggleEquip(item.id, repack = false)
+                viewModel.toggleEquip(item.id, false)
                 itemToUnequip = null
             },
             onRepack = {
-                viewModel.toggleEquip(item.id, repack = true)
+                viewModel.toggleEquip(item.id, true)
                 itemToUnequip = null
             }
         )
     }
-}
-
-@Composable
-fun UnequipRepackDialog(
-    itemName: String,
-    containerName: String?,
-    onDismiss: () -> Unit,
-    onUnequipOnly: () -> Unit,
-    onRepack: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Unequip $itemName") },
-        text = { 
-            val containerText = if (containerName != null) " back to $containerName" else " into its original container"
-            Text("Would you like to repack this item$containerText or leave it at your current location?") 
-        },
-        confirmButton = {
-            TextButton(onClick = onRepack) {
-                Text("Repack")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onUnequipOnly) {
-                Text("Leave Here")
-            }
-        }
-    )
 }
 
 @Composable
@@ -184,33 +147,31 @@ fun GradientHeaderCard() {
         modifier = Modifier
             .fillMaxWidth()
             .shadow(8.dp, RoundedCornerShape(24.dp)),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        shape = RoundedCornerShape(24.dp)
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(PurplePrimary, PurpleAccent, Success),
-                        start = Offset(0f, 0f),
-                        end = Offset(1000f, 500f)
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.secondary
+                        )
                     )
                 )
                 .padding(24.dp)
         ) {
             Column {
                 Text(
-                    text = "Welcome to Inventoria",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    "Welcome Back!",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Manage your inventory with ease",
-                    fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.9f)
+                    "Track your items and tasks efficiently.",
+                    color = Color.White.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
@@ -219,7 +180,10 @@ fun GradientHeaderCard() {
 
 @Composable
 fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         StatCard(
             modifier = Modifier.weight(1f),
             title = "Total Items",
@@ -242,88 +206,170 @@ fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {
 }
 
 @Composable
-fun StatCard(modifier: Modifier, title: String, value: String, icon: ImageVector, color: Color, shimmerOffset: Float) {
+fun StatCard(
+    modifier: Modifier,
+    title: String,
+    value: String,
+    icon: ImageVector,
+    color: Color,
+    shimmerOffset: Float
+) {
     Card(
-        modifier = modifier.shadow(4.dp, RoundedCornerShape(16.dp)),
+        modifier = modifier
+            .shadow(4.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
-        Box {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = color,
-                    modifier = Modifier.size(32.dp).clip(CircleShape).background(color.copy(alpha = 0.1f)).padding(6.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(text = value, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text(text = title, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        Column(modifier = Modifier.padding(16.dp)) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
 
 @Composable
 fun QuickActionsSection(onAddItem: () -> Unit) {
-    Column {
-        Text("Quick Actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                QuickActionCard(title = "Add Item", icon = Icons.Default.Add, color = PurpleSecondary, onClick = onAddItem)
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Quick Actions",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            QuickActionCard(
+                title = "Add Item",
+                icon = Icons.Default.Add,
+                color = MaterialTheme.colorScheme.primary,
+                onClick = onAddItem
+            )
+            // Add more quick actions as needed
         }
     }
 }
 
 @Composable
-fun QuickActionCard(title: String, icon: ImageVector, color: Color, onClick: () -> Unit) {
+fun QuickActionCard(
+    title: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit
+) {
     Card(
-        modifier = Modifier.width(140.dp).clickable(onClick = onClick).shadow(4.dp, RoundedCornerShape(16.dp)),
+        modifier = Modifier
+            .width(140.dp)
+            .clickable { onClick() }
+            .shadow(4.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))
+        colors = CardDefaults.cardColors(
+            containerColor = color.copy(alpha = 0.1f)
+        )
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(imageVector = icon, contentDescription = title, tint = color, modifier = Modifier.size(36.dp))
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(text = title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = color)
+        Column(
+            modifier = Modifier
+                .padding(20.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, contentDescription = title, modifier = Modifier.size(36.dp), tint = color)
+            Spacer(Modifier.height(12.dp))
+            Text(title, color = color, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
 
 @Composable
-fun RecentItemCard(item: InventoryItem, onClick: () -> Unit, onToggleEquip: () -> Unit) {
+fun RecentItemCard(
+    item: InventoryItem,
+    onClick: () -> Unit,
+    onToggleEquip: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable { onClick() }
             .shadow(2.dp, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = item.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                }
-                Text(text = item.location, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    item.name,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    item.location,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if (item.quantity != 1) {
-                    Text(text = "Qty: ${item.quantity}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Qty: ${item.quantity}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
-            
             IconButton(onClick = onToggleEquip) {
                 Icon(
-                    painter = if (item.equipped) painterResource(R.drawable.mobile_theft_24px) else painterResource(R.drawable.mobile_24px),
+                    painter = painterResource(
+                        if (item.equipped) R.drawable.mobile_theft_24px else R.drawable.mobile_24px
+                    ),
                     contentDescription = if (item.equipped) "Unequip" else "Equip",
                     tint = if (item.equipped) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                 )
             }
         }
     }
+}
+
+@Composable
+fun UnequipRepackDialog(
+    itemName: String,
+    containerName: String?,
+    onDismiss: () -> Unit,
+    onUnequipOnly: () -> Unit,
+    onRepack: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Unequip $itemName") },
+        text = {
+            val containerText = if (containerName != null) " back to $containerName" else " into its original container"
+            Text("Would you like to repack this item$containerText or leave it at your current location?")
+        },
+        confirmButton = {
+            TextButton(onClick = onRepack) {
+                Text("Repack")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUnequipOnly) {
+                Text("Leave here")
+            }
+        }
+    )
 }

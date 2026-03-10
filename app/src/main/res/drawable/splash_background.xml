@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Gradient Background -->
+    <!-- Gradient Background using theme-aware colors -->
     <item>
         <shape android:shape="rectangle">
             <gradient
@@ -12,7 +12,7 @@
         </shape>
     </item>
     
-    <!-- Logo (placeholder - you'll add your actual logo) -->
+    <!-- Logo with dynamic background -->
     <item
         android:drawable="@drawable/ic_inventoria_logo"
         android:gravity="center"
