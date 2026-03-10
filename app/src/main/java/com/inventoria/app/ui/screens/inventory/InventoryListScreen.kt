@@ -9,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -354,7 +353,7 @@ fun InventoryListScreen(
                                         )
                                     }
                                 }
-                                items(items, key = { "${groupName}_${it.id}" }) { item ->
+                                items(items, key = { it.id }) { item ->
                                     InventoryItemRow(
                                         item = item,
                                         isSelected = item.id in uiState.selectedItemIds,
@@ -371,6 +370,55 @@ fun InventoryListScreen(
                                         },
                                         onLongClick = {
                                             contextMenuItemId = item.id
+                                        },
+                                        onDragStart = { localOffset ->
+                                            contextMenuItemId = null
+                                            val visibleItem = lazyListState.layoutInfo.visibleItemsInfo
+                                                .find { it.key == item.id }
+                                            visibleItem?.let {
+                                                draggedItemId = it.key as? Long
+                                                dragOffset = localOffset + Offset(0f, it.offset.toFloat())
+                                                grabOffset = localOffset
+                                                isDraggingActive = false
+                                                cumulativeDragAmount = Offset.Zero
+                                            }
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            cumulativeDragAmount += dragAmount
+                                            dragOffset += dragAmount
+                                            if (cumulativeDragAmount.getDistance() > 15f) isDraggingActive = true
+                                            if (isDraggingActive) {
+                                                val hoverItem = lazyListState.layoutInfo.visibleItemsInfo
+                                                    .find { dragOffset.y.toInt() in it.offset..(it.offset + it.size) }
+                                                val newHoverId = hoverItem?.key as? Long
+                                                if (newHoverId != draggedItemId) {
+                                                    hoverItemId = newHoverId
+                                                    val target = uiState.items.find { it.id == newHoverId }
+                                                    dragAction = when {
+                                                        target == null -> DragAction.NONE
+                                                        target.storage -> DragAction.MOVE
+                                                        else -> DragAction.LINK
+                                                    }
+                                                } else {
+                                                    hoverItemId = null
+                                                    dragAction = DragAction.NONE
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            if (isDraggingActive && draggedItemId != null && hoverItemId != null) {
+                                                if (dragAction == DragAction.MOVE) {
+                                                    viewModel.moveItem(draggedItemId!!, hoverItemId)
+                                                    Toast.makeText(context, "Moved into container", Toast.LENGTH_SHORT).show()
+                                                } else if (dragAction == DragAction.LINK) {
+                                                    viewModel.linkItem(draggedItemId!!, hoverItemId!!)
+                                                }
+                                            }
+                                            draggedItemId = null
+                                            hoverItemId = null
+                                            dragAction = DragAction.NONE
+                                            isDraggingActive = false
                                         },
                                         onToggleSelection = { viewModel.toggleSelection(item.id) },
                                         onEdit = { onEditItem(item.id) },
