@@ -13,5 +13,6 @@ data class AddEditItemUiState(
     val address: String = "",
     val isResolvingAddress: Boolean = false,
     val storageItems: List<InventoryItem> = emptyList(),
-    val isUploadingImage: Boolean = false
+    val isUploadingImage: Boolean = false,
+    val isLoading: Boolean = false
 )

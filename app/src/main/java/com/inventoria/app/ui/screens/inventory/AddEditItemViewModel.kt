@@ -17,6 +17,7 @@ import com.google.android.gms.location.LocationServices
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.data.repository.FirebaseStorageRepository
 import com.inventoria.app.data.repository.InventoryRepository
+import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -29,10 +30,18 @@ import java.io.File
 import java.util.*
 import javax.inject.Inject
 
+data class ImageUpload(
+    val uri: Uri,
+    var url: String? = null,
+    var isUploading: Boolean = false,
+    var isError: Boolean = false
+)
+
 @HiltViewModel
 class AddEditItemViewModel @Inject constructor(
     private val repository: InventoryRepository,
     private val storageRepository: FirebaseStorageRepository,
+    private val settingsRepository: SettingsRepository,
     private val savedStateHandle: SavedStateHandle,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -47,8 +56,33 @@ class AddEditItemViewModel @Inject constructor(
     var isStorage by mutableStateOf(false)
     var parentId by mutableStateOf<Long?>(null)
     var isEquipped by mutableStateOf(false)
-    var imageUrl by mutableStateOf<String?>(null)
-    var previewImageUri by mutableStateOf<String?>(null)
+    
+    // Existing URLs from the server
+    val existingImageUrls = mutableStateListOf<String>()
+    // Wrapped URIs for newly added pictures with state tracking
+    val pendingImages = mutableStateListOf<ImageUpload>()
+    
+    var profilePictureUrl by mutableStateOf<String?>(null)
+    var pendingProfilePictureUri by mutableStateOf<Uri?>(null)
+
+    val currencySymbol: StateFlow<String> = combine(
+        settingsRepository.getCurrencyCode(),
+        settingsRepository.isAutoCurrencyEnabled()
+    ) { code, auto ->
+        if (auto) {
+            try {
+                Currency.getInstance(Locale.getDefault()).symbol
+            } catch (e: Exception) {
+                "$"
+            }
+        } else {
+            try {
+                Currency.getInstance(code).symbol
+            } catch (e: Exception) {
+                "$"
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "$")
 
     val parsedCategories by derivedStateOf {
         category.split(",")
@@ -122,8 +156,10 @@ class AddEditItemViewModel @Inject constructor(
                     isStorage = item.storage
                     parentId = item.parentId
                     isEquipped = item.equipped
-                    imageUrl = item.imageUrl
-                    previewImageUri = item.imageUrl
+                    
+                    existingImageUrls.clear()
+                    existingImageUrls.addAll(item.imageUrls)
+                    profilePictureUrl = item.profilePictureUrl
                     
                     val location = if (item.latitude != null && item.longitude != null) {
                         GeoPoint(item.latitude!!, item.longitude!!)
@@ -152,6 +188,10 @@ class AddEditItemViewModel @Inject constructor(
             }
             _uiState.update { it.copy(address = address, isResolvingAddress = false) }
         }
+    }
+
+    fun updateAddress(address: String) {
+        _uiState.update { it.copy(address = address) }
     }
 
     private fun reverseGeocode(geoPoint: GeoPoint): String {
@@ -219,36 +259,40 @@ class AddEditItemViewModel @Inject constructor(
         }
     }
 
-    fun removeImage() {
-        imageUrl = null
-        previewImageUri = null
+    fun removeExistingImage(url: String) {
+        existingImageUrls.remove(url)
+        if (profilePictureUrl == url) {
+            profilePictureUrl = existingImageUrls.firstOrNull() ?: pendingImages.firstOrNull { it.url != null }?.url
+        }
+    }
+    
+    fun removePendingImage(upload: ImageUpload) {
+        pendingImages.remove(upload)
+        if (pendingProfilePictureUri == upload.uri) {
+            pendingProfilePictureUri = pendingImages.firstOrNull()?.uri
+        }
+    }
+    
+    fun setProfilePicture(url: String) {
+        profilePictureUrl = url
+        pendingProfilePictureUri = null
+    }
+    
+    fun setProfilePicture(uri: Uri) {
+        pendingProfilePictureUri = uri
+        profilePictureUrl = null
     }
 
     fun handleImageSelection(uri: Uri) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isUploadingImage = true) }
-            try {
-                // porting logic from decompiled: it uses storageRepository.uploadItemImage
-                // for now we'll assume it returns a download URL or a local path
-                val result = storageRepository.uploadItemImage(uri)
-                if (result.isSuccess) {
-                    val downloadUrl = result.getOrNull()
-                    imageUrl = downloadUrl
-                    previewImageUri = downloadUrl
-                } else {
-                    _eventFlow.emit(UiEvent.ShowSnackbar("Failed to upload image: ${result.exceptionOrNull()?.message}"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Image handling failed", e)
-            } finally {
-                _uiState.update { it.copy(isUploadingImage = false) }
-            }
+        pendingImages.add(ImageUpload(uri))
+        if (profilePictureUrl == null && pendingProfilePictureUri == null) {
+            pendingProfilePictureUri = uri
         }
     }
 
     fun getTempImageUri(): Uri {
         val tempDir = File(context.cacheDir, "temp_images").apply { mkdirs() }
-        val file = File(tempDir, "temp_capture.jpg")
+        val file = File(tempDir, "temp_capture_${System.currentTimeMillis()}.jpg")
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
@@ -259,8 +303,11 @@ class AddEditItemViewModel @Inject constructor(
                 return@launch
             }
 
-            val item = InventoryItem(
-                id = currentItemId ?: 0L,
+            _uiState.update { it.copy(isLoading = true) }
+            
+            // Save initial item info immediately
+            val initialItem = InventoryItem(
+                id = currentItemId ?: System.currentTimeMillis(),
                 name = name,
                 quantity = quantity.toIntOrNull() ?: 1,
                 price = price.toDoubleOrNull(),
@@ -272,25 +319,79 @@ class AddEditItemViewModel @Inject constructor(
                 storage = isStorage,
                 parentId = parentId,
                 equipped = isEquipped,
-                imageUrl = imageUrl,
+                imageUrls = existingImageUrls.toList(),
+                profilePictureUrl = profilePictureUrl,
                 customFields = customFields.associate { it.key to it.value }.filter { it.key.isNotBlank() }
             )
 
             try {
                 if (currentItemId == null) {
-                    repository.insertItem(item)
+                    repository.insertItem(initialItem)
+                    currentItemId = initialItem.id
                 } else {
-                    repository.updateItem(item)
+                    repository.updateItem(initialItem)
                 }
+                
+                // Background upload of images
+                launch(Dispatchers.IO) {
+                    uploadPendingImages(initialItem.id)
+                }
+                
+                _uiState.update { it.copy(isLoading = false) }
                 _eventFlow.emit(UiEvent.SaveItem)
             } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
                 _eventFlow.emit(UiEvent.ShowSnackbar("Error saving item: ${e.message}"))
             }
         }
     }
 
+    private suspend fun uploadPendingImages(itemId: Long) {
+        var uploadError = false
+        val finalImageUrls = existingImageUrls.toMutableList()
+        var finalProfilePictureUrl = profilePictureUrl
+
+        for (i in pendingImages.indices) {
+            val upload = pendingImages[i]
+            if (upload.url != null) {
+                finalImageUrls.add(upload.url!!)
+                continue
+            }
+
+            pendingImages[i] = upload.copy(isUploading = true)
+            val result = storageRepository.uploadItemImage(upload.uri)
+            
+            if (result.isSuccess) {
+                val url = result.getOrNull()
+                if (url != null) {
+                    pendingImages[i] = upload.copy(url = url, isUploading = false)
+                    finalImageUrls.add(url)
+                    if (pendingProfilePictureUri == upload.uri) {
+                        finalProfilePictureUrl = url
+                    }
+                }
+            } else {
+                pendingImages[i] = upload.copy(isUploading = false, isError = true)
+                uploadError = true
+            }
+        }
+
+        if (uploadError) {
+            _eventFlow.emit(UiEvent.ShowSnackbar("Some images not uploaded", isError = true))
+        }
+
+        // Update item with new URLs
+        val currentItem = repository.getItemById(itemId)
+        if (currentItem != null) {
+            repository.updateItem(currentItem.copy(
+                imageUrls = finalImageUrls,
+                profilePictureUrl = finalProfilePictureUrl ?: currentItem.profilePictureUrl ?: finalImageUrls.firstOrNull()
+            ))
+        }
+    }
+
     sealed class UiEvent {
-        data class ShowSnackbar(val message: String) : UiEvent()
+        data class ShowSnackbar(val message: String, val isError: Boolean = false) : UiEvent()
         object SaveItem : UiEvent()
     }
 }

@@ -23,7 +23,8 @@ data class InventoryItem(
     @get:PropertyName("category") @set:PropertyName("category") var category: String? = null,
     @get:PropertyName("tags") @set:PropertyName("tags") var tags: List<String> = emptyList(),
     @get:PropertyName("description") @set:PropertyName("description") var description: String? = null,
-    @get:PropertyName("imageUrl") @set:PropertyName("imageUrl") var imageUrl: String? = null,
+    @get:PropertyName("imageUrls") @set:PropertyName("imageUrls") var imageUrls: List<String> = emptyList(),
+    @get:PropertyName("profilePictureUrl") @set:PropertyName("profilePictureUrl") var profilePictureUrl: String? = null,
     @get:PropertyName("barcode") @set:PropertyName("barcode") var barcode: String? = null,
     @get:PropertyName("sku") @set:PropertyName("sku") var sku: String? = null,
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false
@@ -33,4 +34,12 @@ data class InventoryItem(
     fun getDisplayName(): String = "$name ($quantity)"
     
     fun getTotalValue(): Double? = price?.let { it * quantity }
+    
+    fun getPrimaryImage(): String? {
+        return profilePictureUrl ?: imageUrls.firstOrNull()
+    }
+
+    fun getParsedTags(): List<String> {
+        return category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+    }
 }

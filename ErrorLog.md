@@ -89,8 +89,8 @@ Closing the app on one device and making task changes on another resulted in tas
 - **Clock Skew:** If a device's clock was behind, its "new" changes had lower timestamps than existing cloud data, causing them to be ignored.
 
 ### 🛠️ Final Fix
-- **Atomic Node Updates:** Switched to `ref.updateChildren()` in `FirebaseSyncRepository.kt` to update only modified tasks rather than overwriting the whole collection.
-- **Version Seeding:** Updated `TaskRepository.kt` to seed its internal clock from the highest timestamp in the database, ensuring strictly monotonic versioning regardless of system clock skew.
+- **Atomic Node Updates**: Switched to `ref.updateChildren()` in `FirebaseSyncRepository.kt` to update only modified tasks rather than overwriting the whole collection.
+- **Version Seeding**: Updated `TaskRepository.kt` to seed its internal clock from the highest timestamp in the database, ensuring strictly monotonic versioning regardless of system clock skew.
 
 ---
 
@@ -122,4 +122,77 @@ Changing a task's type (e.g., from Neutral to Social) in the detail dialog would
 - **Reactive Referencing**: Updated the detail dialog trigger to use a derived "live" reference. The UI now looks up the latest version of the specific task ID from the active session state, ensuring instantaneous visual feedback for all property changes.
 
 ---
-*Last Updated: 2024-05-21*
+
+## 🐞 9. Item Overriding on Creation
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Adding a new item in the inventory screen would often override the last created item instead of creating a new entry.
+
+### 🔍 Root Cause
+- **Static Default ID**: The `AddEditItemViewModel` was initializing new items with an ID of `0L`. Since the database used `OnConflictStrategy.REPLACE` and the ID wasn't auto-generating, every new "unsaved" item shared the same key, causing overwrites.
+
+### 🛠️ Final Fix
+- **Dynamic ID Generation**: Updated `onSaveClick` to generate a unique ID using `System.currentTimeMillis()` for all new items, ensuring they occupy unique rows in the database immediately.
+
+---
+
+## 🐞 10. Task Detail Data Loss & Keyboard issues
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Pressing "Done" on the keyboard or tapping outside an active text field in the Task Detail dialog would close the keyboard but fail to save the name change.
+
+### 🔍 Root Cause
+- **Missing Action Handlers**: The `KeyboardActions` for "Done" only cleared focus but didn't trigger the ViewModel's update functions. Tap-to-clear logic was inconsistent.
+
+### 🛠️ Final Fix
+- **Explicit Save Triggers**: Added explicit update calls to `KeyboardActions(onDone = { ... })`.
+- **Dismiss Guard**: Added a save check to the `onDismissRequest` of all detail dialogs to catch any uncommitted edits before the UI closes.
+
+---
+
+## 🐞 11. Database Schema Mismatch Crash
+**Status:** ✅ Resolved
+
+### 📝 Problem
+The app would crash immediately upon startup or during account initialization with a `java.lang.IllegalStateException: Room cannot verify the data integrity.`
+
+### 🔍 Root Cause
+- **Version Mismatch**: Recent changes to the `InventoryItem` model (adding gallery support) changed the underlying database schema without an accompanying increment to the Room database version number.
+
+### 🛠️ Final Fix
+- **Version Bump**: Incremented the database version from `1` to `2` in `InventoryDatabase.kt`.
+- **Destructive Migration**: Enabled `.fallbackToDestructiveMigration()` in the Hilt Database module to allow the app to reconstruct the local database automatically following schema changes.
+
+---
+
+## 🐞 12. Global Image Overwrite Bug
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Every time a new picture was added to an item, it would overwrite every other picture in the entire user's inventory.
+
+### 🔍 Root Cause
+- **Path Collision**: `FirebaseStorageRepository.kt` was using the original system-provided filename (e.g., `temp_capture.jpg`) as the destination path. Multiple items or photos sharing the same generic filename would overwrite each other in the cloud.
+
+### 🛠️ Final Fix
+- **UUID Filenames**: Updated the storage repository to generate a unique, random UUID prefixed with a timestamp for every single upload. This guarantees that every image occupies a unique path in Firebase Storage, preventing any accidental overwrites.
+
+---
+
+## 🐞 13. UI Freezing & Large Image Upload Delay
+**Status:** ✅ Resolved
+
+### 📝 Problem
+The app would become unresponsive ("frozen") when saving an item with multiple photos while it waited for the uploads to complete.
+
+### 🔍 Root Cause
+- **Blocking Sequential Logic**: The ViewModel was uploading images sequentially within the main save flow before navigating back, making the user wait for network completion.
+
+### 🛠️ Final Fix
+- **Background Upload Flow**: Overhauled image management to use a local `pendingImages` list. The app now saves text data and navigates the user back to the list immediately, while a background coroutine handles the actual cloud uploads.
+- **Progress Tracking**: Added an `ImageUpload` helper class to track `isUploading` and `isError` states, providing real-time feedback (spinners/error icons) on thumbnails while the background process runs.
+
+---
+*Last Updated: 2024-05-23*

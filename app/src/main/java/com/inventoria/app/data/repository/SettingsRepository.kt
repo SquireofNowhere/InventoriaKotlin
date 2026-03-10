@@ -27,6 +27,8 @@ class SettingsRepository @Inject constructor(
     private val INVENTORY_INVERT_FILTER = booleanPreferencesKey("inv_invert_filter")
     private val INVENTORY_EXPANDED_ITEMS = stringSetPreferencesKey("inv_expanded_items")
     private val CUSTOM_USERNAME = stringPreferencesKey("custom_username")
+    private val CURRENCY_CODE = stringPreferencesKey("currency_code")
+    private val AUTO_CURRENCY = booleanPreferencesKey("auto_currency")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -40,6 +42,9 @@ class SettingsRepository @Inject constructor(
     fun getExpandedItemIds(): Flow<Set<String>> = context.dataStore.data.map { it[INVENTORY_EXPANDED_ITEMS] ?: emptySet() }
     
     val customUsername: Flow<String?> = context.dataStore.data.map { it[CUSTOM_USERNAME] }
+    
+    fun getCurrencyCode(): Flow<String> = context.dataStore.data.map { it[CURRENCY_CODE] ?: "USD" }
+    fun isAutoCurrencyEnabled(): Flow<Boolean> = context.dataStore.data.map { it[AUTO_CURRENCY] ?: true }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }
@@ -86,5 +91,13 @@ class SettingsRepository @Inject constructor(
             if (username.isNullOrBlank()) it.remove(CUSTOM_USERNAME)
             else it[CUSTOM_USERNAME] = username
         }
+    }
+
+    suspend fun saveCurrencyCode(code: String) {
+        context.dataStore.edit { it[CURRENCY_CODE] = code }
+    }
+
+    suspend fun setAutoCurrencyEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[AUTO_CURRENCY] = enabled }
     }
 }

@@ -22,8 +22,20 @@ fun TaskHistoryScreen(
     val completedSessions by viewModel.completedSessions.collectAsState()
     val context = LocalContext.current
     
-    var sessionToShowDetail by remember { mutableStateOf<List<Task>?>(null) }
-    var singleTaskToShowDetail by remember { mutableStateOf<Task?>(null) }
+    var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
+    var selectedTaskId by remember { mutableStateOf<String?>(null) }
+
+    val currentSelectedSession = remember(selectedSessionGroupId, completedSessions) {
+        selectedSessionGroupId?.let { groupId ->
+            completedSessions.find { it.firstOrNull()?.groupId == groupId }
+        }
+    }
+
+    val currentSelectedTask = remember(selectedTaskId, completedSessions) {
+        selectedTaskId?.let { id ->
+            completedSessions.flatten().find { it.id == id }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -51,14 +63,14 @@ fun TaskHistoryScreen(
                     if (session.size > 1) {
                         CompletedSessionCard(
                             segments = session,
-                            onClick = { sessionToShowDetail = session },
+                            onClick = { selectedSessionGroupId = session.first().groupId },
                             onDelete = { viewModel.clearSession(session.first().groupId) }
                         )
                     } else {
                         val task = session.first()
                         SingleTaskItemCard(
                             task = task,
-                            onClick = { singleTaskToShowDetail = task },
+                            onClick = { selectedTaskId = task.id },
                             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
                             onDelete = { viewModel.clearSegment(task) },
                             onAddToCalendar = { addToGoogleCalendar(context, task) }
@@ -69,10 +81,10 @@ fun TaskHistoryScreen(
         }
     }
 
-    sessionToShowDetail?.let { segments ->
+    currentSelectedSession?.let { segments ->
         SessionDetailDialog(
             segments = segments,
-            onDismiss = { sessionToShowDetail = null },
+            onDismiss = { selectedSessionGroupId = null },
             onUpdateSessionName = { name -> viewModel.updateSessionName(segments.first().groupId, name) },
             onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
             onUpdateSegment = { viewModel.updateSegment(it) },
@@ -81,10 +93,10 @@ fun TaskHistoryScreen(
         )
     }
 
-    singleTaskToShowDetail?.let { task ->
+    currentSelectedTask?.let { task ->
         TaskDetailDialog(
             task = task,
-            onDismiss = { singleTaskToShowDetail = null },
+            onDismiss = { selectedTaskId = null },
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },

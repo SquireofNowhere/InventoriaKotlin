@@ -1,5 +1,7 @@
 package com.inventoria.app.data.repository
 
+import android.content.Intent
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -12,7 +14,8 @@ import javax.inject.Singleton
 
 @Singleton
 class FirebaseAuthRepository @Inject constructor(
-    private val firebaseAuth: FirebaseAuth
+    private val firebaseAuth: FirebaseAuth,
+    private val googleSignInClient: GoogleSignInClient
 ) {
     val authStateFlow: Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth ->
@@ -43,13 +46,10 @@ class FirebaseAuthRepository @Inject constructor(
 
     fun signOut() {
         firebaseAuth.signOut()
+        googleSignInClient.signOut()
     }
     
-    // Helper for Splash screen Google Sign In
-    fun getGoogleSignInIntent(): android.content.Intent {
-        // This usually requires a GoogleSignInClient configured with options
-        // For the sake of restoration, we assume the caller handles the client creation
-        // but we could provide a helper if we port the full AuthModule
-        throw UnsupportedOperationException("Intent should be requested via GoogleSignIn.getClient(...)")
+    fun getGoogleSignInIntent(): Intent {
+        return googleSignInClient.signInIntent
     }
 }

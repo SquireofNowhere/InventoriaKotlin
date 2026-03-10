@@ -104,6 +104,7 @@ fun InventoriaApp() {
                     fromCollectionId = fromCollectionId,
                     onAddItem = { navController.navigate("add_item") },
                     onItemClick = { id -> navController.navigate("item_detail/$id") },
+                    onEditItem = { id -> navController.navigate("edit_item/$id") },
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

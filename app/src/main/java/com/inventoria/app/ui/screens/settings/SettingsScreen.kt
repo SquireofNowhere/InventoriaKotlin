@@ -2,10 +2,17 @@ package com.inventoria.app.ui.screens.settings
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,7 +22,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
 import com.inventoria.app.ui.theme.PurplePrimary
+import java.util.Currency
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +40,26 @@ fun SettingsScreen(
     val showValueOnDashboard by viewModel.showValueOnDashboard.collectAsState()
     val authState by viewModel.authState.collectAsState()
     val customUsername by viewModel.customUsername.collectAsState()
+    val currencyCode by viewModel.currencyCode.collectAsState()
+    val autoCurrencyEnabled by viewModel.autoCurrencyEnabled.collectAsState()
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account.idToken
+            if (idToken != null) {
+                viewModel.onGoogleSignInSuccess(idToken)
+            } else {
+                Log.e("SettingsScreen", "ID Token is NULL")
+            }
+        } catch (e: ApiException) {
+            Log.e("SettingsScreen", "Google Sign In Failed", e)
+            Toast.makeText(context, "Sign In Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -36,7 +67,7 @@ fun SettingsScreen(
                 title = { Text("Settings", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -57,6 +88,14 @@ fun SettingsScreen(
                 icon = Icons.Default.Brightness4,
                 checked = isDarkMode,
                 onCheckedChange = { viewModel.toggleDarkMode(it) }
+            )
+
+            SettingsCategoryHeader("Localization")
+            CurrencySettings(
+                autoCurrency = autoCurrencyEnabled,
+                selectedCurrency = currencyCode,
+                onAutoCurrencyToggle = { viewModel.toggleAutoCurrency(it) },
+                onCurrencySelect = { viewModel.updateCurrencyCode(it) }
             )
 
             SettingsCategoryHeader("Inventory")
@@ -82,7 +121,9 @@ fun SettingsScreen(
                 authState = authState,
                 customUsername = customUsername,
                 onUsernameChange = { viewModel.updateCustomUsername(it) },
-                onSignInClick = { /* Launch Google Sign In */ },
+                onSignInClick = { 
+                    launcher.launch(viewModel.getGoogleSignInIntent())
+                },
                 onSignOutClick = { viewModel.signOut() }
             )
 
@@ -90,6 +131,100 @@ fun SettingsScreen(
             AboutCard(context)
             
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+fun CurrencySettings(
+    autoCurrency: Boolean,
+    selectedCurrency: String,
+    onAutoCurrencyToggle: (Boolean) -> Unit,
+    onCurrencySelect: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto Currency", fontWeight = FontWeight.Bold)
+                    Text("Pick currency based on location", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = autoCurrency, onCheckedChange = onAutoCurrencyToggle)
+            }
+
+            if (!autoCurrency) {
+                var showDialog by remember { mutableStateOf(false) }
+                
+                OutlinedTextField(
+                    value = selectedCurrency,
+                    onValueChange = {},
+                    label = { Text("Selected Currency") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDialog = true },
+                    readOnly = true,
+                    enabled = false,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) }
+                )
+
+                if (showDialog) {
+                    val currencies = remember { 
+                        Currency.getAvailableCurrencies()
+                            .sortedBy { it.currencyCode }
+                    }
+                    AlertDialog(
+                        onDismissRequest = { showDialog = false },
+                        title = { Text("Select Currency") },
+                        text = {
+                            Box(modifier = Modifier.heightIn(max = 400.dp)) {
+                                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                    currencies.forEach { currency ->
+                                        ListItem(
+                                            headlineContent = { Text("${currency.currencyCode} - ${currency.displayName}") },
+                                            modifier = Modifier.clickable {
+                                                onCurrencySelect(currency.currencyCode)
+                                                showDialog = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showDialog = false }) {
+                                Text("Close")
+                            }
+                        }
+                    )
+                }
+            } else {
+                val localeCurrency = remember { 
+                    try {
+                        Currency.getInstance(Locale.getDefault()).currencyCode
+                    } catch (e: Exception) {
+                        "USD"
+                    }
+                }
+                Text(
+                    text = "System detected: $localeCurrency",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 40.dp)
+                )
+            }
         }
     }
 }
@@ -144,19 +279,28 @@ fun AccountSection(
                 AuthState.Loading -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
+                is AuthState.Error -> {
+                    Text("Error: ${authState.message}", color = MaterialTheme.colorScheme.error)
+                    SignInButton(onSignInClick)
+                }
                 else -> {
                     Text("Sync your inventory across devices by signing in.")
-                    Button(
-                        onClick = onSignInClick,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Login, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Sign in with Google")
-                    }
+                    SignInButton(onSignInClick)
                 }
             }
         }
+    }
+}
+
+@Composable
+fun SignInButton(onSignInClick: () -> Unit) {
+    Button(
+        onClick = onSignInClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text("Sign in with Google")
     }
 }
 

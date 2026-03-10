@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,22 +81,67 @@ fun ItemDetailScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Image Section
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    if (item.imageUrl != null) {
-                        AsyncImage(
-                            model = item.imageUrl,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
+            // Image Gallery Section
+            if (item.imageUrls.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(300.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            AsyncImage(
+                                model = item.getPrimaryImage(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        
+                        if (item.imageUrls.size > 1) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth().height(80.dp)
+                            ) {
+                                items(item.imageUrls) { url ->
+                                    val isProfile = url == item.profilePictureUrl
+                                    Box(
+                                        modifier = Modifier
+                                            .size(80.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { viewModel.setProfilePicture(url) }
+                                            .background(if (isProfile) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                            .padding(if (isProfile) 2.dp else 0.dp)
+                                    ) {
+                                        AsyncImage(
+                                            model = url,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        if (isProfile) {
+                                            Icon(
+                                                Icons.Default.Star,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp).align(Alignment.TopEnd).padding(2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
                         }

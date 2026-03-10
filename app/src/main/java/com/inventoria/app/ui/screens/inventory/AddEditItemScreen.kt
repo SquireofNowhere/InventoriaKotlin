@@ -3,18 +3,25 @@ package com.inventoria.app.ui.screens.inventory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +43,7 @@ fun AddEditItemScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val currencySymbol by viewModel.currencySymbol.collectAsState()
     
     var showImageSourceDialog by remember { mutableStateOf(false) }
     var tempPhotoUri by remember { mutableStateOf<Uri?>(null) }
@@ -71,25 +79,44 @@ fun AddEditItemScreen(
             when (event) {
                 is AddEditItemViewModel.UiEvent.SaveItem -> onNavigateBack()
                 is AddEditItemViewModel.UiEvent.ShowSnackbar -> {
-                    snackbarHostState.showSnackbar(event.message)
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        duration = SnackbarDuration.Short
+                    )
                 }
             }
         }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                val isError = data.visuals.message.contains("not uploaded", ignoreCase = true)
+                
+                Snackbar(
+                    containerColor = if (isError) 
+                        MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isError) 
+                        MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    snackbarData = data
+                )
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(if (viewModel.name.isEmpty()) "Add Item" else "Edit Item", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    TextButton(onClick = { viewModel.onSaveClick() }) {
-                        Text("Save", fontWeight = FontWeight.Bold)
+                    if (uiState.isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(end = 16.dp))
+                    } else {
+                        TextButton(onClick = { viewModel.onSaveClick() }) {
+                            Text("Save", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             )
@@ -104,38 +131,103 @@ fun AddEditItemScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Image Section
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .clickable { showImageSourceDialog = true },
-                shape = RoundedCornerShape(16.dp)
+            Text("Photos", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().height(120.dp)
             ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    if (viewModel.previewImageUri != null) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .clickable { showImageSourceDialog = true },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.AddAPhoto, contentDescription = null)
+                                Text("Add", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                
+                // Existing Server Images
+                items(viewModel.existingImageUrls) { url ->
+                    val isProfile = url == viewModel.profilePictureUrl
+                    Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(16.dp))) {
                         AsyncImage(
-                            model = viewModel.previewImageUri,
+                            model = url,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
-                        IconButton(
-                            onClick = { viewModel.removeImage() },
-                            modifier = Modifier.align(Alignment.TopEnd)
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = "Remove Image", tint = Color.White)
-                        }
-                    } else {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.AddAPhoto, contentDescription = null, modifier = Modifier.size(48.dp))
-                            Text("Add Photo")
-                        }
+                        
+                        ImageActionOverlays(
+                            isProfile = isProfile,
+                            onSetProfile = { viewModel.setProfilePicture(url) },
+                            onRemove = { viewModel.removeExistingImage(url) }
+                        )
                     }
-                    if (uiState.isUploadingImage) {
-                        CircularProgressIndicator()
+                }
+
+                // New Local Pending Images
+                items(viewModel.pendingImages) { upload ->
+                    val isProfile = upload.uri == viewModel.pendingProfilePictureUri
+                    Box(modifier = Modifier.size(120.dp).clip(RoundedCornerShape(16.dp))) {
+                        AsyncImage(
+                            model = upload.uri,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .border(
+                                    width = 2.dp,
+                                    color = if (upload.isError) MaterialTheme.colorScheme.error 
+                                            else if (upload.isUploading) MaterialTheme.colorScheme.secondary
+                                            else Color.Transparent,
+                                    shape = RoundedCornerShape(16.dp)
+                                ),
+                            contentScale = ContentScale.Crop,
+                            alpha = if (upload.isUploading) 0.6f else 1.0f
+                        )
+                        
+                        if (upload.isUploading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp).align(Alignment.Center),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp
+                            )
+                        }
+
+                        if (!upload.isUploading) {
+                            ImageActionOverlays(
+                                isProfile = isProfile,
+                                onSetProfile = { viewModel.setProfilePicture(upload.uri) },
+                                onRemove = { viewModel.removePendingImage(upload) }
+                            )
+                        }
+                        
+                        if (upload.isError) {
+                            Icon(
+                                Icons.Default.Error,
+                                contentDescription = "Upload Failed",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.align(Alignment.Center).size(32.dp)
+                            )
+                        }
+                        
+                        if (!upload.isUploading && !upload.isError && upload.url == null) {
+                            Box(modifier = Modifier.align(Alignment.BottomStart).background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+                                Text("Pending", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
             }
+
+            HorizontalDivider()
 
             OutlinedTextField(
                 value = viewModel.name,
@@ -158,7 +250,7 @@ fun AddEditItemScreen(
                     onValueChange = { viewModel.price = it },
                     label = { Text("Price (Optional)") },
                     modifier = Modifier.weight(1f),
-                    prefix = { Text("$") },
+                    prefix = { Text(currencySymbol) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
             }
@@ -195,10 +287,9 @@ fun AddEditItemScreen(
 
             OutlinedTextField(
                 value = uiState.address,
-                onValueChange = { /* Manual editing handled via dialog usually */ },
+                onValueChange = { viewModel.updateAddress(it) },
                 label = { Text("Address") },
                 modifier = Modifier.fillMaxWidth(),
-                readOnly = true,
                 trailingIcon = {
                     IconButton(onClick = onPickLocation) {
                         Icon(Icons.Default.Map, contentDescription = "Pick on Map")
@@ -222,9 +313,16 @@ fun AddEditItemScreen(
 
             HorizontalDivider()
 
+            Text("Container & Equipment", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = viewModel.isStorage, onCheckedChange = { viewModel.isStorage = it })
                 Text("This item is a container (can store other items)")
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = viewModel.isEquipped, onCheckedChange = { viewModel.isEquipped = it })
+                Text("Currently Equipped (Carried by person)")
             }
 
             if (uiState.storageItems.isNotEmpty()) {
@@ -337,5 +435,54 @@ fun AddEditItemScreen(
             },
             confirmButton = {}
         )
+    }
+}
+
+@Composable
+fun ImageActionOverlays(
+    isProfile: Boolean,
+    onSetProfile: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Close button at TopEnd
+        IconButton(
+            onClick = onRemove,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(24.dp)
+                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+        ) {
+            Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
+        }
+
+        // Profile star button at BottomEnd
+        IconButton(
+            onClick = onSetProfile,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(4.dp)
+                .size(24.dp)
+                .background(if (isProfile) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f), CircleShape)
+        ) {
+            Icon(
+                if (isProfile) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = "Set as Profile",
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        
+        if (isProfile) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text("Primary", color = Color.White, style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }

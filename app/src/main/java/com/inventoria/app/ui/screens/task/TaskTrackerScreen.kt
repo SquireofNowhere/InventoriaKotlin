@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,8 +32,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -57,12 +60,28 @@ fun TaskTrackerScreen(
     onNavigateToHistory: () -> Unit
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val activeSessions by viewModel.activeSessions.collectAsState()
     val completedSessions by viewModel.completedSessions.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     
-    var selectedSessionForDetail by remember { mutableStateOf<List<Task>?>(null) }
-    var selectedTaskForDetail by remember { mutableStateOf<Task?>(null) }
+    var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
+    var selectedTaskId by remember { mutableStateOf<String?>(null) }
+
+    val currentSelectedSession = remember(selectedSessionGroupId, activeSessions, completedSessions) {
+        selectedSessionGroupId?.let { groupId ->
+            activeSessions.find { it.groupId == groupId }?.let { 
+                it.segments + listOfNotNull(it.activeSegment?.task)
+            } ?: completedSessions.find { it.firstOrNull()?.groupId == groupId }
+        }
+    }
+
+    val currentSelectedTask = remember(selectedTaskId, activeSessions, completedSessions) {
+        selectedTaskId?.let { id ->
+            activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) }.find { it.id == id }
+                ?: completedSessions.flatten().find { it.id == id }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -94,7 +113,13 @@ fun TaskTrackerScreen(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            }
+        ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
@@ -117,7 +142,7 @@ fun TaskTrackerScreen(
                             onUpdateName = { name -> viewModel.updateSessionName(session.groupId, name) },
                             onUpdateKind = { kind -> viewModel.updateSessionKind(session.groupId, kind) },
                             onSessionClick = {
-                                selectedSessionForDetail = session.segments + listOfNotNull(session.activeSegment?.task)
+                                selectedSessionGroupId = session.groupId
                             }
                         )
                     }
@@ -151,14 +176,14 @@ fun TaskTrackerScreen(
                             if (session.size > 1) {
                                 CompletedSessionCard(
                                     segments = session,
-                                    onClick = { selectedSessionForDetail = session },
+                                    onClick = { selectedSessionGroupId = session.first().groupId },
                                     onDelete = { viewModel.clearSession(session.first().groupId) }
                                 )
                             } else {
                                 val task = session.first()
                                 SingleTaskItemCard(
                                     task = task,
-                                    onClick = { selectedTaskForDetail = task },
+                                    onClick = { selectedTaskId = task.id },
                                     onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
                                     onDelete = { viewModel.clearSegment(task) },
                                     onAddToCalendar = { addToGoogleCalendar(context, task) }
@@ -177,10 +202,10 @@ fun TaskTrackerScreen(
         }
     }
 
-    selectedSessionForDetail?.let { segments ->
+    currentSelectedSession?.let { segments ->
         SessionDetailDialog(
             segments = segments,
-            onDismiss = { selectedSessionForDetail = null },
+            onDismiss = { selectedSessionGroupId = null },
             onUpdateSessionName = { name -> viewModel.updateSessionName(segments.first().groupId, name) },
             onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
             onUpdateSegment = { viewModel.updateSegment(it) },
@@ -189,10 +214,10 @@ fun TaskTrackerScreen(
         )
     }
 
-    selectedTaskForDetail?.let { task ->
+    currentSelectedTask?.let { task ->
         TaskDetailDialog(
             task = task,
-            onDismiss = { selectedTaskForDetail = null },
+            onDismiss = { selectedTaskId = null },
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
@@ -282,6 +307,7 @@ fun ActiveSessionCard(
     val isExpanded by session.isExpanded.collectAsState()
     val activeSegment = session.activeSegment
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     
     val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) })
     
@@ -349,7 +375,10 @@ fun ActiveSessionCard(
                             ),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                            keyboardActions = KeyboardActions(onDone = { 
+                                focusManager.clearFocus() 
+                                keyboardController?.hide()
+                            })
                         )
                         Icon(
                             Icons.Default.Edit,
@@ -425,7 +454,7 @@ fun ActiveSessionCard(
                             Spacer(Modifier.width(8.dp))
                             val segPercentage = calculatePercentageOfDay(activeElapsed, activeSegment.task.startTime)
                             Text(
-                                text = "Current: ${activeSegment.task.name} - ${formatDetailedDuration(activeElapsed)} • $segPercentage",
+                                text = "Current: ${activeSegment.task.name} - ${formatDetailedDuration(activeElapsed)} \u2022 $segPercentage",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.DarkGray
@@ -456,7 +485,7 @@ fun ActiveSessionCard(
                                 Spacer(Modifier.width(8.dp))
                                 val segPercentage = calculatePercentageOfDay(segment.duration, segment.startTime)
                                 Text(
-                                    text = "${segment.name} - ${formatDetailedDuration(segment.duration)} • $segPercentage",
+                                    text = "${segment.name} - ${formatDetailedDuration(segment.duration)} \u2022 $segPercentage",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.DarkGray
                                 )
@@ -539,7 +568,7 @@ fun CompletedSessionCard(
                         )
                     }
                     Text(
-                        text = "${segments.size} segment(s) • Total: ${formatDetailedDuration(totalDuration)} • $percentage",
+                        text = "${segments.size} segment(s) \u2022 Total: ${formatDetailedDuration(totalDuration)} \u2022 $percentage",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -607,7 +636,7 @@ fun CompletedSessionCard(
                             Spacer(Modifier.width(8.dp))
                             val segPercentage = calculatePercentageOfDay(segment.duration, segment.startTime)
                             Text(
-                                text = "${segment.name} - ${formatDetailedDuration(segment.duration)} • $segPercentage",
+                                text = "${segment.name} - ${formatDetailedDuration(segment.duration)} \u2022 $segPercentage",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.DarkGray
                             )
@@ -637,11 +666,18 @@ fun SessionDetailDialog(
     val sessionRef = segments.first()
     var sessionNameInput by remember { mutableStateOf(sessionRef.name) }
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     
     var showFlattenConfirm by remember { mutableStateOf(false) }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            focusManager.clearFocus()
+            if (sessionNameInput != sessionRef.name) {
+                onUpdateSessionName(sessionNameInput)
+            }
+            onDismiss()
+        },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.List, contentDescription = null)
@@ -650,18 +686,29 @@ fun SessionDetailDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { focusManager.clearFocus() })
+                    },
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedTextField(
                     value = sessionNameInput,
                     onValueChange = { sessionNameInput = it },
                     label = { Text("Session Name") },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { 
+                            if (!it.isFocused && sessionNameInput != sessionRef.name) {
+                                onUpdateSessionName(sessionNameInput)
+                            }
+                        },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { 
-                        if (sessionNameInput != sessionRef.name) {
-                            onUpdateSessionName(sessionNameInput)
-                        }
-                        focusManager.clearFocus()
+                        focusManager.clearFocus() 
+                        keyboardController?.hide()
                     })
                 )
                 
@@ -695,7 +742,12 @@ fun SessionDetailDialog(
                                         onUpdateSegment(segment.copy(name = localSegmentName, isNameCustom = true))
                                     }
                                 },
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { 
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                })
                             )
                             IconButton(onClick = { onToggleCalendar(segment) }, modifier = Modifier.size(24.dp)) {
                                 Icon(
@@ -707,7 +759,7 @@ fun SessionDetailDialog(
                             }
                         }
                         Text(
-                            text = "${formatDetailedDuration(segment.duration)} • ${formatStartEndRange(segment.startTime, segment.endTime)}",
+                            text = "${formatDetailedDuration(segment.duration)} \u2022 ${formatStartEndRange(segment.startTime, segment.endTime)}",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.Gray,
                             modifier = Modifier.padding(start = 16.dp)
@@ -729,6 +781,7 @@ fun SessionDetailDialog(
         },
         confirmButton = {
             TextButton(onClick = {
+                focusManager.clearFocus()
                 if (sessionNameInput != sessionRef.name) {
                     onUpdateSessionName(sessionNameInput)
                 }
@@ -778,6 +831,7 @@ fun TaskDetailDialog(
     var name by remember(task.name) { mutableStateOf(task.name) }
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val isCalendarTask = task.id.startsWith("cal_")
 
     LaunchedEffect(task.id, task.savedToCalendar, task.isRunning) {
@@ -788,9 +842,16 @@ fun TaskDetailDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            focusManager.clearFocus()
+            if (name != task.name && !isCalendarTask) {
+                onSaveName(name)
+            }
+            onDismiss()
+        },
         confirmButton = {
             TextButton(onClick = {
+                focusManager.clearFocus()
                 if (name != task.name && !isCalendarTask) {
                     onSaveName(name)
                 }
@@ -801,7 +862,14 @@ fun TaskDetailDialog(
         },
         title = { Text("Task Details") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { focusManager.clearFocus() })
+                    },
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -815,7 +883,10 @@ fun TaskDetailDialog(
                     enabled = !isCalendarTask,
                     label = { Text("Task Name") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                    keyboardActions = KeyboardActions(onDone = { 
+                        focusManager.clearFocus() 
+                        keyboardController?.hide()
+                    })
                 )
                 
                 if (isCalendarTask) {

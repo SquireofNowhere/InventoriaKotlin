@@ -147,10 +147,31 @@ class InventoryRepository @Inject constructor(
         inventoryDao.updateQuantity(id, newQuantity, getNextTimestamp())
     }
 
-    suspend fun updateItemEquippedStatus(id: Long, equipped: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun setItemEquipped(id: Long, equipped: Boolean, repack: Boolean = false) = withContext(Dispatchers.IO) {
         val item = inventoryDao.getItemById(id) ?: return@withContext
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItem(item.copy(equipped = equipped, updatedAt = currentTime))
+        
+        if (equipped) {
+            // When equipping, remove from container and track last container
+            inventoryDao.updateItem(item.copy(
+                equipped = true,
+                parentId = null,
+                lastParentId = item.parentId ?: item.lastParentId,
+                updatedAt = currentTime
+            ))
+        } else {
+            // When unequipping, optionally repack
+            val newParentId = if (repack) item.lastParentId else item.parentId
+            inventoryDao.updateItem(item.copy(
+                equipped = false,
+                parentId = newParentId,
+                updatedAt = currentTime
+            ))
+        }
+    }
+
+    suspend fun updateItemEquippedStatus(id: Long, equipped: Boolean) = withContext(Dispatchers.IO) {
+        setItemEquipped(id, equipped, false)
     }
 
     suspend fun moveItem(id: Long, newParentId: Long?) = withContext(Dispatchers.IO) {

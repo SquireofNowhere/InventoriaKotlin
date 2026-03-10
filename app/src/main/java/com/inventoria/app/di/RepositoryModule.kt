@@ -1,11 +1,17 @@
 package com.inventoria.app.di
 
+import android.content.Context
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.storage.FirebaseStorage
 import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.local.*
 import com.inventoria.app.data.repository.*
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -16,9 +22,10 @@ class RepositoryModule {
     @Provides
     @Singleton
     fun provideFirebaseAuthRepository(
-        auth: com.google.firebase.auth.FirebaseAuth
+        auth: FirebaseAuth,
+        googleSignInClient: GoogleSignInClient
     ): FirebaseAuthRepository {
-        return FirebaseAuthRepository(auth)
+        return FirebaseAuthRepository(auth, googleSignInClient)
     }
 
     @Provides
@@ -28,7 +35,7 @@ class RepositoryModule {
         taskDao: TaskDao,
         collectionDao: CollectionDao,
         itemLinkDao: ItemLinkDao,
-        firebaseDatabase: com.google.firebase.database.FirebaseDatabase,
+        firebaseDatabase: FirebaseDatabase,
         authRepository: FirebaseAuthRepository,
         settingsRepository: SettingsRepository
     ): FirebaseSyncRepository {
@@ -45,7 +52,7 @@ class RepositoryModule {
         itemLinkDao: ItemLinkDao,
         syncRepository: FirebaseSyncRepository,
         authRepository: FirebaseAuthRepository,
-        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
+        @ApplicationContext context: Context
     ): InventoryRepository {
         return InventoryRepository(inventoryDao, itemLinkDao, syncRepository, authRepository, context)
     }
@@ -68,7 +75,7 @@ class RepositoryModule {
     @Provides
     @Singleton
     fun provideFirebaseStorageRepository(
-        storage: com.google.firebase.storage.FirebaseStorage,
+        storage: FirebaseStorage,
         authRepository: FirebaseAuthRepository
     ): FirebaseStorageRepository {
         return FirebaseStorageRepository(storage, authRepository)
@@ -77,7 +84,7 @@ class RepositoryModule {
     @Provides
     @Singleton
     fun provideSettingsRepository(
-        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
+        @ApplicationContext context: Context
     ): SettingsRepository {
         return SettingsRepository(context)
     }
@@ -85,7 +92,7 @@ class RepositoryModule {
     @Provides
     @Singleton
     fun provideCalendarRepository(
-        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context
+        @ApplicationContext context: Context
     ): CalendarRepository {
         return CalendarRepository(context)
     }

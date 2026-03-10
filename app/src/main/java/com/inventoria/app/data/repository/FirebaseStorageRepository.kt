@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Log
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,8 +19,9 @@ class FirebaseStorageRepository @Inject constructor(
         val userId = authRepository.getCurrentUserId() 
             ?: return Result.failure(Exception("User not authenticated"))
             
-        // Create reference
-        val fileName = uri.lastPathSegment ?: "image_${System.currentTimeMillis()}.jpg"
+        // Generate a unique filename using UUID and timestamp to prevent overwriting
+        val fileName = "img_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
+
         val storageRef = storage.reference
             .child("users")
             .child(userId)

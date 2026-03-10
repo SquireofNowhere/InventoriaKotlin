@@ -12,6 +12,7 @@ import com.inventoria.app.data.repository.InventoryRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.data.repository.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -29,6 +30,7 @@ class InventoryListViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
     private val _currentCollectionId = MutableStateFlow<Long?>(null)
+    private val _selectedItemIds = MutableStateFlow<Set<Long>>(emptySet())
 
     val syncStatus: StateFlow<SyncStatus> = syncRepository.syncStatus
 
@@ -36,6 +38,7 @@ class InventoryListViewModel @Inject constructor(
         observeItems()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeItems() {
         val allItemsFlow = repository.getAllItems()
         val allCollectionsFlow = collectionRepository.getAllCollections()
@@ -78,7 +81,8 @@ class InventoryListViewModel @Inject constructor(
             settingsRepository.isInvertFilterEnabled(),
             settingsRepository.getExpandedItemIds(),
             allLinksFlow,
-            repository.getUserLocation()
+            repository.getUserLocation(),
+            _selectedItemIds
         ) { args ->
             @Suppress("UNCHECKED_CAST")
             val allItems = args[0] as List<InventoryItem>
@@ -92,9 +96,9 @@ class InventoryListViewModel @Inject constructor(
             @Suppress("UNCHECKED_CAST")
             val allCollections = args[6] as List<InventoryCollection>
             @Suppress("UNCHECKED_CAST")
-            val hiddenCategories = args[7] as Set<String>
+            val activeTags = args[7] as Set<String>
             @Suppress("UNCHECKED_CAST")
-            val hiddenCollections = args[8] as Set<String>
+            val activeCollectionsStrings = args[8] as Set<String>
             val isHardFilter = args[9] as Boolean
             val isInvertFilter = args[10] as Boolean
             @Suppress("UNCHECKED_CAST")
@@ -103,17 +107,19 @@ class InventoryListViewModel @Inject constructor(
             val allLinks = args[12] as List<ItemLink>
             @Suppress("UNCHECKED_CAST")
             val userLoc = args[13] as Pair<Double, Double>?
+            @Suppress("UNCHECKED_CAST")
+            val selectedIds = args[14] as Set<Long>
 
             val sortOption = SortOption.valueOf(sortOptionStr)
             val groupOption = GroupOption.valueOf(groupOptionStr)
             val expandedItemIds = expandedItemIdsStrings.mapNotNull { it.toLongOrNull() }.toSet()
-            val hiddenCollectionIds = hiddenCollections.mapNotNull { it.toLongOrNull() }.toSet()
+            val activeCollections = activeCollectionsStrings.mapNotNull { it.toLongOrNull() }.toSet()
 
             val resolvedItems = resolveLocations(allItems, allLinks, userLoc)
 
             val filtered = filterAndSortItems(
-                resolvedItems, query, _currentCollectionId.value, currentCollItemIds, hiddenCategories, 
-                hiddenCollectionIds, itemToCollections, isHardFilter, isInvertFilter, sortOption
+                resolvedItems, query, _currentCollectionId.value, currentCollItemIds, activeTags, 
+                activeCollections, itemToCollections, isHardFilter, isInvertFilter, sortOption
             )
 
             val grouped = groupItems(filtered, groupOption, allCollections, itemToCollections)
@@ -123,19 +129,20 @@ class InventoryListViewModel @Inject constructor(
                 filteredItems = filtered,
                 matchedItemIds = filtered.map { it.id }.toSet(),
                 expandedItemIds = expandedItemIds,
+                selectedItemIds = selectedIds,
                 allLinks = allLinks,
                 linkedItemIds = allLinks.map { it.followerId }.toSet(),
                 groupedItems = grouped,
-                allCategories = allItems.mapNotNull { it.category }.distinct().sorted(),
+                allCategories = allItems.flatMap { it.getParsedTags() }.distinct().sorted(),
                 allCollections = allCollections,
-                hiddenCategories = hiddenCategories,
-                hiddenCollections = hiddenCollectionIds,
+                activeTags = activeTags,
+                activeCollections = activeCollections,
                 isHardFilterEnabled = isHardFilter,
                 isInvertFilterEnabled = isInvertFilter,
                 collectionItemIds = currentCollItemIds,
                 sortOption = sortOption,
                 groupOption = groupOption,
-                isFiltering = query.isNotEmpty() || hiddenCategories.isNotEmpty() || hiddenCollectionIds.isNotEmpty(),
+                isFiltering = query.isNotEmpty() || activeTags.isNotEmpty() || activeCollections.isNotEmpty(),
                 isLoading = false
             )
         }.onEach { 
@@ -190,8 +197,8 @@ class InventoryListViewModel @Inject constructor(
         query: String,
         activeCollectionId: Long?,
         currentCollItemIds: Set<Long>,
-        hiddenCategories: Set<String>,
-        hiddenCollections: Set<Long>,
+        selectedTags: Set<String>,
+        selectedCollections: Set<Long>,
         itemToCollections: Map<Long, List<Long>>,
         isHardFilter: Boolean,
         isInvertFilter: Boolean,
@@ -211,14 +218,40 @@ class InventoryListViewModel @Inject constructor(
             }
         }
 
-        result = result.filter { item ->
-            val categoryHidden = item.category in hiddenCategories
-            val itemColls = itemToCollections[item.id] ?: emptyList()
-            val collectionHidden = itemColls.any { it in hiddenCollections }
-            
-            val shouldHide = if (isHardFilter) categoryHidden || collectionHidden else categoryHidden && collectionHidden
-            
-            if (isInvertFilter) shouldHide else !shouldHide
+        // Pass-through filtering logic
+        if (selectedTags.isNotEmpty() || selectedCollections.isNotEmpty()) {
+            result = result.filter { item ->
+                val itemTags = item.getParsedTags().map { it.lowercase() }
+                val targetTags = selectedTags.map { it.lowercase() }
+                
+                val itemColls = itemToCollections[item.id] ?: emptyList()
+                
+                val tagMatched = if (targetTags.isEmpty()) true else {
+                    if (isHardFilter) {
+                        // ALL selected tags must be present
+                        targetTags.all { it in itemTags }
+                    } else {
+                        // ANY of the selected tags must be present
+                        targetTags.any { it in itemTags }
+                    }
+                }
+                
+                val collectionMatched = if (selectedCollections.isEmpty()) true else {
+                    if (isHardFilter) {
+                        // Must be in ALL selected collections
+                        selectedCollections.all { it in itemColls }
+                    } else {
+                        // Must be in ANY of the selected collections
+                        selectedCollections.any { it in itemColls }
+                    }
+                }
+                
+                // Logic: An item must satisfy both the tag requirement AND the collection requirement
+                // if both filters are active.
+                val matched = tagMatched && collectionMatched
+                
+                if (isInvertFilter) !matched else matched
+            }
         }
 
         return when (sortOption) {
@@ -239,7 +272,7 @@ class InventoryListViewModel @Inject constructor(
         return when (option) {
             GroupOption.NONE -> emptyList()
             GroupOption.CATEGORY -> {
-                items.groupBy { it.category ?: "Uncategorized" }.toList().sortedBy { it.first }
+                items.groupBy { it.getParsedTags().firstOrNull() ?: "Uncategorized" }.toList().sortedBy { it.first }
             }
             GroupOption.LOCATION -> {
                 items.groupBy { it.location.ifEmpty { "Unknown Location" } }.toList().sortedBy { it.first }
@@ -285,7 +318,7 @@ class InventoryListViewModel @Inject constructor(
 
     fun toggleCategoryVisibility(category: String) {
         viewModelScope.launch {
-            val current = _uiState.value.hiddenCategories
+            val current = _uiState.value.activeTags
             val next = if (category in current) current - category else current + category
             settingsRepository.saveHiddenCategories(next)
         }
@@ -293,7 +326,7 @@ class InventoryListViewModel @Inject constructor(
 
     fun toggleCollectionVisibility(collectionId: Long) {
         viewModelScope.launch {
-            val current = _uiState.value.hiddenCollections
+            val current = _uiState.value.activeCollections
             val next = if (collectionId in current) current - collectionId else current + collectionId
             settingsRepository.saveHiddenCollections(next.map { it.toString() }.toSet())
         }
@@ -385,6 +418,70 @@ class InventoryListViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e("InventoryListViewModel", "Failed to link items", e)
             }
+        }
+    }
+
+    fun toggleSelection(itemId: Long) {
+        val current = _selectedItemIds.value
+        _selectedItemIds.value = if (itemId in current) current - itemId else current + itemId
+    }
+
+    fun clearSelection() {
+        _selectedItemIds.value = emptySet()
+    }
+
+    fun deleteItem(itemId: Long) {
+        viewModelScope.launch {
+            repository.deleteItemById(itemId)
+        }
+    }
+
+    fun deleteSelectedItems() {
+        viewModelScope.launch {
+            val idsToDelete = _selectedItemIds.value
+            idsToDelete.forEach { id ->
+                repository.deleteItemById(id)
+            }
+            clearSelection()
+        }
+    }
+
+    fun mergeSelectedItems(newName: String) {
+        viewModelScope.launch {
+            val selectedIds = _selectedItemIds.value
+            if (selectedIds.size < 2) return@launch
+            
+            val selectedItems = _uiState.value.items.filter { it.id in selectedIds }
+            if (selectedItems.isEmpty()) return@launch
+            
+            // Use the first item as the base for the merged item
+            val baseItem = selectedItems.first()
+            val totalQuantity = selectedItems.sumOf { it.quantity }
+            
+            // Merge custom fields
+            val mergedCustomFields = mutableMapOf<String, String>()
+            selectedItems.forEach { item ->
+                mergedCustomFields.putAll(item.customFields)
+            }
+            
+            // Concatenate descriptions if they exist
+            val mergedDescription = selectedItems.mapNotNull { it.description }.distinct().joinToString("\n---\n")
+            
+            val mergedItem = baseItem.copy(
+                name = newName,
+                quantity = totalQuantity,
+                description = if (mergedDescription.isBlank()) null else mergedDescription,
+                customFields = mergedCustomFields,
+                updatedAt = System.currentTimeMillis()
+            )
+            
+            // Update the base item and delete the others
+            repository.updateItem(mergedItem)
+            selectedIds.filter { it != baseItem.id }.forEach { id ->
+                repository.deleteItemById(id)
+            }
+            
+            clearSelection()
         }
     }
 

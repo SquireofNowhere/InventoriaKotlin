@@ -1,5 +1,6 @@
 package com.inventoria.app.ui.screens.settings
 
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
@@ -31,6 +32,12 @@ class SettingsViewModel @Inject constructor(
     val customUsername: StateFlow<String?> = settingsRepository.customUsername
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val currencyCode: StateFlow<String> = settingsRepository.getCurrencyCode()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "USD")
+
+    val autoCurrencyEnabled: StateFlow<Boolean> = settingsRepository.isAutoCurrencyEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     init {
         checkCurrentUser()
     }
@@ -60,6 +67,10 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun getGoogleSignInIntent(): Intent {
+        return authRepository.getGoogleSignInIntent()
+    }
+
     fun signOut() {
         authRepository.signOut()
         _authState.value = AuthState.Idle
@@ -86,6 +97,18 @@ class SettingsViewModel @Inject constructor(
     fun updateCustomUsername(name: String) {
         viewModelScope.launch {
             settingsRepository.saveCustomUsername(name)
+        }
+    }
+
+    fun updateCurrencyCode(code: String) {
+        viewModelScope.launch {
+            settingsRepository.saveCurrencyCode(code)
+        }
+    }
+
+    fun toggleAutoCurrency(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setAutoCurrencyEnabled(enabled)
         }
     }
 }

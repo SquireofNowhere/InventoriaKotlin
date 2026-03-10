@@ -141,4 +141,20 @@ class ItemDetailViewModel @Inject constructor(
             onDeleted()
         }
     }
+
+    fun setProfilePicture(url: String) {
+        viewModelScope.launch {
+            val item = _uiState.value.item ?: return@launch
+            repository.updateItem(item.copy(profilePictureUrl = url))
+        }
+    }
+
+    fun removeImage(url: String) {
+        viewModelScope.launch {
+            val item = _uiState.value.item ?: return@launch
+            val newList = item.imageUrls.filter { it != url }
+            val newProfile = if (item.profilePictureUrl == url) newList.firstOrNull() else item.profilePictureUrl
+            repository.updateItem(item.copy(imageUrls = newList, profilePictureUrl = newProfile))
+        }
+    }
 }

@@ -1,11 +1,8 @@
 package com.inventoria.app.ui.splash
 
-import android.content.Context
-import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -47,7 +44,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SplashScreenContent(
     authRepository: FirebaseAuthRepository,
-    settingsRepository: SettingsRepository,
+    @Suppress("UNUSED_PARAMETER") settingsRepository: SettingsRepository,
     onNavigateToMain: () -> Unit
 ) {
     val context = LocalContext.current
@@ -59,7 +56,6 @@ fun SplashScreenContent(
     
     val currentUser = authRepository.getCurrentUser()
     val isAuthenticated = currentUser != null && !currentUser.isAnonymous
-    val customUsername by settingsRepository.customUsername.collectAsState(initial = null)
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
