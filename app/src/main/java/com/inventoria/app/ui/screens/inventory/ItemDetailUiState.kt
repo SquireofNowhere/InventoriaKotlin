@@ -8,6 +8,7 @@ data class ItemDetailUiState(
     val item: InventoryItem? = null,
     val parentItem: InventoryItem? = null,
     val lastParentName: String? = null,
+    val children: List<InventoryItem> = emptyList(),
     val collections: List<InventoryCollection> = emptyList(),
     val availableContainers: List<InventoryItem> = emptyList(),
     val links: List<ItemLink> = emptyList(),

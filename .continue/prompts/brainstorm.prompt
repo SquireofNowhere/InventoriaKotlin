@@ -1,0 +1,14 @@
+---
+name: Brainstorm
+description: Plan and brainstorm before coding
+---
+
+Before we write any code, let's think through this carefully:
+
+1. What problem are we trying to solve?
+2. What are the requirements?
+3. What's the simplest solution?
+4. What are the edge cases?
+5. What could go wrong?
+
+Let's discuss each of these before we start coding.

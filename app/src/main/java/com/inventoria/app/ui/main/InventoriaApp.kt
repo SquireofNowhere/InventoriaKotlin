@@ -1,5 +1,7 @@
 package com.inventoria.app.ui.main
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -7,6 +9,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -36,6 +40,11 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoriaApp() {
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    val isWideScreen = screenWidth >= 600
+    val alwaysShowLabels = screenWidth >= 450
+    
     val navController = rememberNavController()
     val screens = listOf(
         Screen.Dashboard,
@@ -46,36 +55,78 @@ fun InventoriaApp() {
         Screen.Settings
     )
 
-    Scaffold(
-        bottomBar = {
-            val navBackStackEntry by navController.currentBackStackEntryAsState()
-            val currentDestination = navBackStackEntry?.destination
-            
-            // Only show bottom bar on top-level screens
-            val showBottomBar = screens.any { it.route == currentDestination?.route?.split("?")?.first() }
-            
-            if (showBottomBar) {
-                NavigationBar {
-                    screens.forEach { screen ->
-                        NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = null) },
-                            label = { Text(screen.title) },
-                            selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+    val showNavigation = screens.any { it.route == currentDestination?.route?.split("?")?.first() }
+
+    Row(Modifier.fillMaxSize()) {
+        if (isWideScreen && showNavigation) {
+            NavigationRail {
+                screens.forEach { screen ->
+                    val selected = currentDestination?.hierarchy?.any { 
+                        it.route?.split("?")?.first() == screen.route 
+                    } == true
+                    NavigationRailItem(
+                        icon = { Icon(screen.icon, contentDescription = null) },
+                        label = { 
+                            Text(
+                                text = screen.title,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            ) 
+                        },
+                        selected = selected,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
                                 }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         }
-    ) { innerPadding ->
+
+        Scaffold(
+            modifier = Modifier.weight(1f),
+            bottomBar = {
+                if (!isWideScreen && showNavigation) {
+                    NavigationBar {
+                        screens.forEach { screen ->
+                            val selected = currentDestination?.hierarchy?.any { 
+                                it.route?.split("?")?.first() == screen.route 
+                            } == true
+                            NavigationBarItem(
+                                icon = { Icon(screen.icon, contentDescription = null) },
+                                label = { 
+                                    Text(
+                                        text = screen.title,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    ) 
+                                },
+                                selected = selected,
+                                alwaysShowLabel = alwaysShowLabels,
+                                onClick = {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
         NavHost(
             navController = navController,
             startDestination = Screen.Dashboard.route,
@@ -266,4 +317,5 @@ fun InventoriaApp() {
             }
         }
     }
+}
 }

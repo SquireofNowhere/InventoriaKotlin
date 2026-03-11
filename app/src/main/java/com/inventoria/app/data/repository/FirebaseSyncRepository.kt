@@ -184,6 +184,7 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull items failed", e)
         } finally {
+            delay(1000)
             syncIgnoreCount.decrementAndGet()
         }
     }
@@ -205,6 +206,7 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull links failed", e)
         } finally {
+            delay(1000)
             syncIgnoreCount.decrementAndGet()
         }
     }
@@ -226,6 +228,7 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull tasks failed", e)
         } finally {
+            delay(1000)
             syncIgnoreCount.decrementAndGet()
         }
     }
@@ -247,6 +250,7 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull collections failed", e)
         } finally {
+            delay(1000)
             syncIgnoreCount.decrementAndGet()
         }
     }
@@ -268,6 +272,7 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull collection items failed", e)
         } finally {
+            delay(1000)
             syncIgnoreCount.decrementAndGet()
         }
     }

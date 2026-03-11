@@ -1,0 +1,31 @@
+name: continue-superpowers
+version: "1.0.0"
+schema: v1
+
+models:
+  - name: openrouter
+    provider: openrouter
+    model: qwen/qwen2.5-coder
+    apiKey: YOUR_OPENROUTER_KEY
+
+mcpServers:
+  - name: filesystem
+    command: npx
+    args:
+      - server-filesystem
+      - .
+
+  - name: git
+    command: npx
+    args:
+      - server-git
+
+  - name: browser
+    command: npx
+    args:
+      - server-browser
+
+  - name: superpowers
+    command: node
+    args:
+      - ./superpowers-mcp/build/index.js

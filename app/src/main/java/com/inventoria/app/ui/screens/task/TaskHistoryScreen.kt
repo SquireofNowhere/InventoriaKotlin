@@ -20,6 +20,7 @@ fun TaskHistoryScreen(
     viewModel: TaskTrackerViewModel
 ) {
     val completedSessions by viewModel.completedSessions.collectAsState()
+    val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val context = LocalContext.current
     
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
@@ -63,16 +64,20 @@ fun TaskHistoryScreen(
                     if (session.size > 1) {
                         CompletedSessionCard(
                             segments = session,
+                            isSelected = session.any { it.id in selectedTaskIds },
                             onClick = { selectedSessionGroupId = session.first().groupId },
-                            onDelete = { viewModel.clearSession(session.first().groupId) }
+                            onDelete = { viewModel.deleteSessionPermanently(session.first().groupId) },
+                            onSegmentLongClick = { viewModel.toggleTaskSelection(it.id) }
                         )
                     } else {
                         val task = session.first()
                         SingleTaskItemCard(
                             task = task,
+                            isSelected = task.id in selectedTaskIds,
                             onClick = { selectedTaskId = task.id },
+                            onLongClick = { viewModel.toggleTaskSelection(task.id) },
                             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
-                            onDelete = { viewModel.clearSegment(task) },
+                            onDelete = { viewModel.deleteSegmentPermanently(task) },
                             onAddToCalendar = { addToGoogleCalendar(context, task) }
                         )
                     }

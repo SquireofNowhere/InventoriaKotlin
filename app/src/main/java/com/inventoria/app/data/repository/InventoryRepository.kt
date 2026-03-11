@@ -24,9 +24,10 @@ class InventoryRepository @Inject constructor(
     private val itemLinkDao: ItemLinkDao,
     private val syncRepository: FirebaseSyncRepository,
     private val authRepository: FirebaseAuthRepository,
+    private val storageRepository: FirebaseStorageRepository,
     @ApplicationContext private val context: Context
 ) {
-    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     private val lastTimestamp = AtomicLong(0L)
@@ -45,6 +46,40 @@ class InventoryRepository @Inject constructor(
         repositoryScope.launch {
             getFreshLocation()?.let {
                 _userLocation.value = it
+            }
+        }
+    }
+
+    fun uploadImagesInBackground(
+        itemId: Long,
+        pendingUris: List<android.net.Uri>,
+        profileUri: android.net.Uri?,
+        existingUrls: List<String>,
+        currentProfileUrl: String?
+    ) {
+        repositoryScope.launch {
+            val finalImageUrls = existingUrls.toMutableList()
+            var finalProfilePictureUrl = currentProfileUrl
+
+            pendingUris.forEach { uri ->
+                val result = storageRepository.uploadItemImage(uri)
+                if (result.isSuccess) {
+                    val url = result.getOrNull()
+                    if (url != null) {
+                        finalImageUrls.add(url)
+                        if (uri == profileUri) {
+                            finalProfilePictureUrl = url
+                        }
+                    }
+                }
+            }
+
+            // Update item with new URLs
+            getItemById(itemId)?.let { item ->
+                updateItem(item.copy(
+                    imageUrls = finalImageUrls,
+                    profilePictureUrl = finalProfilePictureUrl ?: item.profilePictureUrl ?: finalImageUrls.firstOrNull()
+                ))
             }
         }
     }
@@ -153,10 +188,11 @@ class InventoryRepository @Inject constructor(
         
         if (equipped) {
             // When equipping, remove from container and track last container
+            // If equipping from root (parentId is null), lastParentId also becomes null
             inventoryDao.updateItem(item.copy(
                 equipped = true,
                 parentId = null,
-                lastParentId = item.parentId ?: item.lastParentId,
+                lastParentId = item.parentId,
                 updatedAt = currentTime
             ))
         } else {
@@ -177,13 +213,35 @@ class InventoryRepository @Inject constructor(
     suspend fun moveItem(id: Long, newParentId: Long?) = withContext(Dispatchers.IO) {
         val item = inventoryDao.getItemById(id) ?: return@withContext
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItem(item.copy(
-            parentId = newParentId, 
-            lastParentId = if (newParentId == null) item.parentId else item.lastParentId,
-            updatedAt = currentTime
-        ))
-    }
 
+        val links = itemLinkDao.getAllLinksList()
+        val adjList = mutableMapOf<Long, MutableList<Long>>()
+        links.forEach { link ->
+            adjList.getOrPut(link.leaderId) { mutableListOf() }.add(link.followerId)
+            adjList.getOrPut(link.followerId) { mutableListOf() }.add(link.leaderId)
+        }
+
+        val visited = mutableSetOf<Long>()
+        val queue = ArrayDeque<Long>()
+        queue.add(id)
+        while (queue.isNotEmpty()) {
+            val curr = queue.removeFirst()
+            if (visited.add(curr)) {
+                adjList[curr]?.let { queue.addAll(it) }
+            }
+        }
+
+        val itemsToUpdate = visited.mapNotNull { inventoryDao.getItemById(it) }
+        if (itemsToUpdate.isNotEmpty()) {
+            inventoryDao.updateItems(itemsToUpdate.map { 
+                it.copy(
+                    parentId = newParentId,
+                    lastParentId = if (newParentId == null) it.parentId else it.lastParentId,
+                    updatedAt = currentTime
+                )
+            })
+        }
+    }
     fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = inventoryDao.getItemsByCategory(category)
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = inventoryDao.getOutOfStockItems()
@@ -198,8 +256,15 @@ class InventoryRepository @Inject constructor(
     suspend fun addLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
         if (followerId == leaderId) return@withContext
         itemLinkDao.insertLink(ItemLink(followerId, leaderId))
-        touchItem(followerId)
-        touchItem(leaderId)
+        
+        val itemsToTouch = listOfNotNull(
+            inventoryDao.getItemById(followerId),
+            inventoryDao.getItemById(leaderId)
+        )
+        if (itemsToTouch.isNotEmpty()) {
+            val currentTime = getNextTimestamp()
+            inventoryDao.updateItems(itemsToTouch.map { it.copy(updatedAt = currentTime) })
+        }
     }
 
     suspend fun removeLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {

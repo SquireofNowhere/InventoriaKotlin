@@ -332,10 +332,14 @@ class AddEditItemViewModel @Inject constructor(
                     repository.updateItem(initialItem)
                 }
                 
-                // Background upload of images
-                launch(Dispatchers.IO) {
-                    uploadPendingImages(initialItem.id)
-                }
+                // Trigger background upload so user can navigate back immediately
+                repository.uploadImagesInBackground(
+                    itemId = initialItem.id,
+                    pendingUris = pendingImages.map { it.uri },
+                    profileUri = pendingProfilePictureUri,
+                    existingUrls = existingImageUrls.toList(),
+                    currentProfileUrl = profilePictureUrl
+                )
                 
                 _uiState.update { it.copy(isLoading = false) }
                 _eventFlow.emit(UiEvent.SaveItem)
@@ -343,50 +347,6 @@ class AddEditItemViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false) }
                 _eventFlow.emit(UiEvent.ShowSnackbar("Error saving item: ${e.message}"))
             }
-        }
-    }
-
-    private suspend fun uploadPendingImages(itemId: Long) {
-        var uploadError = false
-        val finalImageUrls = existingImageUrls.toMutableList()
-        var finalProfilePictureUrl = profilePictureUrl
-
-        for (i in pendingImages.indices) {
-            val upload = pendingImages[i]
-            if (upload.url != null) {
-                finalImageUrls.add(upload.url!!)
-                continue
-            }
-
-            pendingImages[i] = upload.copy(isUploading = true)
-            val result = storageRepository.uploadItemImage(upload.uri)
-            
-            if (result.isSuccess) {
-                val url = result.getOrNull()
-                if (url != null) {
-                    pendingImages[i] = upload.copy(url = url, isUploading = false)
-                    finalImageUrls.add(url)
-                    if (pendingProfilePictureUri == upload.uri) {
-                        finalProfilePictureUrl = url
-                    }
-                }
-            } else {
-                pendingImages[i] = upload.copy(isUploading = false, isError = true)
-                uploadError = true
-            }
-        }
-
-        if (uploadError) {
-            _eventFlow.emit(UiEvent.ShowSnackbar("Some images not uploaded", isError = true))
-        }
-
-        // Update item with new URLs
-        val currentItem = repository.getItemById(itemId)
-        if (currentItem != null) {
-            repository.updateItem(currentItem.copy(
-                imageUrls = finalImageUrls,
-                profilePictureUrl = finalProfilePictureUrl ?: currentItem.profilePictureUrl ?: finalImageUrls.firstOrNull()
-            ))
         }
     }
 

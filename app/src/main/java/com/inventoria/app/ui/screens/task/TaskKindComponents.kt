@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.ui.theme.Success
 
 @Composable
@@ -88,25 +89,58 @@ fun TaskKindDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            TaskKind.entries.forEach { kind ->
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(kind.colorValue))
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(kind.displayName)
-                        }
-                    },
-                    onClick = {
-                        onKindSelected(kind)
-                        expanded = false
-                    }
+            val categories = TaskKind.entries.groupBy { it.category }
+            categories.forEach { (category, kinds) ->
+                Text(
+                    text = category.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    fontWeight = FontWeight.Bold
                 )
+                kinds.forEach { kind ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(kind.colorValue))
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = kind.displayName.split(" • ").last(),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                if (kind.productivityValue != 0) {
+                                    val color = if (kind.productivityValue > 0) Success else Color(0xFFFF4D4D)
+                                    val sign = if (kind.productivityValue > 0) "+" else ""
+                                    Text(
+                                        text = "$sign${kind.productivityValue}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = color,
+                                        modifier = Modifier.padding(start = 16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        onClick = {
+                            onKindSelected(kind)
+                            expanded = false
+                        }
+                    )
+                }
+                if (category != categories.keys.last()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                }
             }
         }
     }

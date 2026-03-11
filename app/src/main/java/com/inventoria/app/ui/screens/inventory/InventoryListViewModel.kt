@@ -81,7 +81,6 @@ class InventoryListViewModel @Inject constructor(
             settingsRepository.isInvertFilterEnabled(),
             settingsRepository.getExpandedItemIds(),
             allLinksFlow,
-            repository.getUserLocation(),
             _selectedItemIds
         ) { args ->
             @Suppress("UNCHECKED_CAST")
@@ -106,16 +105,14 @@ class InventoryListViewModel @Inject constructor(
             @Suppress("UNCHECKED_CAST")
             val allLinks = args[12] as List<ItemLink>
             @Suppress("UNCHECKED_CAST")
-            val userLoc = args[13] as Pair<Double, Double>?
-            @Suppress("UNCHECKED_CAST")
-            val selectedIds = args[14] as Set<Long>
+            val selectedIds = args[13] as Set<Long>
 
             val sortOption = SortOption.valueOf(sortOptionStr)
             val groupOption = GroupOption.valueOf(groupOptionStr)
             val expandedItemIds = expandedItemIdsStrings.mapNotNull { it.toLongOrNull() }.toSet()
             val activeCollections = activeCollectionsStrings.mapNotNull { it.toLongOrNull() }.toSet()
 
-            val resolvedItems = resolveLocations(allItems, allLinks, userLoc)
+            val resolvedItems = resolveLocations(allItems, allLinks)
 
             // 1. Identify items that explicitly match filters
             val matchedItems = filterAndSortItems(
@@ -252,8 +249,7 @@ class InventoryListViewModel @Inject constructor(
 
     private fun resolveLocations(
         items: List<InventoryItem>,
-        links: List<ItemLink>,
-        userLoc: Pair<Double, Double>?
+        links: List<ItemLink>
     ): List<InventoryItem> {
         val itemMap = items.associateBy { it.id }
         val followerToLeader = links.associate { it.followerId to it.leaderId }
@@ -473,14 +469,7 @@ class InventoryListViewModel @Inject constructor(
     fun toggleEquip(itemId: Long, repack: Boolean = false) {
         viewModelScope.launch {
             val item = repository.getItemById(itemId) ?: return@launch
-            if (item.equipped) {
-                if (repack && item.lastParentId != null) {
-                    repository.moveItem(itemId, item.lastParentId)
-                }
-                repository.updateItemEquippedStatus(itemId, false)
-            } else {
-                repository.updateItemEquippedStatus(itemId, true)
-            }
+            repository.setItemEquipped(itemId, !item.equipped, repack)
         }
     }
 

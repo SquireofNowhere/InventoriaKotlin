@@ -30,6 +30,7 @@ class ItemDetailViewModel @Inject constructor(
     init {
         if (itemId != 0L) {
             loadItem()
+            loadChildren()
             loadCollections()
             loadAvailableContainers()
             loadLinks()
@@ -39,6 +40,14 @@ class ItemDetailViewModel @Inject constructor(
             }
         } else {
             _uiState.value = _uiState.value.copy(isLoading = false, error = "Invalid Item ID")
+        }
+    }
+
+    private fun loadChildren() {
+        viewModelScope.launch {
+            repository.getItemsByParent(itemId).collect { items ->
+                _uiState.update { it.copy(children = items) }
+            }
         }
     }
 
@@ -109,15 +118,7 @@ class ItemDetailViewModel @Inject constructor(
     fun toggleEquip(repack: Boolean = false) {
         viewModelScope.launch {
             val currentItem = _uiState.value.item ?: return@launch
-            if (!currentItem.equipped) {
-                repository.updateItem(currentItem.copy(equipped = true, parentId = null))
-            } else {
-                if (repack && currentItem.lastParentId != null) {
-                    repository.updateItem(currentItem.copy(equipped = false, parentId = currentItem.lastParentId))
-                } else {
-                    repository.updateItem(currentItem.copy(equipped = false))
-                }
-            }
+            repository.setItemEquipped(itemId, !currentItem.equipped, repack)
         }
     }
 
@@ -127,9 +128,9 @@ class ItemDetailViewModel @Inject constructor(
         }
     }
 
-    fun removeLink(leaderId: Long) {
+    fun removeLink(followerId: Long, leaderId: Long) {
         viewModelScope.launch {
-            repository.removeLink(itemId, leaderId)
+            repository.removeLink(followerId, leaderId)
         }
     }
 

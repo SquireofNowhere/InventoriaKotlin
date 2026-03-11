@@ -85,17 +85,28 @@ class TaskRepository @Inject constructor(
     }
 
     suspend fun updateSessionName(groupId: String, newName: String) {
-        val tasks = taskDao.getTasksByGroupId(groupId)
-        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-        val timestamp = getNextTimestamp(maxT)
-        taskDao.updateSessionName(groupId, newName, timestamp)
+        val existingGroupId = taskDao.getGroupIdByName(newName)
+        if (existingGroupId != null && existingGroupId != groupId) {
+            val timestamp = getNextTimestamp()
+            taskDao.joinGroupAtomically(groupId, newName, existingGroupId, timestamp)
+        } else {
+            val tasks = taskDao.getTasksByGroupId(groupId)
+            val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+            val timestamp = getNextTimestamp(maxT)
+            taskDao.updateSessionName(groupId, newName, timestamp)
+        }
+    }
+
+    suspend fun updateSessionNameAndGroupId(oldGroupId: String, newName: String, newGroupId: String) {
+        val timestamp = getNextTimestamp()
+        taskDao.joinGroupAtomically(oldGroupId, newName, newGroupId, timestamp)
     }
 
     suspend fun updateSessionKind(groupId: String, newKind: TaskKind) {
         val tasks = taskDao.getTasksByGroupId(groupId)
         val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
         val timestamp = getNextTimestamp(maxT)
-        taskDao.updateSessionKind(groupId, newKind, timestamp)
+        taskDao.updateSessionKindAndResetCustom(groupId, newKind, timestamp)
     }
 
     suspend fun endSession(groupId: String) {

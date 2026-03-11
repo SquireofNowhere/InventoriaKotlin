@@ -53,9 +53,10 @@ class RepositoryModule {
         itemLinkDao: ItemLinkDao,
         syncRepository: FirebaseSyncRepository,
         authRepository: FirebaseAuthRepository,
+        storageRepository: FirebaseStorageRepository,
         @ApplicationContext context: Context
     ): InventoryRepository {
-        return InventoryRepository(inventoryDao, itemLinkDao, syncRepository, authRepository, context)
+        return InventoryRepository(inventoryDao, itemLinkDao, syncRepository, authRepository, storageRepository, context)
     }
 
     @Provides

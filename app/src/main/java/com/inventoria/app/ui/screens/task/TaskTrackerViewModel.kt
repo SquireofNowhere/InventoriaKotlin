@@ -50,9 +50,16 @@ class TaskTrackerViewModel @Inject constructor(
 
     private val _calendarTrigger = MutableStateFlow(0)
     
+    // Selection state for multi-select
+    private val _selectedTaskIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedTaskIds: StateFlow<Set<String>> = _selectedTaskIds.asStateFlow()
+
     private var timerService: TaskTimerService? = null
     private var isBound = false
     private var taskCounter = 1
+
+    // Cache to store original states for reversion logic
+    private val originalTaskStates = mutableMapOf<String, Pair<String, TaskKind>>()
 
     val personalScore: StateFlow<Int> = _completedSessions.map { sessions ->
         sessions.flatten()
@@ -170,8 +177,11 @@ class TaskTrackerViewModel @Inject constructor(
             }.sortedByDescending { it.firstOrNull()?.startTime ?: 0L }
         _completedSessions.value = completed
 
-        // Update Task Counter
+        // Capture Originals for running tasks
         tasks.forEach { task ->
+            if (task.isRunning && !originalTaskStates.containsKey(task.id)) {
+                originalTaskStates[task.id] = task.groupId to task.kind
+            }
             if (task.name.startsWith("Task ")) {
                 task.name.substringAfter("Task ").toIntOrNull()?.let { num ->
                     if (num >= taskCounter) taskCounter = num + 1
@@ -264,7 +274,26 @@ class TaskTrackerViewModel @Inject constructor(
     fun updateSessionName(groupId: String, newName: String) {
         viewModelScope.launch {
             _isLoading.value = true
-            repository.updateSessionName(groupId, newName)
+            
+            // Reversion Logic: If name is returned to "Task X" or similar default
+            val runningTask = _activeSessions.value.find { it.groupId == groupId }?.activeSegment?.task
+            if (runningTask != null && (newName.isBlank() || newName.startsWith("Task "))) {
+                originalTaskStates[runningTask.id]?.let { (originalGroupId, originalKind) ->
+                    repository.updateSessionNameAndGroupId(groupId, newName, originalGroupId)
+                    repository.updateSessionKind(originalGroupId, originalKind)
+                } ?: repository.updateSessionName(groupId, newName)
+            } else {
+                repository.updateSessionName(groupId, newName)
+            }
+            
+            _isLoading.value = false
+        }
+    }
+
+    fun updateSessionNameAndGroup(oldGroupId: String, newName: String, newGroupId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            repository.updateSessionNameAndGroupId(oldGroupId, newName, newGroupId)
             _isLoading.value = false
         }
     }
@@ -323,9 +352,23 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
+    fun deleteSessionPermanently(groupId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            repository.deleteSession(groupId)
+            _isLoading.value = false
+        }
+    }
+
     fun clearSegment(task: Task) {
         viewModelScope.launch {
             repository.softDeleteTask(task.id)
+        }
+    }
+
+    fun deleteSegmentPermanently(task: Task) {
+        viewModelScope.launch {
+            repository.deleteTask(task)
         }
     }
 
@@ -351,6 +394,15 @@ class TaskTrackerViewModel @Inject constructor(
             tasks.filter { it.id != first.id }.forEach { repository.softDeleteTask(it.id) }
             _isLoading.value = false
         }
+    }
+
+    fun toggleTaskSelection(taskId: String) {
+        val current = _selectedTaskIds.value
+        _selectedTaskIds.value = if (taskId in current) current - taskId else current + taskId
+    }
+
+    fun clearSelection() {
+        _selectedTaskIds.value = emptySet()
     }
 
     fun refreshCalendar() {

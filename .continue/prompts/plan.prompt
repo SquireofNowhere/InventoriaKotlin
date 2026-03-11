@@ -1,0 +1,13 @@
+---
+name: Plan
+description: Create a step-by-step implementation plan
+---
+
+Let's create a detailed implementation plan:
+
+1. Break down the feature into small, testable steps
+2. Identify dependencies between steps
+3. List files that need to be created or modified
+4. Outline the order of implementation
+
+Please provide a numbered list of concrete steps.
