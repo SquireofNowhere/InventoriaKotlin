@@ -12,6 +12,7 @@ import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.repository.CalendarRepository
+import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -36,7 +37,8 @@ data class RunningTaskUI(
 class TaskTrackerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: TaskRepository,
-    private val calendarRepository: CalendarRepository
+    private val calendarRepository: CalendarRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _activeSessions = MutableStateFlow<List<TaskSessionUI>>(emptyList())
@@ -52,6 +54,25 @@ class TaskTrackerViewModel @Inject constructor(
     
     private val _selectedTaskIds = MutableStateFlow<Set<String>>(emptySet())
     val selectedTaskIds: StateFlow<Set<String>> = _selectedTaskIds.asStateFlow()
+
+    val isFlowModeEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _isAutoStartPending = MutableStateFlow(false)
+    val isAutoStartPending: StateFlow<Boolean> = _isAutoStartPending.asStateFlow()
+
+    private var flowModeJob: Job? = null
+    private var hasLoadedInitialTasks = false
+
+    fun toggleFlowMode(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setFlowModeEnabled(enabled)
+            if (!enabled) {
+                flowModeJob?.cancel()
+                _isAutoStartPending.value = false
+            }
+        }
+    }
 
     private var timerService: TaskTimerService? = null
     private var isBound = false
@@ -150,6 +171,13 @@ class TaskTrackerViewModel @Inject constructor(
             }.sortedByDescending { it.activeSegment?.task?.startTime ?: it.segments.firstOrNull()?.startTime ?: 0L }
         _activeSessions.value = active
 
+        if (!hasLoadedInitialTasks) {
+            hasLoadedInitialTasks = true
+            if (isFlowModeEnabled.value && active.isEmpty()) {
+                addNewTask()
+            }
+        }
+
         val completed = grouped.filter { (_, sessionTasks) -> sessionTasks.all { !it.isSessionActive } }
             .values.map { it.sortedByDescending { t -> t.startTime } }.sortedByDescending { it.firstOrNull()?.startTime ?: 0L }
         _completedSessions.value = completed
@@ -184,6 +212,8 @@ class TaskTrackerViewModel @Inject constructor(
     }
 
     fun addNewTask() {
+        flowModeJob?.cancel()
+        _isAutoStartPending.value = false
         if (_activeSessions.value.size >= 5) return
         viewModelScope.launch {
             val task = Task(id = UUID.randomUUID().toString(), groupId = UUID.randomUUID().toString(), name = "Task $taskCounter", isRunning = true, startTime = System.currentTimeMillis())
@@ -218,6 +248,18 @@ class TaskTrackerViewModel @Inject constructor(
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime)
             } ?: run { repository.endSession(session.groupId) }
             _isLoading.value = false
+
+            if (isFlowModeEnabled.value) {
+                flowModeJob?.cancel()
+                flowModeJob = viewModelScope.launch {
+                    _isAutoStartPending.value = true
+                    delay(1000)
+                    if (isFlowModeEnabled.value && _activeSessions.value.size < 5) {
+                        addNewTask()
+                    }
+                    _isAutoStartPending.value = false
+                }
+            }
         }
     }
 

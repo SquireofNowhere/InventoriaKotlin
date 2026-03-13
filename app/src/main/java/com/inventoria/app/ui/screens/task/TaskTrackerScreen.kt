@@ -35,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
@@ -75,6 +77,8 @@ fun TaskTrackerScreen(
     val completedSessions by viewModel.completedSessions.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
+    val isFlowModeEnabled by viewModel.isFlowModeEnabled.collectAsState()
+    val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
@@ -135,11 +139,57 @@ fun TaskTrackerScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding).pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }) {
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Autorenew, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("Flow Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("Auto-start next task", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Switch(
+                                checked = isFlowModeEnabled,
+                                onCheckedChange = { viewModel.toggleFlowMode(it) }
+                            )
+                        }
+                    }
+                }
+                if (isAutoStartPending) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("New task starting in 1s...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
                 if (activeSessions.isNotEmpty()) {
                     item { Text("Active Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp)) }
                     items(activeSessions) { session ->
                         ActiveSessionCard(
                             session = session, suggestions = taskSuggestions,
+                            isFlowModeEnabled = isFlowModeEnabled,
                             onStop = { viewModel.stopTask(session) },
                             onPauseResume = { viewModel.pauseResumeTask(session) },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
@@ -320,15 +370,17 @@ fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
 }
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, suggestions: List<Pair<String, String>>, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit) {
-    val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; val percentage = calculateSessionPercentage(session.segments, activeElapsed, activeSegment?.task); val totalTime = session.segments.sumOf { it.duration } + activeElapsed; val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(sessionName) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName, isFocused, dropdownDismissedByUser) { if (!isFocused || dropdownDismissedByUser || editableName.isBlank()) emptyList() else suggestions.filter { it.first.contains(editableName, ignoreCase = true) && !it.first.equals(editableName, ignoreCase = true) }.take(5) }; val taskColor = Color(refTask.kind.colorValue)
+fun ActiveSessionCard(session: TaskSessionUI, suggestions: List<Pair<String, String>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit) {
+    val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; val percentage = calculateSessionPercentage(session.segments, activeElapsed, activeSegment?.task); val totalTime = session.segments.sumOf { it.duration } + activeElapsed; val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser) { if (!isFocused || dropdownDismissedByUser || editableName.text.isBlank()) emptyList() else suggestions.filter { it.first.contains(editableName.text, ignoreCase = true) && !it.first.equals(editableName.text, ignoreCase = true) }.take(5) }; val taskColor = Color(refTask.kind.colorValue)
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(session.groupId, activeSegment?.task?.id) { if (isFlowModeEnabled && sessionName.startsWith("Task ") && activeSegment?.task?.isRunning == true) { delay(100); focusRequester.requestFocus(); keyboardController?.show() } }
     Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
-                        BasicTextField(value = editableName, onValueChange = { editableName = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { isFocused = it.isFocused; if (!it.isFocused && editableName != sessionName) onUpdateName(editableName) }, textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }), singleLine = true)
-                        DropdownMenu(expanded = filteredSuggestions.isNotEmpty(), onDismissRequest = { dropdownDismissedByUser = true }, properties = PopupProperties(focusable = false), modifier = Modifier.fillMaxWidth(0.8f)) { filteredSuggestions.forEach { suggestion -> DropdownMenuItem(text = { Text(suggestion.first) }, onClick = { editableName = suggestion.first; focusManager.clearFocus(); keyboardController?.hide(); onAutocompleteSelect(suggestion.first, suggestion.second) }) } }
+                        BasicTextField(value = editableName, onValueChange = { editableName = it }, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { focusState -> isFocused = focusState.isFocused; if (!focusState.isFocused && editableName.text != sessionName) onUpdateName(editableName.text) }, textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }), singleLine = true)
+                        DropdownMenu(expanded = filteredSuggestions.isNotEmpty(), onDismissRequest = { dropdownDismissedByUser = true }, properties = PopupProperties(focusable = false), modifier = Modifier.fillMaxWidth(0.8f)) { filteredSuggestions.forEach { suggestion -> DropdownMenuItem(text = { Text(suggestion.first) }, onClick = { editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.first, androidx.compose.ui.text.TextRange(suggestion.first.length)); focusManager.clearFocus(); keyboardController?.hide(); onAutocompleteSelect(suggestion.first, suggestion.second) }) } }
                     }
                     Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                 }
@@ -336,7 +388,21 @@ fun ActiveSessionCard(session: TaskSessionUI, suggestions: List<Pair<String, Str
             }
             Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { TaskKindDropdownMenu(selectedKind = refTask.kind, onKindSelected = onUpdateKind); if (session.segments.isNotEmpty()) { IconButton(onClick = { session.isExpanded.value = !isExpanded }, modifier = Modifier.size(24.dp)) { Icon(if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = Color.Gray) } } }
             Spacer(modifier = Modifier.height(16.dp)); Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column { Text(text = formatTime(totalTime), color = if (taskColor == Color.White) Color.Black else taskColor, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold); Text(text = percentage, style = MaterialTheme.typography.labelSmall, color = Color.Gray) }
-                Row(verticalAlignment = Alignment.CenterVertically) { if (activeSegment == null) { Text(text = "PAUSED", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 12.dp)) }; IconButton(onClick = onPauseResume, modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)) { Icon(if (activeSegment != null) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary) }; Spacer(Modifier.width(8.dp)); IconButton(onClick = onStop, modifier = Modifier.background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.Stop, null, tint = MaterialTheme.colorScheme.error) } } }
+                Row(verticalAlignment = Alignment.CenterVertically) { 
+                    if (activeSegment == null) { Text(text = "PAUSED", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 12.dp)) }
+                    IconButton(onClick = onPauseResume, modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)) { Icon(if (activeSegment != null) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary) }
+                    Spacer(Modifier.width(8.dp))
+                    if (isFlowModeEnabled) {
+                        TextButton(onClick = onStop, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.tertiary), modifier = Modifier.height(40.dp)) {
+                            Text("Stop & Continue", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        IconButton(onClick = onStop, modifier = Modifier.background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f), CircleShape)) { 
+                            Icon(Icons.Default.Stop, null, tint = MaterialTheme.colorScheme.error) 
+                        }
+                    }
+                } 
+            }
             AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.fillMaxWidth().padding(start = 32.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (activeSegment != null) { Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(taskColor)); Spacer(Modifier.width(8.dp)); Text(text = "Current: ${activeSegment.task.name} - ${formatDetailedDuration(activeElapsed)} \u2022 ${calculatePercentageOfDay(activeElapsed, activeSegment.task.startTime)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color.DarkGray) }; HorizontalDivider(modifier = Modifier.padding(bottom = 4.dp), thickness = 0.5.dp) }
