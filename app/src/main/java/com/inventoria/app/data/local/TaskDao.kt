@@ -28,12 +28,6 @@ interface TaskDao {
     @Query("SELECT kind FROM Task WHERE groupId = :groupId AND isDeleted = 0 LIMIT 1")
     suspend fun getKindByGroupId(groupId: String): TaskKind?
 
-    @Query("SELECT * FROM Task WHERE isRunning = 1 AND isDeleted = 0")
-    fun getRunningTasks(): Flow<List<Task>>
-
-    @Query("SELECT * FROM Task WHERE isRunning = 0 AND isDeleted = 0")
-    fun getCompletedTasks(): Flow<List<Task>>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: Task)
 
@@ -42,9 +36,6 @@ interface TaskDao {
 
     @Update
     suspend fun updateTask(task: Task)
-
-    @Delete
-    suspend fun deleteTask(task: Task)
 
     @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp WHERE id = :id")
     suspend fun softDeleteTaskById(id: String, timestamp: Long)
@@ -84,7 +75,4 @@ interface TaskDao {
 
     @Query("DELETE FROM Task WHERE isDeleted = 1 AND updatedAt < :threshold")
     suspend fun purgeOldDeletedTasks(threshold: Long)
-
-    @Query("DELETE FROM Task")
-    suspend fun deleteAllTasks()
 }

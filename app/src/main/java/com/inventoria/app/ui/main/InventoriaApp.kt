@@ -242,6 +242,19 @@ fun InventoriaApp() {
                 )
             }
 
+            composable(
+                route = "task_detail/{taskId}",
+                arguments = listOf(navArgument("taskId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val taskId = backStackEntry.arguments?.getString("taskId") ?: ""
+                val viewModel: TaskTrackerViewModel = hiltViewModel()
+                TaskDetailScreen(
+                    taskId = taskId,
+                    viewModel = viewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
             composable("productivity_stats") {
                 val viewModel: TaskTrackerViewModel = hiltViewModel()
                 ProductivityStatsScreen(
@@ -275,8 +288,7 @@ fun InventoriaApp() {
             composable(
                 route = "item_detail/{itemId}",
                 arguments = listOf(navArgument("itemId") { type = NavType.LongType })
-            ) { backStackEntry ->
-                val id = backStackEntry.arguments?.getLong("itemId") ?: 0L
+            ) { _ ->
                 val viewModel: ItemDetailViewModel = hiltViewModel()
                 ItemDetailScreen(
                     viewModel = viewModel,

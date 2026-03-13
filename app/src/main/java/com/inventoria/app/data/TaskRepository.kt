@@ -42,6 +42,7 @@ class TaskRepository @Inject constructor(
 
     private fun hasMeaningfulChanges(old: Task, new: Task): Boolean {
         return old.name != new.name ||
+                old.groupId != new.groupId ||
                 old.kind != new.kind ||
                 old.startTime != new.startTime ||
                 old.endTime != new.endTime ||
@@ -56,8 +57,6 @@ class TaskRepository @Inject constructor(
                 old.isDeleted != new.isDeleted
     }
 
-    fun getRunningTasks(): Flow<List<Task>> = taskDao.getRunningTasks()
-    fun getCompletedTasks(): Flow<List<Task>> = taskDao.getCompletedTasks()
     fun getVisibleTasks(): Flow<List<Task>> = taskDao.getVisibleTasks()
     fun getAllTasksForSync(): Flow<List<Task>> = taskDao.getAllTasks()
 
@@ -136,13 +135,5 @@ class TaskRepository @Inject constructor(
 
     suspend fun purgeOldDeletedTasks(threshold: Long) {
         taskDao.purgeOldDeletedTasks(threshold)
-    }
-
-    suspend fun deleteTask(task: Task) {
-        taskDao.deleteTask(task)
-    }
-
-    suspend fun deleteSession(groupId: String) {
-        taskDao.deleteTasksByGroupId(groupId)
     }
 }
