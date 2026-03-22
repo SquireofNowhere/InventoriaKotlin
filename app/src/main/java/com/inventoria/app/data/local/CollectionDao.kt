@@ -41,6 +41,9 @@ interface CollectionDao {
     @Query("SELECT * FROM InventoryCollectionItem WHERE collectionId = :collectionId")
     suspend fun getItemsForCollection(collectionId: Long): List<InventoryCollectionItem>
 
+    @Query("SELECT * FROM InventoryCollectionItem WHERE collectionId = :collectionId AND itemId = :itemId LIMIT 1")
+    suspend fun getCollectionItem(collectionId: Long, itemId: Long): InventoryCollectionItem?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCollectionItem(collectionItem: InventoryCollectionItem)
 

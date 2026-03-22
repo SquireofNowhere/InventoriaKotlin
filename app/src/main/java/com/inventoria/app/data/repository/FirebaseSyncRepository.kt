@@ -180,7 +180,16 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             syncIgnoreCount.incrementAndGet()
             val cloudItems = snapshot.children.mapNotNull { it.getValue(InventoryItem::class.java) }
-            inventoryDao.insertItems(cloudItems)
+            
+            // Only overwrite local if cloud version is newer
+            val itemsToInsert = cloudItems.filter { cloudItem ->
+                val localItem = inventoryDao.getItemById(cloudItem.id)
+                localItem == null || cloudItem.updatedAt > localItem.updatedAt
+            }
+            
+            if (itemsToInsert.isNotEmpty()) {
+                inventoryDao.insertItems(itemsToInsert)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Pull items failed", e)
         } finally {
@@ -202,7 +211,13 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             syncIgnoreCount.incrementAndGet()
             val cloudLinks = snapshot.children.mapNotNull { it.getValue(ItemLink::class.java) }
-            itemLinkDao.insertLinks(cloudLinks)
+            
+            cloudLinks.forEach { cloudLink ->
+                val localLink = itemLinkDao.getLink(cloudLink.followerId, cloudLink.leaderId)
+                if (localLink == null || cloudLink.updatedAt > localLink.updatedAt) {
+                    itemLinkDao.insertLink(cloudLink)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Pull links failed", e)
         } finally {
@@ -224,7 +239,16 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             syncIgnoreCount.incrementAndGet()
             val cloudTasks = snapshot.children.mapNotNull { it.getValue(Task::class.java) }
-            taskDao.insertTasks(cloudTasks)
+            
+            // Only overwrite local if cloud version is newer
+            val tasksToInsert = cloudTasks.filter { cloudTask ->
+                val localTask = taskDao.getTaskById(cloudTask.id)
+                localTask == null || cloudTask.updatedAt > localTask.updatedAt
+            }
+            
+            if (tasksToInsert.isNotEmpty()) {
+                taskDao.insertTasks(tasksToInsert)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Pull tasks failed", e)
         } finally {
@@ -246,7 +270,13 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             syncIgnoreCount.incrementAndGet()
             val cloudColls = snapshot.children.mapNotNull { it.getValue(InventoryCollection::class.java) }
-            cloudColls.forEach { collectionDao.insertCollection(it) }
+            
+            cloudColls.forEach { cloudColl ->
+                val localColl = collectionDao.getCollectionById(cloudColl.id)
+                if (localColl == null || cloudColl.updatedAt > localColl.updatedAt) {
+                    collectionDao.insertCollection(cloudColl)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Pull collections failed", e)
         } finally {
@@ -268,7 +298,13 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             syncIgnoreCount.incrementAndGet()
             val cloudItems = snapshot.children.mapNotNull { it.getValue(InventoryCollectionItem::class.java) }
-            collectionDao.insertCollectionItems(cloudItems)
+            
+            cloudItems.forEach { cloudItem ->
+                val localItem = collectionDao.getCollectionItem(cloudItem.collectionId, cloudItem.itemId)
+                if (localItem == null || cloudItem.updatedAt > localItem.updatedAt) {
+                    collectionDao.insertCollectionItem(cloudItem)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Pull collection items failed", e)
         } finally {

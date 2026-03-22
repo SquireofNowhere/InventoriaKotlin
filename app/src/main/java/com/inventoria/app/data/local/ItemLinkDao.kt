@@ -15,6 +15,9 @@ interface ItemLinkDao {
     @Query("SELECT * FROM ItemLink WHERE followerId = :itemId OR leaderId = :itemId")
     fun getLinksForItemFlow(itemId: Long): Flow<List<ItemLink>>
 
+    @Query("SELECT * FROM ItemLink WHERE followerId = :followerId AND leaderId = :leaderId LIMIT 1")
+    suspend fun getLink(followerId: Long, leaderId: Long): ItemLink?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLink(link: ItemLink)
 
