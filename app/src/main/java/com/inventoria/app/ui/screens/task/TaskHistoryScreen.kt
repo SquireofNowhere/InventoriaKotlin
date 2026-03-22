@@ -22,6 +22,7 @@ fun TaskHistoryScreen(
     viewModel: TaskTrackerViewModel
 ) {
     val completedSessions by viewModel.completedSessions.collectAsState()
+    val currentTime by rememberTick()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
     val context = LocalContext.current
@@ -89,6 +90,7 @@ fun TaskHistoryScreen(
                     if (session.size > 1) {
                         CompletedSessionCard(
                             segments = session,
+                            currentTime = currentTime,
                             selectedTaskIds = selectedTaskIds,
                             onClick = { selectedSessionGroupId = session.first().groupId },
                             onDelete = { viewModel.deleteSession(session.first().groupId) },

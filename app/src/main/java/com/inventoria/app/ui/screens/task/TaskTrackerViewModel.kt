@@ -136,8 +136,18 @@ class TaskTrackerViewModel @Inject constructor(
     init {
         observeTasks()
         startPeriodicCleanup()
+        startCalendarPeriodicRefresh()
         val intent = Intent(context, TaskTimerService::class.java)
         context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+    }
+
+    private fun startCalendarPeriodicRefresh() {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(30000)
+                refreshCalendar()
+            }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

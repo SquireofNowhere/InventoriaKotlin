@@ -63,6 +63,18 @@ import com.google.accompanist.permissions.rememberPermissionState
 
 enum class CalendarStatus { EMPTY, SOME, FULL_LOCAL, FULL_CALENDAR }
 
+@Composable
+fun rememberTick(intervalMs: Long = 1000): State<Long> {
+    val tickState = remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(intervalMs)
+            tickState.longValue = System.currentTimeMillis()
+        }
+    }
+    return tickState
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun TaskTrackerScreen(
@@ -74,12 +86,17 @@ fun TaskTrackerScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val activeSessions by viewModel.activeSessions.collectAsState()
+    val currentTime by rememberTick()
     val completedSessions by viewModel.completedSessions.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val isFlowModeEnabled by viewModel.isFlowModeEnabled.collectAsState()
     val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
+
+    val totalScore by viewModel.totalScore.collectAsState()
+    val personalScore by viewModel.personalScore.collectAsState()
+    val socialScore by viewModel.socialScore.collectAsState()
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }
@@ -140,6 +157,15 @@ fun TaskTrackerScreen(
         Box(modifier = Modifier.fillMaxSize().padding(padding).pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }) {
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
+                    DailyScoreCard(
+                        totalScore = totalScore,
+                        personalScore = personalScore,
+                        socialScore = socialScore,
+                        onClick = onNavigateToStats
+                    )
+                }
+
+                item {
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                         shape = MaterialTheme.shapes.medium,
@@ -188,7 +214,9 @@ fun TaskTrackerScreen(
                     item { Text("Active Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp)) }
                     items(activeSessions) { session ->
                         ActiveSessionCard(
-                            session = session, suggestions = taskSuggestions,
+                            session = session,
+                            currentTime = currentTime,
+                            suggestions = taskSuggestions,
                             isFlowModeEnabled = isFlowModeEnabled,
                             onStop = { viewModel.stopTask(session) },
                             onPauseResume = { viewModel.pauseResumeTask(session) },
@@ -201,11 +229,12 @@ fun TaskTrackerScreen(
                 }
                 if (completedSessions.isNotEmpty()) {
                     item { Text("Recent Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) }
-                    val recentSessions = completedSessions.filter { it.maxByOrNull { t -> t.startTime }?.let { t -> System.currentTimeMillis() - t.startTime < 86400000 } == true }
+                    val recentSessions = completedSessions.filter { it.maxByOrNull { t -> t.startTime }?.let { t -> currentTime - t.startTime < 86400000 } == true }
                     items(recentSessions) { session ->
                         if (session.size > 1) {
                             CompletedSessionCard(
                                 segments = session,
+                                currentTime = currentTime,
                                 selectedTaskIds = selectedTaskIds,
                                 onClick = { selectedSessionGroupId = session.first().groupId },
                                 onDelete = { viewModel.deleteSession(session.first().groupId) },
@@ -257,6 +286,38 @@ fun TaskTrackerScreen(
     }
 }
 
+@Composable
+fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f))
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text("Today's Productivity", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                Text(text = "$totalScore pts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                ScoreMiniItem("Personal", personalScore, PurplePrimary)
+                ScoreMiniItem("Social", socialScore, Success)
+            }
+        }
+    }
+}
+
+@Composable
+fun ScoreMiniItem(label: String, score: Int, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = if (score >= 0) "+$score" else "$score", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SingleTaskItemCard(
@@ -267,7 +328,10 @@ fun SingleTaskItemCard(
     val context = LocalContext.current
     val taskColor = Color(task.kind.colorValue)
     val isCalendarTask = task.id.startsWith("cal_")
+    
+    // Task cards preserve original full duration/percentage as requested
     val percentage = calculatePercentageOfDay(task.duration, task.startTime)
+    
     val backgroundColor by animateColorAsState(if (isSelected) MaterialTheme.colorScheme.primaryContainer else taskColor.copy(alpha = 0.1f))
 
     Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = backgroundColor)) {
@@ -280,7 +344,7 @@ fun SingleTaskItemCard(
                 if (isSelected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "1 segment \u2022 $percentage", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(text = percentage, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(text = formatDetailedDuration(task.duration), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.DarkGray)
@@ -303,6 +367,7 @@ fun CalendarActionIcon(isCalendarTask: Boolean, savedToCalendar: Boolean, onTogg
 @Composable
 fun CompletedSessionCard(
     segments: List<Task>, 
+    currentTime: Long,
     selectedTaskIds: Set<String>,
     onClick: () -> Unit, onDelete: () -> Unit,
     onSegmentLongClick: (Task) -> Unit, onSegmentClick: (Task) -> Unit
@@ -310,7 +375,12 @@ fun CompletedSessionCard(
     var expanded by remember { mutableStateOf(false) }
     val majorityKind = segments.groupBy { it.kind }.maxByOrNull { it.value.size }?.key ?: segments.first().kind
     val sessionName = segments.firstOrNull { !it.isNameCustom }?.name ?: segments.firstOrNull()?.name ?: "Untitled Session"
-    val totalDuration = segments.sumOf { it.duration }
+    
+    val todayStart = getStartOfDay(currentTime)
+    // MIDNIGHT BLEED: Session summary only shows time that happened TODAY
+    val todayDuration = segments.sumOf { calculateOverlapWithToday(it.startTime, it.endTime ?: (it.startTime + it.duration), todayStart) }
+    val percentage = calculatePercentageOfDay(todayDuration, todayStart)
+    
     val taskColor = Color(majorityKind.colorValue)
     val status = calculateCalendarStatus(segments)
     
@@ -323,9 +393,11 @@ fun CompletedSessionCard(
                 }
                 if (segments.size > 1) { IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) { Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = Color.Gray) } }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = percentage, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = formatDetailedDuration(totalDuration), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.DarkGray)
+                Text(text = formatDetailedDuration(todayDuration), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.DarkGray)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = when(status) { CalendarStatus.FULL_CALENDAR -> Icons.Default.EventAvailable; CalendarStatus.FULL_LOCAL -> Icons.Default.CheckCircle; CalendarStatus.SOME -> Icons.Default.CalendarMonth; else -> Icons.Default.CalendarToday }, contentDescription = null, tint = when(status) { CalendarStatus.FULL_CALENDAR -> Color(0xFF4285F4); CalendarStatus.FULL_LOCAL -> Success; CalendarStatus.SOME -> PurplePrimary; else -> Color.Gray }, modifier = Modifier.size(24.dp).padding(4.dp))
                     IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
@@ -370,8 +442,18 @@ fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
 }
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, suggestions: List<Pair<String, String>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit) {
-    val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; val percentage = calculateSessionPercentage(session.segments, activeElapsed, activeSegment?.task); val totalTime = session.segments.sumOf { it.duration } + activeElapsed; val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser) { if (!isFocused || dropdownDismissedByUser || editableName.text.isBlank()) emptyList() else suggestions.filter { it.first.contains(editableName.text, ignoreCase = true) && !it.first.equals(editableName.text, ignoreCase = true) }.take(5) }; val taskColor = Color(refTask.kind.colorValue)
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Pair<String, String>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit) {
+    val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
+    
+    val todayStart = getStartOfDay(currentTime)
+    // MIDNIGHT BLEED: Active summary only shows time that happened TODAY
+    val todaySegmentsDuration = session.segments.sumOf {calculateOverlapWithToday(it.startTime, it.endTime ?: (it.startTime + it.duration), todayStart)}
+    val todayActiveElapsed = if (activeSegment != null) calculateOverlapWithToday(activeSegment.task.startTime, currentTime, todayStart) else 0L
+    
+    val totalTimeToday = todaySegmentsDuration + todayActiveElapsed
+    val percentage = calculatePercentageOfDay(totalTimeToday, todayStart)
+    
+    val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser) { if (!isFocused || dropdownDismissedByUser || editableName.text.isBlank()) emptyList() else suggestions.filter { it.first.contains(editableName.text, ignoreCase = true) && !it.first.equals(editableName.text, ignoreCase = true) }.take(5) }; val taskColor = Color(refTask.kind.colorValue)
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(session.groupId, activeSegment?.task?.id) { if (isFlowModeEnabled && sessionName.startsWith("Task ") && activeSegment?.task?.isRunning == true) { delay(100); focusRequester.requestFocus(); keyboardController?.show() } }
     Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))) {
@@ -387,7 +469,7 @@ fun ActiveSessionCard(session: TaskSessionUI, suggestions: List<Pair<String, Str
                 IconButton(onClick = onSessionClick, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.MoreVert, null, tint = Color.Gray) }
             }
             Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { TaskKindDropdownMenu(selectedKind = refTask.kind, onKindSelected = onUpdateKind); if (session.segments.isNotEmpty()) { IconButton(onClick = { session.isExpanded.value = !isExpanded }, modifier = Modifier.size(24.dp)) { Icon(if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = Color.Gray) } } }
-            Spacer(modifier = Modifier.height(16.dp)); Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column { Text(text = formatTime(totalTime), color = if (taskColor == Color.White) Color.Black else taskColor, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold); Text(text = percentage, style = MaterialTheme.typography.labelSmall, color = Color.Gray) }
+            Spacer(modifier = Modifier.height(16.dp)); Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column { Text(text = formatTime(totalTimeToday), color = if (taskColor == Color.White) Color.Black else taskColor, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold); Text(text = percentage, style = MaterialTheme.typography.labelSmall, color = Color.Gray) }
                 Row(verticalAlignment = Alignment.CenterVertically) { 
                     if (activeSegment == null) { Text(text = "PAUSED", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 12.dp)) }
                     IconButton(onClick = onPauseResume, modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)) { Icon(if (activeSegment != null) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary) }
@@ -454,16 +536,64 @@ fun SessionDetailDialog(
 @Composable
 fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
+    
+    // Duration Editor State
+    val initialDuration = task.duration
+    var days by remember(initialDuration) { mutableStateOf(TimeUnit.MILLISECONDS.toDays(initialDuration).toString()) }
+    var hours by remember(initialDuration) { mutableStateOf((TimeUnit.MILLISECONDS.toHours(initialDuration) % 24).toString()) }
+    var minutes by remember(initialDuration) { mutableStateOf((TimeUnit.MILLISECONDS.toMinutes(initialDuration) % 60).toString()) }
+    var seconds by remember(initialDuration) { mutableStateOf((TimeUnit.MILLISECONDS.toSeconds(initialDuration) % 60).toString()) }
+
+    fun calculateNewDuration(): Long {
+        val d = days.toLongOrNull() ?: 0L
+        val h = hours.toLongOrNull() ?: 0L
+        val m = minutes.toLongOrNull() ?: 0L
+        val s = seconds.toLongOrNull() ?: 0L
+        return TimeUnit.DAYS.toMillis(d) + TimeUnit.HOURS.toMillis(h) + TimeUnit.MINUTES.toMillis(m) + TimeUnit.SECONDS.toMillis(s)
+    }
+
     LaunchedEffect(task.id, task.savedToCalendar, task.isRunning) { while (task.savedToCalendar || task.isRunning) { currentTime = System.currentTimeMillis(); delay(1000) } }
     AlertDialog(
-        onDismissRequest = { focusManager.clearFocus(); if (name != task.name && !isCalendarTask) onSaveName(name); onDismiss() },
-        confirmButton = { TextButton(onClick = { focusManager.clearFocus(); if (name != task.name && !isCalendarTask) onSaveName(name); onDismiss() }) { Text("Done") } },
+        onDismissRequest = { 
+            focusManager.clearFocus()
+            val newDur = calculateNewDuration()
+            if (newDur != task.duration && !isCalendarTask && !task.isRunning) {
+                onUpdateTime(task.startTime, task.startTime + newDur)
+            }
+            if (name != task.name && !isCalendarTask) onSaveName(name)
+            onDismiss() 
+        },
+        confirmButton = { 
+            TextButton(onClick = { 
+                focusManager.clearFocus()
+                val newDur = calculateNewDuration()
+                if (newDur != task.duration && !isCalendarTask && !task.isRunning) {
+                    onUpdateTime(task.startTime, task.startTime + newDur)
+                }
+                if (name != task.name && !isCalendarTask) onSaveName(name)
+                onDismiss() 
+            }) { Text("Done") } 
+        },
         title = { Text("Task Details") },
         text = {
             Column(modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused && name != task.name && !isCalendarTask) onSaveName(name) }, enabled = !isCalendarTask, label = { Text("Task Name") }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }))
                 if (isCalendarTask) { Row(verticalAlignment = Alignment.CenterVertically) { Text("Type: ", style = MaterialTheme.typography.bodySmall); TaskKindChip(kind = task.kind) } } else { TaskKindDropdownMenu(selectedKind = task.kind, onKindSelected = onKindChange) }
-                HorizontalDivider(); val currentEndTime = task.endTime ?: currentTime; if (isSpanningDays(task.startTime, currentEndTime)) { DetailItem("Date", formatDateRange(task.startTime, currentEndTime)) }
+                HorizontalDivider()
+                
+                Text("Edit Duration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DurationPartField("Days", days, { days = it }, Modifier.weight(1f), !isCalendarTask && !task.isRunning)
+                    DurationPartField("Hrs", hours, { hours = it }, Modifier.weight(1f), !isCalendarTask && !task.isRunning)
+                    DurationPartField("Min", minutes, { minutes = it }, Modifier.weight(1f), !isCalendarTask && !task.isRunning)
+                    DurationPartField("Sec", seconds, { seconds = it }, Modifier.weight(1f), !isCalendarTask && !task.isRunning)
+                }
+                if (task.isRunning) {
+                    Text("Duration cannot be edited while task is running.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+
+                HorizontalDivider()
+                val currentEndTime = task.endTime ?: currentTime; if (isSpanningDays(task.startTime, currentEndTime)) { DetailItem("Date", formatDateRange(task.startTime, currentEndTime)) }
                 if (isCalendarTask) { DetailItem("Started", formatDateTime(task.startTime)); DetailItem("Stopped", formatDateTime(currentEndTime)) } else { EditableDetailItem("Started", formatDateTime(task.startTime)) { showDateTimePicker(context, task.startTime) { newStart -> onUpdateTime(newStart, task.endTime ?: System.currentTimeMillis()) } }; val stoppedText = if (task.endTime != null) formatDateTime(task.endTime!!) else "Running..."; EditableDetailItem("Stopped", stoppedText) { if (task.endTime != null) { showDateTimePicker(context, task.endTime!!) { newEnd -> onUpdateTime(task.startTime, newEnd) } } } }
                 val liveDuration = if (task.isRunning) currentTime - task.startTime else task.duration; DetailItem("Duration", formatDetailedDuration(liveDuration))
                 
@@ -496,6 +626,22 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
     )
 }
 
+@Composable
+fun DurationPartField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { if (it.all { char -> char.isDigit() } && it.length <= 3) onValueChange(it) },
+            label = { Text(label, fontSize = 10.sp) },
+            textStyle = MaterialTheme.typography.bodySmall.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number, imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            singleLine = true
+        )
+    }
+}
+
 @Composable fun DetailItem(label: String, value: String) { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium); Text(value, style = MaterialTheme.typography.bodyMedium) } }
 @Composable fun EditableDetailItem(label: String, value: String, onEdit: () -> Unit) { Row(modifier = Modifier.fillMaxWidth().clickable { onEdit() }, horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium); Row(verticalAlignment = Alignment.CenterVertically) { Text(value, style = MaterialTheme.typography.bodyMedium); Spacer(Modifier.width(4.dp)); Icon(Icons.Default.Edit, "Edit", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary) } } }
 fun formatTime(milliseconds: Long): String { val hours = TimeUnit.MILLISECONDS.toHours(milliseconds); val minutes = TimeUnit.MILLISECONDS.toMinutes(milliseconds) % 60; val seconds = TimeUnit.MILLISECONDS.toSeconds(milliseconds) % 60; return String.format("%02d:%02d:%02d", hours, minutes, seconds) }
@@ -510,6 +656,11 @@ fun formatCardDate(timestamp: Long): String { val now = Calendar.getInstance(); 
 fun getStartOfDay(timestamp: Long): Long { return Calendar.getInstance().apply { timeInMillis = timestamp; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis }
 fun getDayLabel(timestamp: Long): String { val dateInfo = formatCardDate(timestamp); if (dateInfo.isEmpty()) return "Today"; val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }; val target = Calendar.getInstance().apply { timeInMillis = timestamp }; val isYesterday = yesterday.get(Calendar.YEAR) == target.get(Calendar.YEAR) && yesterday.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR); return if (isYesterday) "Yesterday" else dateInfo }
 fun calculatePercentageOfDay(taskDuration: Long, timestamp: Long): String { val percentage = (taskDuration.toDouble() / 86400000.0) * 100.0; val dayLabel = getDayLabel(timestamp); return String.format("%.1f%% of %s", percentage, dayLabel) }
+fun calculateOverlapWithToday(start: Long, end: Long, todayStart: Long): Long {
+    val effectiveStart = maxOf(start, todayStart)
+    val effectiveEnd = maxOf(end, todayStart)
+    return if (effectiveEnd > effectiveStart) effectiveEnd - effectiveStart else 0L
+}
 fun calculateSessionPercentage(segments: List<Task>, activeDuration: Long = 0L, activeTask: Task? = null): String { val dayMillis = 86400000L; val dayDurations = mutableMapOf<Long, Long>(); segments.forEach { segment -> val dayStart = getStartOfDay(segment.startTime); dayDurations[dayStart] = (dayDurations[dayStart] ?: 0L) + segment.duration }; if (activeTask != null) { val dayStart = getStartOfDay(activeTask.startTime); dayDurations[dayStart] = (dayDurations[dayStart] ?: 0L) + activeDuration }; if (dayDurations.isEmpty()) return "0.0% of Today"; return dayDurations.entries.sortedByDescending { it.key }.joinToString(" - ") { (dayStart, duration) -> val percentage = (duration.toDouble() / dayMillis.toDouble()) * 100.0; val dayLabel = getDayLabel(dayStart); String.format("%.1f%% of %s", percentage, dayLabel) } }
 fun showDateTimePicker(context: Context, initialTime: Long, onTimeSelected: (Long) -> Unit) { val calendar = Calendar.getInstance().apply { timeInMillis = initialTime }; DatePickerDialog(context, { _, year, month, day -> TimePickerDialog(context, { _, hour, minute -> val result = Calendar.getInstance().apply { set(year, month, day, hour, minute) }; onTimeSelected(result.timeInMillis) }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show() }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show() }
 fun addToGoogleCalendar(context: Context, task: Task) { val googleColorId = when (task.kind) { TaskKind.TOMATO -> 11; TaskKind.TANGERINE -> 6; TaskKind.GRAPHITE -> 8; TaskKind.GRAPE -> 3; TaskKind.BLUEBERRY -> 9; TaskKind.LAVENDER -> 1; TaskKind.PEACOCK -> 7; TaskKind.BANANA -> 5; TaskKind.FLAMINGO -> 4; TaskKind.BASIL -> 10; TaskKind.SAGE -> 2 }; val description = "Type: ${task.kind.displayName}\nDuration: ${formatDetailedDuration(task.duration)}\nTracked via Inventoria Task Tracker\nTask ID: ${task.id}\nSession ID: ${task.groupId}"; val intent = Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI).putExtra(CalendarContract.Events.TITLE, task.name).putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, task.startTime).putExtra(CalendarContract.EXTRA_EVENT_END_TIME, task.endTime ?: (task.startTime + task.duration)).putExtra(CalendarContract.Events.DESCRIPTION, description).putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY).putExtra("eventColorId", googleColorId.toString()); context.startActivity(intent) }

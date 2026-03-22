@@ -2,33 +2,58 @@
 
 Modern Inventory & Task Tracking Management for Android. Built with Jetpack Compose, Room, and Firebase.
 
-## 🚀 Recent Feature Updates
-
-### 📋 Task Tracker Improvements
-- **Live Text Editing**: Improved the Session Detail and Task Detail dialogs to save text data (names/descriptions) instantly on keyboard "Done" or focus loss.
-- **Keyboard Integration**: Automatic keyboard dismissal and focus clearing for a smoother editing experience.
+## 🌟 Comprehensive Feature List
 
 ### 📦 Inventory Management
-- **Selection Mode & Bulk Actions**: 
-    - **Long-press** items to enter selection mode.
-    - **Bulk Delete**: Remove multiple items at once from the inventory list.
-    - **Smart Merge**: Combine multiple items into one. Merges descriptions, custom fields, and **sums up all quantities** into a single new entry.
-- **Advanced Equipment Logic**: 
-    - Dedicated "Equip" system that removes items from containers when they are on your person.
-    - **Smart Repack**: When unequipping, the app offers to return the item to its last known container automatically.
-- **Custom Location Entry**: Manually type or paste any address in the add/edit screen if map picking is not preferred.
+*   **Deep Item Tracking**: Manage items with names, quantities, text locations, and GPS coordinates.
+*   **Hierarchical Containers**: Organize items within other items (e.g., a "Toolbox" containing "Wrenches").
+*   **Equipment System**: 
+    *   **Equip/Unequip**: Mark items as "on person" which removes them from their container.
+    *   **Smart Repack**: Automatically remembers the last container an item was in for easy return.
+*   **Bulk Operations**: 
+    *   **Selection Mode**: Long-press to select multiple items.
+    *   **Smart Merge**: Combine multiple similar entries into one, summing quantities and merging metadata.
+    *   **Bulk Delete**: Efficiently remove multiple items at once.
+*   **Multi-Media Support**:
+    *   **Image Gallery**: Attach multiple photos to any item.
+    *   **Background Sync**: Photos upload to Firebase Storage in the background to keep the UI snappy.
+    *   **Thumbnail Selection**: Choose a primary profile picture from the gallery.
+*   **Barcoding**: Track items via SKU or Barcode for quick identification.
+*   **Financials**: Track unit prices and view total inventory value on the dashboard.
 
-### 🖼️ Multi-Image System
-- **Gallery Support**: Upload and store multiple high-resolution photos per item.
-- **Background Uploads**: Photos now upload in the background after saving an item, ensuring the UI remains fast and responsive.
-- **Profile Picture Selection**: Choose a specific photo from an item's gallery to serve as its primary thumbnail in the inventory list.
-- **Status Indicators**: Real-time loading spinners and error icons directly on thumbnails during the upload process.
+### ⏱️ Task & Productivity Tracking
+*   **Session-Based Tracking**: Group related tasks into sessions for better organization.
+*   **Productivity Gamification**:
+    *   **Task Kinds**: Assign "Kinds" (Graphite, Lavender, Peacock, etc.) which represent different productivity levels and categories (Personal, Social, Neutral).
+    *   **Scoring**: Each task kind has a productivity value that contributes to your daily score.
+*   **Active Monitoring**: 
+    *   **Foreground Service**: Keep timers running accurately even when the app is in the background.
+    *   **Live Editing**: Instant saving of task names and notes during active sessions.
+*   **Productivity Dashboard**: Visualize your productivity trends and task history.
+*   **Calendar Integration**: Sync tasks with the system calendar; identify "Inventoria" tasks via smart description tags.
 
-### ⚙️ Settings & Localization
-- **Localization Category**:
-    - **Auto-Currency Detection**: Automatically sets the currency symbol ($ , €, £, etc.) based on your device locale.
-    - **Manual Override**: Choose any global currency code manually from a list.
-- **Account Sync**: Google Sign-In support for cross-device inventory synchronization.
+### 🎒 Collections & Readiness
+*   **Project-Based Collections**: Create custom sets of items (e.g., "Emergency Kit", "Photography Gear").
+*   **Readiness Checklist**: 
+    *   Real-time status tracking: Available, Packed, or Equipped.
+    *   Percentage-based readiness indicators for each collection.
+*   **Collection Presets**: Specific types like TRAVEL_KIT, OUTFIT, and WORK_GEAR.
+
+### 🗺️ Map & Location Features
+*   **OSMDroid Integration**: Interactive map for picking and viewing item locations.
+*   **Resolved Locations**: Smart logic to inherit location data from parent containers if not explicitly set.
+*   **User Proximity**: Track your current location relative to your stored items.
+
+### ☁️ Sync & Security
+*   **Real-time Cloud Sync**: Firebase Realtime Database ensures data is identical across all your devices.
+*   **Conflict Resolution**: High-precision timestamping (`updatedAt`) to handle offline edits.
+*   **Google Authentication**: Securely sign in and back up your data to the cloud.
+*   **Soft Deletion**: All data is soft-deleted first, allowing for recovery or cleanup during sync.
+
+### ⚙️ Customization & Localization
+*   **Flexible Currency**: Automatically detects local currency or allows manual override (USD, EUR, GBP, etc.).
+*   **Custom Fields**: Add arbitrary key-value metadata to any inventory item.
+*   **Modern Material 3 UI**: Clean, responsive interface with Dark Mode support and dynamic theming.
 
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
@@ -37,3 +62,4 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 - **DI**: Hilt (Dependency Injection)
 - **Asynchronous**: Kotlin Coroutines & Flow
 - **Maps**: OSMDroid (Location picking)
+- **Architecture**: MVVM with Repository Pattern
