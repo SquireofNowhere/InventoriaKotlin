@@ -321,120 +321,224 @@ fun ScoreMiniItem(label: String, score: Int, color: Color) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SingleTaskItemCard(
-    task: Task, isSelected: Boolean = false,
-    onClick: () -> Unit, onLongClick: () -> Unit,
-    onToggleCalendar: () -> Unit, onDelete: () -> Unit, onAddToCalendar: () -> Unit
+    task: Task,
+    isSelected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleCalendar: () -> Unit,
+    onDelete: () -> Unit,
+    onAddToCalendar: () -> Unit
 ) {
     val context = LocalContext.current
     val taskColor = Color(task.kind.colorValue)
     val isCalendarTask = task.id.startsWith("cal_")
-    
-    // Task cards preserve original full duration/percentage as requested
     val percentage = calculatePercentageOfDay(task.duration, task.startTime)
-    
     val backgroundColor by animateColorAsState(if (isSelected) MaterialTheme.colorScheme.primaryContainer else taskColor.copy(alpha = 0.1f))
 
-    Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = backgroundColor)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TaskKindChip(kind = task.kind, modifier = Modifier.scale(0.8f))
-                    Text(text = task.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                if (isSelected) Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = percentage, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = formatDetailedDuration(task.duration), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.DarkGray)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CalendarActionIcon(isCalendarTask = isCalendarTask, savedToCalendar = task.savedToCalendar, onToggle = onToggleCalendar, onAdd = onAddToCalendar, onOpen = { openInSystemCalendar(context, task) })
-                    IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CalendarActionIcon(isCalendarTask: Boolean, savedToCalendar: Boolean, onToggle: () -> Unit, onAdd: () -> Unit, onOpen: () -> Unit) {
-    if (isCalendarTask) { IconButton(onClick = onOpen) { Icon(Icons.Default.EventAvailable, null, tint = Color(0xFF4285F4)) } } // Blue for purely loaded tasks
-    else { IconButton(onClick = { if (!savedToCalendar) onAdd(); onToggle() }) { Icon(if (savedToCalendar) Icons.Default.EventAvailable else Icons.Default.CalendarToday, null, tint = if (savedToCalendar) Success else PurplePrimary) } } // Green check for Local
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun CompletedSessionCard(
-    segments: List<Task>, 
-    currentTime: Long,
-    selectedTaskIds: Set<String>,
-    onClick: () -> Unit, onDelete: () -> Unit,
-    onSegmentLongClick: (Task) -> Unit, onSegmentClick: (Task) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val majorityKind = segments.groupBy { it.kind }.maxByOrNull { it.value.size }?.key ?: segments.first().kind
-    val sessionName = segments.firstOrNull { !it.isNameCustom }?.name ?: segments.firstOrNull()?.name ?: "Untitled Session"
-    
-    val todayStart = getStartOfDay(currentTime)
-    // MIDNIGHT BLEED: Session summary only shows time that happened TODAY
-    val todayDuration = segments.sumOf { calculateOverlapWithToday(it.startTime, it.endTime ?: (it.startTime + it.duration), todayStart) }
-    val percentage = calculatePercentageOfDay(todayDuration, todayStart)
-    
-    val taskColor = Color(majorityKind.colorValue)
-    val status = calculateCalendarStatus(segments)
-    
-    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.05f))) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TaskKindChip(kind = majorityKind, modifier = Modifier.scale(0.8f))
-                    Text(text = sessionName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                if (segments.size > 1) { IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) { Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = Color.Gray) } }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = percentage, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = formatDetailedDuration(todayDuration), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.DarkGray)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = when(status) { CalendarStatus.FULL_CALENDAR -> Icons.Default.EventAvailable; CalendarStatus.FULL_LOCAL -> Icons.Default.CheckCircle; CalendarStatus.SOME -> Icons.Default.CalendarMonth; else -> Icons.Default.CalendarToday }, contentDescription = null, tint = when(status) { CalendarStatus.FULL_CALENDAR -> Color(0xFF4285F4); CalendarStatus.FULL_LOCAL -> Success; CalendarStatus.SOME -> PurplePrimary; else -> Color.Gray }, modifier = Modifier.size(24.dp).padding(4.dp))
-                    IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
-                }
-            }
-            AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.fillMaxWidth().padding(start = 32.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    segments.sortedByDescending { it.startTime }.forEach { segment ->
-                        var showMenu by remember { mutableStateOf(false) }
-                        val isSegmentSelected = segment.id in selectedTaskIds
-                        val segmentBg by animateColorAsState(if (isSegmentSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().background(segmentBg, RoundedCornerShape(4.dp)).combinedClickable(onClick = { onSegmentClick(segment) }, onLongClick = { showMenu = true }).padding(vertical = 4.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(segment.kind.colorValue)))
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Left color bar
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (isSelected) MaterialTheme.colorScheme.primary else taskColor)
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = task.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (isSelected) {
                             Spacer(Modifier.width(8.dp))
-                            Text(text = segment.name, style = MaterialTheme.typography.bodySmall, color = Color.DarkGray, modifier = Modifier.weight(1f))
-                            if (isSegmentSelected) {
-                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                            } else if (segment.savedToCalendar) {
-                                Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp), tint = Success)
-                            } else if (segment.id.startsWith("cal_")) {
-                                Icon(Icons.Default.EventAvailable, null, modifier = Modifier.size(14.dp), tint = Color(0xFF4285F4))
-                            }
-                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                DropdownMenuItem(text = { Text("Edit Details") }, onClick = { showMenu = false; onSegmentClick(segment) }, leadingIcon = { Icon(Icons.Default.Edit, null) })
-                                DropdownMenuItem(text = { Text(if (isSegmentSelected) "Deselect" else "Select") }, onClick = { showMenu = false; onSegmentLongClick(segment) }, leadingIcon = { Icon(Icons.Default.CheckCircle, null) })
-                            }
+                            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         }
+                    }
+                    Text(
+                        text = "${formatDetailedDuration(task.duration)} • $percentage",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TaskKindChip(kind = task.kind)
+                Spacer(Modifier.width(4.dp))
+                if (isCalendarTask) {
+                    IconButton(onClick = { openInSystemCalendar(context, task) }) {
+                        Icon(Icons.Default.EventAvailable, "Open in Calendar", tint = Success, modifier = Modifier.size(20.dp))
+                    }
+                } else {
+                    IconButton(onClick = {
+                        if (!task.savedToCalendar) onAddToCalendar()
+                        onToggleCalendar()
+                    }) {
+                        Icon(
+                            if (task.savedToCalendar) Icons.Default.EventAvailable else Icons.Outlined.CalendarToday,
+                            contentDescription = if (task.savedToCalendar) "Saved" else "Add to Calendar",
+                            tint = if (task.savedToCalendar) Success else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+fun CompletedSessionCard(
+    segments: List<Task>,
+    currentTime: Long,
+    selectedTaskIds: Set<String>,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onSegmentClick: (Task) -> Unit,
+    onSegmentLongClick: (Task) -> Unit
+) {
+    val context = LocalContext.current
+    var expanded by remember { mutableStateOf(false) }
+    val majorityKind = segments.groupBy { it.kind }.maxByOrNull { it.value.size }?.key ?: segments.first().kind
+    val sessionName = segments.firstOrNull { it.isNameCustom }?.name ?: segments.firstOrNull()?.name ?: "Untitled Session"
+    val todayStart = getStartOfDay(currentTime)
+    val todayDuration = segments.sumOf { calculateOverlapWithToday(it.startTime, it.endTime ?: (it.startTime + it.duration), todayStart) }
+    val taskColor = Color(majorityKind.colorValue)
+    val percentage = calculatePercentageOfDay(todayDuration, todayStart)
+    val allSaved = segments.all { it.savedToCalendar }
+    val someSaved = segments.any { it.savedToCalendar }
+    val isCalendarSession = segments.any { it.id.startsWith("cal_") }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.1f))
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(taskColor)
+                        .clickable { onClick() }
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f).clickable { onClick() }) {
+                    Text(text = sessionName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = "${segments.size} segments • ${formatDetailedDuration(todayDuration)} • $percentage",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (allSaved && !isCalendarSession) {
+                        val latestSaveAt = segments.mapNotNull { it.savedToCalendarAt }.maxOrNull() ?: 0L
+                        val remaining = 86400000 - (currentTime - latestSaveAt)
+                        if (remaining > 0) {
+                            Text(text = "Auto-delete in: ${formatDetailedDuration(remaining)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                TaskKindChip(kind = majorityKind)
+                Spacer(Modifier.width(4.dp))
+                if (isCalendarSession) {
+                    IconButton(onClick = { openInSystemCalendar(context, segments.first()) }) {
+                        Icon(Icons.Default.EventAvailable, contentDescription = "Open in Calendar", tint = Success, modifier = Modifier.size(20.dp))
+                    }
+                } else {
+                    if (allSaved) Icon(Icons.Default.EventAvailable, null, modifier = Modifier.size(20.dp), tint = Success)
+                    else if (someSaved) Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(20.dp), tint = PurplePrimary)
+                    IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp)) }
+                }
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(32.dp)) {
+                    Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HorizontalDivider(color = taskColor.copy(alpha = 0.3f), modifier = Modifier.padding(bottom = 2.dp))
+                    segments.sortedByDescending { it.startTime }.forEach { segment ->
+                        SegmentRow(
+                            segment = segment,
+                            isSelected = segment.id in selectedTaskIds,
+                            onClick = { onSegmentClick(segment) },
+                            onLongClick = { onSegmentLongClick(segment) },
+                            onToggleCalendar = { /* Handled in dialog */ },
+                            onAddToCalendar = { addToGoogleCalendar(context, segment) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SegmentRow(
+    segment: Task,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleCalendar: () -> Unit,
+    onAddToCalendar: () -> Unit
+) {
+    val context = LocalContext.current
+    val segmentColor = Color(segment.kind.colorValue)
+    val isCalendarTask = segment.id.startsWith("cal_")
+    val percentage = calculatePercentageOfDay(segment.duration, segment.startTime)
+    val backgroundColor by animateColorAsState(if (isSelected) MaterialTheme.colorScheme.primaryContainer else segmentColor.copy(alpha = 0.08f))
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        color = backgroundColor,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.width(2.dp).height(28.dp).clip(RoundedCornerShape(2.dp)).background(if (isSelected) MaterialTheme.colorScheme.primary else segmentColor.copy(alpha = 0.7f)))
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = segment.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (isSelected) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Text(text = "${formatDetailedDuration(segment.duration)} • $percentage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TaskKindChip(kind = segment.kind, modifier = Modifier.scale(0.85f))
+            Spacer(Modifier.width(2.dp))
+            if (isCalendarTask) {
+                IconButton(onClick = { openInSystemCalendar(context, segment) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.EventAvailable, "Open in Calendar", tint = Success, modifier = Modifier.size(18.dp))
+                }
+            } else {
+                IconButton(onClick = { if (!segment.savedToCalendar) onAddToCalendar(); onToggleCalendar() }, modifier = Modifier.size(32.dp)) {
+                    Icon(if (segment.savedToCalendar) Icons.Default.EventAvailable else Icons.Outlined.CalendarToday, null, tint = if (segment.savedToCalendar) Success else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
+}
+
 
 fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
     val total = segments.size; val savedLocal = segments.count { it.savedToCalendar }; val savedCalendar = segments.count { it.id.startsWith("cal_") }

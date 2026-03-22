@@ -94,11 +94,8 @@ fun TaskHistoryScreen(
                             selectedTaskIds = selectedTaskIds,
                             onClick = { selectedSessionGroupId = session.first().groupId },
                             onDelete = { viewModel.deleteSession(session.first().groupId) },
-                            onSegmentLongClick = { viewModel.toggleTaskSelection(it.id) },
-                            onSegmentClick = { 
-                                if (isSelectionMode) viewModel.toggleTaskSelection(it.id) 
-                                else selectedTaskId = it.id 
-                            }
+                            onSegmentClick = { task -> selectedTaskId = task.id },
+                            onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) }
                         )
                     } else {
                         val task = session.first()
