@@ -94,9 +94,9 @@ fun TaskTrackerScreen(
     val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
 
-    val totalScore by viewModel.totalScore.collectAsState()
-    val personalScore by viewModel.personalScore.collectAsState()
-    val socialScore by viewModel.socialScore.collectAsState()
+    val totalScore by viewModel.totalScoreToday.collectAsState()
+    val personalScore by viewModel.personalScoreToday.collectAsState()
+    val socialScore by viewModel.socialScoreToday.collectAsState()
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }

@@ -80,25 +80,48 @@ class TaskTrackerViewModel @Inject constructor(
 
     private val originalTaskStates = mutableMapOf<String, Pair<String, TaskKind>>()
 
-    val personalScore: StateFlow<Int> = _completedSessions.map { sessions ->
+    val personalScoreToday: StateFlow<Int> = _completedSessions.map { sessions ->
         sessions.flatten()
             .filter { it.startTime >= getTodayStart() && it.kind.category.name == "PERSONAL" }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val socialScore: StateFlow<Int> = _completedSessions.map { sessions ->
+    val socialScoreToday: StateFlow<Int> = _completedSessions.map { sessions ->
         sessions.flatten()
             .filter { it.startTime >= getTodayStart() && it.kind.category.name == "SOCIAL" }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val totalScore: StateFlow<Int> = _completedSessions.map { sessions ->
+    val totalScoreToday: StateFlow<Int> = _completedSessions.map { sessions ->
         sessions.flatten().filter { it.startTime >= getTodayStart() }.sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val scoreBreakdown: StateFlow<List<Pair<TaskKind, Int>>> = _completedSessions.map { sessions ->
+    val personalScoreLifetime: StateFlow<Int> = _completedSessions.map { sessions ->
+        sessions.flatten()
+            .filter { it.kind.category.name == "PERSONAL" }
+            .sumOf { it.score }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val socialScoreLifetime: StateFlow<Int> = _completedSessions.map { sessions ->
+        sessions.flatten()
+            .filter { it.kind.category.name == "SOCIAL" }
+            .sumOf { it.score }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val totalScoreLifetime: StateFlow<Int> = _completedSessions.map { sessions ->
+        sessions.flatten().sumOf { it.score }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = _completedSessions.map { sessions ->
         sessions.flatten()
             .filter { it.startTime >= getTodayStart() }
+            .groupBy { it.kind }
+            .map { (kind, tasks) -> kind to tasks.size }
+            .sortedByDescending { it.second }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val scoreBreakdownLifetime: StateFlow<List<Pair<TaskKind, Int>>> = _completedSessions.map { sessions ->
+        sessions.flatten()
             .groupBy { it.kind }
             .map { (kind, tasks) -> kind to tasks.size }
             .sortedByDescending { it.second }
