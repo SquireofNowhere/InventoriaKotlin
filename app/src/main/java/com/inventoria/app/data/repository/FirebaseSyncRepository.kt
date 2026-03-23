@@ -31,6 +31,8 @@ class FirebaseSyncRepository @Inject constructor(
     private var userRef: DatabaseReference? = null
     private var syncJobs = mutableListOf<Job>()
 
+    fun isSyncing(): Boolean = syncIgnoreCount.get() > 0
+
     fun startSync() {
         repositoryScope.launch {
             settingsRepository.manualSyncId.collect { manualId ->
