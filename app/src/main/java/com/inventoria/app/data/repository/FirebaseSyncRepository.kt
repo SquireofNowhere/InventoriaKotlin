@@ -62,7 +62,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Items
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("items"),
-            localFlow = inventoryDao.getAllItems(),
+            localFlow = inventoryDao.getAllItemsForSync(),
             pushAction = { ref, items -> pushItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullItemsFromFirebase(snapshot) }
         ))
@@ -78,7 +78,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Tasks
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("tasks"),
-            localFlow = taskDao.getAllTasks(),
+            localFlow = taskDao.getAllTasksForSync(),
             pushAction = { ref, tasks -> pushTasksToFirebase(ref, tasks) },
             pullAction = { snapshot -> pullTasksFromFirebase(snapshot) }
         ))
@@ -322,9 +322,9 @@ class FirebaseSyncRepository @Inject constructor(
                 _syncStatus.value = SyncStatus.Syncing
                 
                 // Sequential push of all local data to ensure Firebase is up to date
-                pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsList())
+                pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList())
                 pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList())
-                pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksList())
+                pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList())
                 pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList())
                 pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList())
                 

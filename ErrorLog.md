@@ -224,4 +224,19 @@ Deleting a task locally would correctly set `isDeleted = 1`. However, if the syn
 - **DAO Extensions**: Added `getLink` and `getCollectionItem` methods to `ItemLinkDao` and `CollectionDao` respectively to support these lookups for models with composite keys.
 
 ---
-*Last Updated: 2024-05-24*
+
+## 🐞 16. Deletions Not Propagating Across Devices
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Deleting an item or task on one device would not propagate to other devices. The deleted record would disappear locally but remain on other devices because the cloud node push omitted soft-deleted records.
+
+### 🔍 Root Cause
+- **Omission from Sync Flow**: The DAO queries used by the sync engine (`getAllTasks()` and `getAllItems()`) explicitly filtered out records where `isDeleted = 1`. Therefore, when a record was marked as deleted, it fell out of the synchronization stream and the cloud was never informed of the deletion.
+
+### 🛠️ Final Fix
+- **Sync-Specific Queries**: Created `getAllTasksForSync()` and `getAllItemsForSync()` in the DAOs that query all records regardless of their `isDeleted` status (ordering by `updatedAt DESC`).
+- **Sync Repository Update**: Switched `FirebaseSyncRepository` to use these new sync-specific queries. Now, when a record is soft-deleted locally, the updated record (with `isDeleted = true`) is pushed to Firebase and correctly processed by other devices during their pull cycles.
+
+---
+*Last Updated: 2026-03-23*

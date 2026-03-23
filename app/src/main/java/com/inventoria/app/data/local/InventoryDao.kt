@@ -9,6 +9,12 @@ interface InventoryDao {
     @Query("SELECT * FROM InventoryItem WHERE isDeleted = 0")
     fun getAllItems(): Flow<List<InventoryItem>>
 
+    @Query("SELECT * FROM InventoryItem ORDER BY updatedAt DESC")
+    fun getAllItemsForSync(): Flow<List<InventoryItem>>
+
+    @Query("SELECT * FROM InventoryItem")
+    suspend fun getAllItemsForSyncList(): List<InventoryItem>
+
     @Query("SELECT * FROM InventoryItem WHERE isDeleted = 0")
     suspend fun getAllItemsList(): List<InventoryItem>
 
