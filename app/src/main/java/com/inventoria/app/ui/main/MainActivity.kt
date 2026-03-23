@@ -26,17 +26,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                Log.d("MainActivity", "App in foreground, triggering sync")
-                inventoryViewModel.triggerManualSync()
+            Log.d("MainActivity", "Performing initial app-open sync")
+            inventoryViewModel.syncOnAppOpen()
+
+            setContent {
+                val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
+                
+                InventoriaTheme(darkTheme = isDarkMode) {
+                    InventoriaApp()
+                }
             }
         }
 
-        setContent {
-            val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
-            
-            InventoriaTheme(darkTheme = isDarkMode) {
-                InventoriaApp()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Log.d("MainActivity", "App in foreground, triggering background sync")
+                inventoryViewModel.triggerManualSync()
             }
         }
     }

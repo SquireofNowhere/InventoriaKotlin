@@ -55,6 +55,9 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Custom Fields**: Add arbitrary key-value metadata to any inventory item.
 *   **Modern Material 3 UI**: Clean, responsive interface with Dark Mode support and dynamic theming.
 
+## 🚀 Upcoming Features (TODO)
+*   **Productivity Pie Chart**: Add a circular visualization to the daily productivity card in the Tasks screen. This chart should outline the full 24 hours of the day and visually represent how time was spent across different task kinds.
+
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
 - **Database**: Room (Local), Firebase Realtime Database (Cloud Sync)

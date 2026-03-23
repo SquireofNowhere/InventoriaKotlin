@@ -574,4 +574,8 @@ class InventoryListViewModel @Inject constructor(
     fun triggerManualSync() {
         syncRepository.triggerFullSync()
     }
+
+    suspend fun syncOnAppOpen() {
+        syncRepository.syncOnAppOpen()
+    }
 }

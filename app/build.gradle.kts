@@ -127,6 +127,11 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.preference.ktx)
 
+    // WorkManager
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.hilt.work)
+    kapt(libs.androidx.hilt.compiler)
+
     // Maps & UI
     implementation(libs.osmdroid)
     implementation(libs.coil.compose)

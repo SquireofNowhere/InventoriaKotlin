@@ -8,26 +8,30 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.ui.main.MainActivity
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.*
-import java.util.*
-import java.util.*
-import java.util.*
-import java.util.*
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class TaskTimerService : Service() {
     companion object {
         const val CHANNEL_ID = "task_tracker_channel"
         const val NOTIFICATION_ID = 1
     }
 
+    @Inject
+    lateinit var syncRepository: FirebaseSyncRepository
+
     private var isServiceRunning = false
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val binder = TimerBinder()
     
+    private var syncJob: Job? = null
     private val runningTasks = mutableMapOf<String, Pair<Long, Long>>() // id -> (startTime, prevDuration)
     private val taskNames = mutableMapOf<String, String>()
     
@@ -50,6 +54,7 @@ class TaskTimerService : Service() {
         if (!isServiceRunning) {
             isServiceRunning = true
             startTimerLoop()
+            startSyncLoop()
         }
         return START_STICKY
     }
@@ -65,6 +70,15 @@ class TaskTimerService : Service() {
                 _taskUpdates.value = updates
                 updateNotification(updates)
                 delay(1000L)
+            }
+        }
+    }
+
+    private fun startSyncLoop() {
+        syncJob = serviceScope.launch {
+            while (isActive) {
+                syncRepository.triggerFullSync()
+                delay(30_000L) // sync every 30 seconds while service is alive
             }
         }
     }
@@ -158,6 +172,7 @@ class TaskTimerService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        syncJob?.cancel()
         serviceScope.cancel()
     }
 }

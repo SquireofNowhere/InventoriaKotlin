@@ -54,6 +54,12 @@
                 android:value="Task timing and tracking for inventory management"/>
         </service>
 
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            xmlns:tools="http://schemas.android.com/tools"
+            tools:node="merge" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:exported="false"

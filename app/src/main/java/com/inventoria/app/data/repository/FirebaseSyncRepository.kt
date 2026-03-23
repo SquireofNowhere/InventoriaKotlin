@@ -317,31 +317,39 @@ class FirebaseSyncRepository @Inject constructor(
 
     fun triggerFullSync() {
         Log.d(TAG, "Manual sync triggered")
-        val ref = userRef ?: return
-        
         repositoryScope.launch {
-            try {
-                _syncStatus.value = SyncStatus.Syncing
-                
-                // Sequential push of all local data to ensure Firebase is up to date
-                pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList())
-                pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList())
-                pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList())
-                pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList())
-                pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList())
-                
-                // Sequential pull of all remote data to ensure Local is up to date
-                pullItemsFromFirebase(ref.child("items").get().await())
-                pullLinksFromFirebase(ref.child("item_links").get().await())
-                pullTasksFromFirebase(ref.child("tasks").get().await())
-                pullCollectionsFromFirebase(ref.child("collections").get().await())
-                pullCollectionItemsFromFirebase(ref.child("collection_items").get().await())
-                
-                _syncStatus.value = SyncStatus.Synced
-            } catch (e: Exception) {
-                Log.e(TAG, "Full sync failed", e)
-                _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
-            }
+            syncOnAppOpen()
+        }
+    }
+
+    suspend fun syncOnAppOpen() {
+        val userId = authRepository.getOrCreateUserId()
+        val ref = firebaseDatabase.getReference("users").child(userId)
+        userRef = ref
+
+        try {
+            _syncStatus.value = SyncStatus.Syncing
+            Log.d(TAG, "Performing pull-first sync on app open")
+
+            // 1. Pull first to overwrite stale local state
+            pullItemsFromFirebase(ref.child("items").get().await())
+            pullLinksFromFirebase(ref.child("item_links").get().await())
+            pullTasksFromFirebase(ref.child("tasks").get().await())
+            pullCollectionsFromFirebase(ref.child("collections").get().await())
+            pullCollectionItemsFromFirebase(ref.child("collection_items").get().await())
+
+            // 2. Then push local changes
+            pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList())
+            pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList())
+            pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList())
+            pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList())
+            pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList())
+
+            _syncStatus.value = SyncStatus.Synced
+            Log.d(TAG, "App open sync completed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "App open sync failed", e)
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
         }
     }
 }

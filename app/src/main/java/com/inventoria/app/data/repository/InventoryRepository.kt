@@ -37,6 +37,7 @@ class InventoryRepository @Inject constructor(
             try {
                 authRepository.getOrCreateUserId()
                 syncRepository.startSync()
+                syncRepository.syncOnAppOpen()
                 Log.d("InventoryRepository", "Firebase sync initialized successfully")
             } catch (e: Exception) {
                 Log.e("InventoryRepository", "Failed to initialize Firebase sync", e)
