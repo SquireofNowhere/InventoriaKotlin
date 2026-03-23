@@ -642,11 +642,10 @@ fun InventoryItemRow(
                     }
                 }
             },
-            supportingContent = { 
+            supportingContent = {
                 Column {
-                    Text(item.location, style = MaterialTheme.typography.bodySmall)
-                    if (item.category != null) {
-                        Text(item.category!!, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(item.getDisplayLocation(), style = MaterialTheme.typography.bodySmall)
+                    if (item.category != null) {                        Text(item.category!!, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             },

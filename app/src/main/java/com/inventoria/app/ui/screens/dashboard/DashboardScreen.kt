@@ -322,7 +322,7 @@ fun RecentItemCard(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    item.location,
+                    item.getDisplayLocation(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

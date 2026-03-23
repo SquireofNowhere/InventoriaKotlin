@@ -39,6 +39,10 @@ data class InventoryItem(
         return profilePictureUrl ?: imageUrls.firstOrNull()
     }
 
+    fun getDisplayLocation(): String {
+        return if (equipped) "Equipped (On Person)" else location
+    }
+
     fun getParsedTags(): List<String> {
         return category?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
     }

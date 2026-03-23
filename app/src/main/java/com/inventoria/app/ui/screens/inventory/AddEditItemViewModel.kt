@@ -202,13 +202,23 @@ class AddEditItemViewModel @Inject constructor(
                 "${geoPoint.latitude}, ${geoPoint.longitude}"
             } else {
                 val addr = addresses[0]
-                listOfNotNull(
-                    addr.subThoroughfare,
-                    addr.thoroughfare,
-                    addr.subLocality,
-                    addr.locality,
-                    addr.countryName
-                ).joinToString(", ")
+                val streetNumber = addr.subThoroughfare ?: ""
+                val streetName = addr.thoroughfare ?: ""
+                val neighborhood = addr.subLocality ?: addr.locality ?: ""
+                
+                val streetLine = if (streetNumber.isNotEmpty() && streetName.isNotEmpty()) {
+                    "$streetNumber $streetName"
+                } else {
+                    streetName.ifEmpty { streetNumber }
+                }
+                
+                if (streetLine.isNotEmpty() && neighborhood.isNotEmpty()) {
+                    "$streetLine, $neighborhood"
+                } else if (streetLine.isNotEmpty()) {
+                    streetLine
+                } else {
+                    neighborhood.ifEmpty { "${geoPoint.latitude}, ${geoPoint.longitude}" }
+                }
             }
         } catch (e: Exception) {
             "${geoPoint.latitude}, ${geoPoint.longitude}"

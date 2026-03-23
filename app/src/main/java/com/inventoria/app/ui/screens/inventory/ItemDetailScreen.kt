@@ -206,7 +206,7 @@ fun ItemDetailScreen(
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             Column {
-                                Text(item.location, style = MaterialTheme.typography.bodyMedium)
+                                Text(item.getDisplayLocation(), style = MaterialTheme.typography.bodyMedium)
                                 if (item.latitude != null && item.longitude != null) {
                                     Text("View on Map", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }

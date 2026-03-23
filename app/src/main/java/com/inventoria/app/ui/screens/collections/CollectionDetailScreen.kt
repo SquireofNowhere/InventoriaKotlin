@@ -207,7 +207,7 @@ fun CollectionDetailScreen(
 
     if (showUnequipCollectionDialog) {
         val containerNames = remember(uiState.filteredItems) {
-            uiState.filteredItems.mapNotNull { it.location }.toSet()
+            uiState.filteredItems.mapNotNull { it.getDisplayLocation() }.toSet()
         }
         CollectionUnequipRepackDialog(
             containerNames = containerNames,
