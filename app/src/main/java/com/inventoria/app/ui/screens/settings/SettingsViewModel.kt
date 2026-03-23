@@ -79,6 +79,22 @@ class SettingsViewModel @Inject constructor(
         _authState.value = AuthState.Idle
     }
 
+    fun deleteAccount() {
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+            val result = authRepository.deleteUserAccount()
+            if (result.isSuccess) {
+                _authState.value = AuthState.Idle
+            } else {
+                _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Failed to delete account")
+            }
+        }
+    }
+
+    fun clearAuthState() {
+        _authState.value = AuthState.Idle
+    }
+
     fun toggleDarkMode(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.toggleDarkMode(enabled)

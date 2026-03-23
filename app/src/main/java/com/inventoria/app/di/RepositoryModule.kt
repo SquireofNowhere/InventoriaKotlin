@@ -24,9 +24,11 @@ class RepositoryModule {
     fun provideFirebaseAuthRepository(
         auth: FirebaseAuth,
         googleSignInClient: GoogleSignInClient,
-        settingsRepository: SettingsRepository
+        settingsRepository: SettingsRepository,
+        firebaseDatabase: FirebaseDatabase,
+        firebaseStorage: FirebaseStorage
     ): FirebaseAuthRepository {
-        return FirebaseAuthRepository(auth, googleSignInClient, settingsRepository)
+        return FirebaseAuthRepository(auth, googleSignInClient, settingsRepository, firebaseDatabase, firebaseStorage)
     }
 
     @Provides

@@ -63,3 +63,26 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 - **Asynchronous**: Kotlin Coroutines & Flow
 - **Maps**: OSMDroid (Location picking)
 - **Architecture**: MVVM with Repository Pattern
+
+## 🗑️ Data Management & Account Deletion
+
+To permanently wipe all your data and start fresh, the app supports complete account deletion.
+
+### Automated Deletion (In-App)
+*(If exposed in the UI)* Calling the `deleteUserAccount()` function from the settings will automatically:
+1. Delete your entire user branch (`users/{uid}`) from the **Firebase Realtime Database**.
+2. Delete all your uploaded images (`users/{uid}/item_images`) from **Firebase Storage**.
+3. Delete your **Firebase Authentication** record.
+4. Log you out of the Google Client.
+
+### Manual Deletion (Fallback / Hard Reset)
+To force the app to start a new database manually:
+1. **Clear Local App Data:**
+   - Go to your device's **Settings > Apps > Inventoria > Storage & cache** and tap **Clear storage**.
+2. **Delete Cloud Data (Firebase Console):**
+   - Open your project in the [Firebase Console](https://console.firebase.google.com/).
+   - Navigate to **Realtime Database**, find the `users` node, and delete your specific user ID (UID) node.
+3. **Delete Cloud Images:**
+   - Navigate to **Storage** and delete the folder corresponding to your UID.
+4. **Restart Fresh:**
+   - Open the app again and sign in. A new, empty database will be initialized.

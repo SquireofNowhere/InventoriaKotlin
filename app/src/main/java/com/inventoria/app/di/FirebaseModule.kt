@@ -7,6 +7,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.storage.FirebaseStorage
+import com.inventoria.app.BuildConfig
 import com.inventoria.app.R
 import dagger.Module
 import dagger.Provides
@@ -26,22 +27,20 @@ class FirebaseModule {
     @Provides
     @Singleton
     fun provideFirebaseDatabase(): FirebaseDatabase {
-        val url = "https://inventoriaus-default-rtdb.firebaseio.com"
-        return FirebaseDatabase.getInstance(url)
+        return FirebaseDatabase.getInstance(BuildConfig.FIREBASE_DATABASE_URL)
     }
 
     @Provides
     @Singleton
     fun provideFirebaseStorage(): FirebaseStorage {
-        val bucketUrl = "gs://inventoriaus.firebasestorage.app"
-        return FirebaseStorage.getInstance(bucketUrl)
+        return FirebaseStorage.getInstance(BuildConfig.FIREBASE_STORAGE_BUCKET)
     }
 
     @Provides
     @Singleton
-    fun provideGoogleSignInOptions(@ApplicationContext context: Context): GoogleSignInOptions {
+    fun provideGoogleSignInOptions(): GoogleSignInOptions {
         return GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestIdToken(BuildConfig.DEFAULT_WEB_CLIENT_ID)
             .requestEmail()
             .build()
     }

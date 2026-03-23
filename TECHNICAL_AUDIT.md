@@ -47,4 +47,18 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 - **Status**: The actual project package is `com.inventoria.app`. This test will always fail until updated to match the current project structure.
 
 ---
+
+## ✅ Resolved & Implemented Features
+
+### 9. Custom Username on Splash
+- **Implemented**: `SplashScreenContent` now reads `customUsername` from `SettingsRepository`.
+- **Logic**: Greets the user with "Welcome back, [Name]" if a custom name or Google display name is available.
+
+### 10. Automatic Splash Navigation
+- **Implemented**: The splash screen now automatically navigates to the main screen if any account (Google or Local Anonymous) exists, eliminating the need for returning users to press a button.
+
+### 11. Local Account Management
+- **Implemented**: `SettingsScreen` now allows local account users to set a custom display name, which is persisted and shown on the splash screen.
+
+---
 *Audit Conducted: 2026-03-23*

@@ -256,4 +256,20 @@ Attempting to sign in with Google fails immediately, returning an `ApiException:
 - **OAuth Console**: Verify that the OAuth consent screen is configured and published in the Google Cloud Console.
 
 ---
+
+## 🐞 18. Task Segment Update Target Mismatch
+**Status:** 🚨 Unresolved / Investigation Required
+
+### 📝 Problem
+In running sessions, when a user changes the type (TaskKind) of the currently running segment, the update is incorrectly applied to the most recent *completed* segment in that session instead of the active one.
+
+### 🔍 Root Cause
+- **Index/Targeting Logic**: The `ActiveSessionCard` uses a `refTask` (calculated as `activeSegment?.task ?: session.segments.firstOrNull()`) to populate the `TaskKindDropdownMenu`. When `onUpdateKind` is fired, it calls `viewModel.updateSessionKind(session.groupId, it)`.
+- **Session-Wide vs. Segment-Specific**: The `updateSessionKind` method currently updates the *entire session's* default kind or targets the wrong record in the DAO because it doesn't specifically distinguish between the "active" segment and the "history" segments within that group.
+
+### 🛠️ Proposed Fix (Pending)
+- **Specific Targeting**: Ensure `updateSessionKind` specifically targets the task ID of the active segment if one exists, rather than applying a blanket update to the `groupId`.
+- **UI State Verification**: Verify that the `TaskKindDropdownMenu` in `ActiveSessionCard` is correctly passing the intent to update the *running* task specifically.
+
+---
 *Last Updated: 2026-03-23*

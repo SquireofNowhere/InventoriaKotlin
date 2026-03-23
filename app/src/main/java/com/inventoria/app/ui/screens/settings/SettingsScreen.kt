@@ -13,7 +13,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -130,6 +140,7 @@ fun SettingsScreen(
                     launcher.launch(viewModel.getGoogleSignInIntent())
                 },
                 onSignOutClick = { viewModel.signOut() },
+                onDeleteAccountClick = { viewModel.deleteAccount() },
                 onManualSyncIdChange = { viewModel.setManualSyncId(it) }
             )
 
@@ -244,10 +255,54 @@ fun AccountSection(
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
+    onDeleteAccountClick: () -> Unit,
     onManualSyncIdChange: (String?) -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Account & Database?") },
+            text = { 
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Are you sure? This will permanently DESTROY the entire cloud database branch for ID:")
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = currentUserId ?: "Unknown ID",
+                            modifier = Modifier.padding(8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text("This wipes your identity, every database record, and all stored images. This cannot be undone.")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteAccountClick()
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete Everything", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -271,6 +326,7 @@ fun AccountSection(
                         onValueChange = { tempUsername = it },
                         label = { Text("Custom Username") },
                         modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text("Shown on the splash screen") },
                         trailingIcon = {
                             if (tempUsername != (customUsername ?: "")) {
                                 IconButton(onClick = { onUsernameChange(tempUsername) }) {
@@ -283,7 +339,7 @@ fun AccountSection(
                     Button(
                         onClick = onSignOutClick,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                     ) {
                         Text("Sign Out")
                     }
@@ -298,6 +354,39 @@ fun AccountSection(
                 else -> {
                     Text("Sync your inventory across devices by signing in.")
                     SignInButton(onSignInClick)
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Text("Display Name", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                    var tempUsername by remember(customUsername) { mutableStateOf(customUsername ?: "") }
+                    OutlinedTextField(
+                        value = tempUsername,
+                        onValueChange = { tempUsername = it },
+                        label = { Text("Custom Username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text("Shown on the splash screen") },
+                        trailingIcon = {
+                            if (tempUsername != (customUsername ?: "")) {
+                                IconButton(onClick = { onUsernameChange(tempUsername) }) {
+                                    Icon(Icons.Default.Check, contentDescription = "Save")
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (currentUserId != null) {
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.error))
+                ) {
+                    Icon(Icons.Default.DeleteForever, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (authState is AuthState.Authenticated) "Delete Account" else "Wipe Local Account Data")
                 }
             }
 
