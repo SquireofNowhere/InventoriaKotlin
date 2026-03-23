@@ -239,4 +239,21 @@ Deleting an item or task on one device would not propagate to other devices. The
 - **Sync Repository Update**: Switched `FirebaseSyncRepository` to use these new sync-specific queries. Now, when a record is soft-deleted locally, the updated record (with `isDeleted = true`) is pushed to Firebase and correctly processed by other devices during their pull cycles.
 
 ---
+
+## 🐞 17. Google Sign-In Failure (Error 12500)
+**Status:** 🚨 Unresolved / Investigation Required
+
+### 📝 Problem
+Attempting to sign in with Google fails immediately, returning an `ApiException: 12500` error code. This prevents users from accessing cloud sync features and backing up their data.
+
+### 🔍 Root Cause
+- **Configuration Mismatch**: Error 12500 is a generic "Internal Error" from Google Play Services, frequently caused by missing SHA-1 fingerprints in the Firebase Console or a misconfigured OAuth consent screen.
+- **Client ID Issues**: The `web_client_id` used for the sign-in request might not match the one configured for the current environment in the Google Cloud Console.
+
+### 🛠️ Proposed Fix (Pending)
+- **Certificate Verification**: Ensure that the SHA-1 certificates for both debug and release builds are added to the Firebase project settings.
+- **Client ID Check**: Double-check the `google-services.json` file and verify that the correct client ID is being passed to the `GoogleSignInOptions`.
+- **OAuth Console**: Verify that the OAuth consent screen is configured and published in the Google Cloud Console.
+
+---
 *Last Updated: 2026-03-23*
