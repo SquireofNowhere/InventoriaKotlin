@@ -15,14 +15,6 @@
       },
       "oauth_client": [
         {
-          "client_id": "572243958143-cu0q6ut0s85fkh1fc3psdebb5vm5mm6v.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.inventoria.app",
-            "certificate_hash": "7a18210047527b915954d20dc0127b0ed1f73f3e"
-          }
-        },
-        {
           "client_id": "572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com",
           "client_type": 3
         }
