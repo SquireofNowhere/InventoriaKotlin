@@ -6,6 +6,20 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ItemLinkDao {
+    @Query("SELECT * FROM ItemLink WHERE isDirty = 1")
+    fun getDirtyLinksFlow(): Flow<List<ItemLink>>
+
+    @Query("SELECT * FROM ItemLink WHERE isDirty = 1")
+    suspend fun getDirtyLinksList(): List<ItemLink>
+
+    @Query("UPDATE ItemLink SET isDirty = 0 WHERE followerId = :followerId AND leaderId = :leaderId")
+    suspend fun markLinkClean(followerId: Long, leaderId: Long)
+
+    @Transaction
+    suspend fun markLinksClean(links: List<ItemLink>) {
+        links.forEach { markLinkClean(it.followerId, it.leaderId) }
+    }
+
     @Query("SELECT * FROM ItemLink")
     fun getAllLinksFlow(): Flow<List<ItemLink>>
 

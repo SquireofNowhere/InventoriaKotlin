@@ -12,6 +12,15 @@ interface InventoryDao {
     @Query("SELECT * FROM InventoryItem ORDER BY updatedAt DESC")
     fun getAllItemsForSync(): Flow<List<InventoryItem>>
 
+    @Query("SELECT * FROM InventoryItem WHERE isDirty = 1")
+    fun getDirtyItemsFlow(): Flow<List<InventoryItem>>
+
+    @Query("SELECT * FROM InventoryItem WHERE isDirty = 1")
+    suspend fun getDirtyItemsList(): List<InventoryItem>
+
+    @Query("UPDATE InventoryItem SET isDirty = 0 WHERE id IN (:itemIds)")
+    suspend fun markItemsClean(itemIds: List<Long>)
+
     @Query("SELECT * FROM InventoryItem")
     suspend fun getAllItemsForSyncList(): List<InventoryItem>
 
@@ -72,16 +81,16 @@ interface InventoryDao {
     @Delete
     suspend fun deleteItem(item: InventoryItem)
 
-    @Query("UPDATE InventoryItem SET isDeleted = 1, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE InventoryItem SET isDeleted = 1, updatedAt = :updateTime, isDirty = 1 WHERE id = :itemId")
     suspend fun deleteItemById(itemId: Long, updateTime: Long = System.currentTimeMillis())
 
-    @Query("UPDATE InventoryItem SET quantity = :newQuantity, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE InventoryItem SET quantity = :newQuantity, updatedAt = :updateTime, isDirty = 1 WHERE id = :itemId")
     suspend fun updateQuantity(itemId: Long, newQuantity: Int, updateTime: Long = System.currentTimeMillis())
 
-    @Query("UPDATE InventoryItem SET quantity = quantity + :amount, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE InventoryItem SET quantity = quantity + :amount, updatedAt = :updateTime, isDirty = 1 WHERE id = :itemId")
     suspend fun incrementQuantity(itemId: Long, amount: Int, updateTime: Long = System.currentTimeMillis())
 
-    @Query("UPDATE InventoryItem SET quantity = quantity - :amount, updatedAt = :updateTime WHERE id = :itemId")
+    @Query("UPDATE InventoryItem SET quantity = quantity - :amount, updatedAt = :updateTime, isDirty = 1 WHERE id = :itemId")
     suspend fun decrementQuantity(itemId: Long, amount: Int, updateTime: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM InventoryItem")

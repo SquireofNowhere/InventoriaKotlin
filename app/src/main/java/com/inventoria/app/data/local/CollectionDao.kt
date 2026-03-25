@@ -7,6 +7,15 @@ import kotlinx.coroutines.flow.map
 
 @Dao
 interface CollectionDao {
+    @Query("SELECT * FROM InventoryCollection WHERE isDirty = 1")
+    fun getDirtyCollectionsFlow(): Flow<List<InventoryCollection>>
+
+    @Query("SELECT * FROM InventoryCollection WHERE isDirty = 1")
+    suspend fun getDirtyCollectionsList(): List<InventoryCollection>
+
+    @Query("UPDATE InventoryCollection SET isDirty = 0 WHERE id IN (:collectionIds)")
+    suspend fun markCollectionsClean(collectionIds: List<Long>)
+
     @Query("SELECT * FROM InventoryCollection")
     fun getAllCollections(): Flow<List<InventoryCollection>>
 
@@ -32,6 +41,20 @@ interface CollectionDao {
     suspend fun deleteCollection(collection: InventoryCollection)
 
     // Collection Item Relationships
+    @Query("SELECT * FROM InventoryCollectionItem WHERE isDirty = 1")
+    fun getDirtyCollectionItemsFlow(): Flow<List<InventoryCollectionItem>>
+
+    @Query("SELECT * FROM InventoryCollectionItem WHERE isDirty = 1")
+    suspend fun getDirtyCollectionItemsList(): List<InventoryCollectionItem>
+
+    @Query("UPDATE InventoryCollectionItem SET isDirty = 0 WHERE collectionId = :collectionId AND itemId = :itemId")
+    suspend fun markCollectionItemClean(collectionId: Long, itemId: Long)
+    
+    @Transaction
+    suspend fun markCollectionItemsClean(items: List<InventoryCollectionItem>) {
+        items.forEach { markCollectionItemClean(it.collectionId, it.itemId) }
+    }
+
     @Query("SELECT * FROM InventoryCollectionItem")
     fun getAllCollectionItemsFlow(): Flow<List<InventoryCollectionItem>>
 

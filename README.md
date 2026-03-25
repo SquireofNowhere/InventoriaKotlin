@@ -46,7 +46,8 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 
 ### ☁️ Sync & Security
 *   **Real-time Cloud Sync**: Firebase Realtime Database ensures data is identical across all your devices.
-*   **Conflict Resolution**: High-precision timestamping (`updatedAt`) to handle offline edits.
+*   **Incremental Merging**: Uses an `isDirty` flag system to surgicaly sync only local changes, preventing accidental overwrites during simultaneous device usage.
+*   **Conflict Resolution**: High-precision timestamping (`updatedAt`) handles offline edits and ensures the latest version prevails.
 *   **Google Authentication**: Securely sign in and back up your data to the cloud.
 *   **Soft Deletion**: All data is soft-deleted first, allowing for recovery or cleanup during sync.
 

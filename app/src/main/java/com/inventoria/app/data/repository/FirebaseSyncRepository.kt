@@ -64,7 +64,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Items
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("items"),
-            localFlow = inventoryDao.getAllItemsForSync(),
+            localFlow = inventoryDao.getDirtyItemsFlow(),
             pushAction = { ref, items -> pushItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullItemsFromFirebase(snapshot) }
         ))
@@ -72,7 +72,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Item Links
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("item_links"),
-            localFlow = itemLinkDao.getAllLinksFlow(),
+            localFlow = itemLinkDao.getDirtyLinksFlow(),
             pushAction = { ref, links -> pushLinksToFirebase(ref, links) },
             pullAction = { snapshot -> pullLinksFromFirebase(snapshot) }
         ))
@@ -80,7 +80,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Tasks
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("tasks"),
-            localFlow = taskDao.getAllTasksForSync(),
+            localFlow = taskDao.getDirtyTasksFlow(),
             pushAction = { ref, tasks -> pushTasksToFirebase(ref, tasks) },
             pullAction = { snapshot -> pullTasksFromFirebase(snapshot) }
         ))
@@ -88,7 +88,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Collections
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("collections"),
-            localFlow = collectionDao.getAllCollections(),
+            localFlow = collectionDao.getDirtyCollectionsFlow(),
             pushAction = { ref, colls -> pushCollectionsToFirebase(ref, colls) },
             pullAction = { snapshot -> pullCollectionsFromFirebase(snapshot) }
         ))
@@ -96,7 +96,7 @@ class FirebaseSyncRepository @Inject constructor(
         // Sync Collection Items
         syncJobs.add(setupNodeSync(
             nodeRef = rootRef.child("collection_items"),
-            localFlow = collectionDao.getAllCollectionItemsFlow(),
+            localFlow = collectionDao.getDirtyCollectionItemsFlow(),
             pushAction = { ref, items -> pushCollectionItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullCollectionItemsFromFirebase(snapshot) }
         ))
@@ -167,10 +167,12 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushItemsToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
+        if (items.isEmpty()) return
         try {
             _syncStatus.value = SyncStatus.Syncing
-            val updates = items.associateBy { it.id.toString() }
-            ref.setValue(updates).await()
+            val updates = items.associate { it.id.toString() to it }
+            ref.updateChildren(updates).await()
+            inventoryDao.markItemsClean(items.map { it.id })
             _syncStatus.value = SyncStatus.Synced
         } catch (e: Exception) {
             Log.e(TAG, "Push items failed", e)
@@ -201,9 +203,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushLinksToFirebase(ref: DatabaseReference, links: List<ItemLink>) {
+        if (links.isEmpty()) return
         try {
-            val updates = links.associateBy { "${it.followerId}_${it.leaderId}" }
-            ref.setValue(updates).await()
+            val updates = links.associate { "${it.followerId}_${it.leaderId}" to it }
+            ref.updateChildren(updates).await()
+            itemLinkDao.markLinksClean(links)
         } catch (e: Exception) {
             Log.e(TAG, "Push links failed", e)
         }
@@ -229,9 +233,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushTasksToFirebase(ref: DatabaseReference, tasks: List<Task>) {
+        if (tasks.isEmpty()) return
         try {
-            val updates = tasks.associateBy { it.id }
-            ref.setValue(updates).await()
+            val updates = tasks.associate { it.id to it }
+            ref.updateChildren(updates).await()
+            taskDao.markTasksClean(tasks.map { it.id })
         } catch (e: Exception) {
             Log.e(TAG, "Push tasks failed", e)
         }
@@ -260,9 +266,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushCollectionsToFirebase(ref: DatabaseReference, collections: List<InventoryCollection>) {
+        if (collections.isEmpty()) return
         try {
-            val updates = collections.associateBy { it.id.toString() }
-            ref.setValue(updates).await()
+            val updates = collections.associate { it.id.toString() to it }
+            ref.updateChildren(updates).await()
+            collectionDao.markCollectionsClean(collections.map { it.id })
         } catch (e: Exception) {
             Log.e(TAG, "Push collections failed", e)
         }
@@ -288,9 +296,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushCollectionItemsToFirebase(ref: DatabaseReference, items: List<InventoryCollectionItem>) {
+        if (items.isEmpty()) return
         try {
-            val updates = items.associateBy { "${it.collectionId}_${it.itemId}" }
-            ref.setValue(updates).await()
+            val updates = items.associate { "${it.collectionId}_${it.itemId}" to it }
+            ref.updateChildren(updates).await()
+            collectionDao.markCollectionItemsClean(items)
         } catch (e: Exception) {
             Log.e(TAG, "Push collection items failed", e)
         }
@@ -362,11 +372,11 @@ class FirebaseSyncRepository @Inject constructor(
 
                 // 2. Then push local changes (in parallel)
                 listOf(
-                    async { pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList()) },
-                    async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList()) },
-                    async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
-                    async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList()) },
-                    async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList()) }
+                    async { pushItemsToFirebase(ref.child("items"), inventoryDao.getDirtyItemsList()) },
+                    async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getDirtyLinksList()) },
+                    async { pushTasksToFirebase(ref.child("tasks"), taskDao.getDirtyTasksList()) },
+                    async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getDirtyCollectionsList()) },
+                    async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getDirtyCollectionItemsList()) }
                 ).awaitAll()
             }
 

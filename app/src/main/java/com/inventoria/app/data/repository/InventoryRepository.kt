@@ -161,18 +161,18 @@ class InventoryRepository @Inject constructor(
 
     suspend fun insertItem(item: InventoryItem): Long = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
-        val itemToInsert = item.copy(createdAt = currentTime, updatedAt = currentTime)
+        val itemToInsert = item.copy(createdAt = currentTime, updatedAt = currentTime, isDirty = true)
         inventoryDao.insertItem(itemToInsert)
     }
 
     suspend fun updateItem(item: InventoryItem) = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItem(item.copy(updatedAt = currentTime))
+        inventoryDao.updateItem(item.copy(updatedAt = currentTime, isDirty = true))
     }
 
     suspend fun updateItems(items: List<InventoryItem>) = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItems(items.map { it.copy(updatedAt = currentTime) })
+        inventoryDao.updateItems(items.map { it.copy(updatedAt = currentTime, isDirty = true) })
     }
 
     suspend fun deleteItemById(id: Long) = withContext(Dispatchers.IO) {
@@ -194,7 +194,8 @@ class InventoryRepository @Inject constructor(
                 equipped = true,
                 parentId = null,
                 lastParentId = item.parentId,
-                updatedAt = currentTime
+                updatedAt = currentTime,
+                isDirty = true
             ))
         } else {
             // When unequipping, optionally repack
@@ -202,7 +203,8 @@ class InventoryRepository @Inject constructor(
             inventoryDao.updateItem(item.copy(
                 equipped = false,
                 parentId = newParentId,
-                updatedAt = currentTime
+                updatedAt = currentTime,
+                isDirty = true
             ))
         }
     }
@@ -238,7 +240,8 @@ class InventoryRepository @Inject constructor(
                 it.copy(
                     parentId = newParentId,
                     lastParentId = if (newParentId == null) it.parentId else it.lastParentId,
-                    updatedAt = currentTime
+                    updatedAt = currentTime,
+                    isDirty = true
                 )
             })
         }
@@ -256,7 +259,7 @@ class InventoryRepository @Inject constructor(
 
     suspend fun addLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
         if (followerId == leaderId) return@withContext
-        itemLinkDao.insertLink(ItemLink(followerId, leaderId))
+        itemLinkDao.insertLink(ItemLink(followerId, leaderId, isDirty = true))
         
         val itemsToTouch = listOfNotNull(
             inventoryDao.getItemById(followerId),
@@ -264,7 +267,7 @@ class InventoryRepository @Inject constructor(
         )
         if (itemsToTouch.isNotEmpty()) {
             val currentTime = getNextTimestamp()
-            inventoryDao.updateItems(itemsToTouch.map { it.copy(updatedAt = currentTime) })
+            inventoryDao.updateItems(itemsToTouch.map { it.copy(updatedAt = currentTime, isDirty = true) })
         }
     }
 
@@ -275,7 +278,7 @@ class InventoryRepository @Inject constructor(
 
     suspend fun touchItem(id: Long) {
         inventoryDao.getItemById(id)?.let {
-            inventoryDao.updateItem(it.copy(updatedAt = getNextTimestamp()))
+            inventoryDao.updateItem(it.copy(updatedAt = getNextTimestamp(), isDirty = true))
         }
     }
 

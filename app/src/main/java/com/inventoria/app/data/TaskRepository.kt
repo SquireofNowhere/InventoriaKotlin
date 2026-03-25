@@ -62,7 +62,7 @@ class TaskRepository @Inject constructor(
 
     suspend fun insertTask(task: Task) {
         val timestamp = getNextTimestamp(task.updatedAt)
-        taskDao.insertTask(task.copy(updatedAt = timestamp))
+        taskDao.insertTask(task.copy(updatedAt = timestamp, isDirty = true))
     }
 
     suspend fun insertTasks(tasks: List<Task>) {
@@ -70,7 +70,7 @@ class TaskRepository @Inject constructor(
         val maxInBatch = tasks.maxOf { it.updatedAt }
         val baseTime = getNextTimestamp(maxInBatch)
         val tasksWithTimestamps = tasks.mapIndexed { index, task ->
-            task.copy(updatedAt = baseTime + index)
+            task.copy(updatedAt = baseTime + index, isDirty = true)
         }
         taskDao.insertTasks(tasksWithTimestamps)
     }
@@ -79,7 +79,7 @@ class TaskRepository @Inject constructor(
         val existing = taskDao.getTaskById(task.id)
         if (existing == null || hasMeaningfulChanges(existing, task)) {
             val timestamp = getNextTimestamp(existing?.updatedAt ?: 0L)
-            taskDao.updateTask(task.copy(updatedAt = timestamp))
+            taskDao.updateTask(task.copy(updatedAt = timestamp, isDirty = true))
         }
     }
 

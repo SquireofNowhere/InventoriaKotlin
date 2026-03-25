@@ -60,5 +60,17 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 ### 11. Local Account Management
 - **Implemented**: `SettingsScreen` now allows local account users to set a custom display name, which is persisted and shown on the splash screen.
 
+## 🔄 Sync Architecture & Incremental Merging Strategy (New)
+
+### 12. The "isDirty" Incremental Merge Pattern
+- **Status**: ✅ Implemented (Replaces Destructive "Overwrite All" Strategy)
+- **Background**: The app previously suffered from a "Simultaneous Online" bug. Because Room `Flow`s emit immediately upon connection, opening the app would trigger an instant push of the *entire* local database to Firebase via `setValue()`, destroying any remote changes made by other devices before they could be pulled.
+- **Solution (`isDirty` flag)**: 
+    - **Models**: All syncable models (`InventoryItem`, `Task`, `InventoryCollection`, `InventoryCollectionItem`, `ItemLink`) now possess an `isDirty: Boolean = false` property. This property is annotated with `@get:Exclude` and `@set:Exclude` so it is strictly local to the device and never sent to Firebase.
+    - **Repositories**: Whenever a user modifies data locally (insert, update, equip, pack, etc.), the Repositories (`InventoryRepository`, `TaskRepository`, `CollectionRepository`) explicitly create a copy of the item with `.copy(isDirty = true)`.
+    - **FirebaseSyncRepository**: The sync engine now *only* listens to flows of dirty items (e.g., `inventoryDao.getDirtyItemsFlow()`).
+    - **Merge vs Overwrite**: Pushes now use `ref.updateChildren(updates)` rather than `ref.setValue()`. This ensures the app only merges its specific local modifications into the cloud, leaving other concurrent edits untouched. Upon a successful push, the items are marked clean (`isDirty = 0`) via the DAOs.
+    - **Pull Logic**: When pulling remote data down to the device, the records are inserted with the default `isDirty = false` state, preventing infinite sync loops.
+
 ---
-*Audit Conducted: 2026-03-23*
+*Audit Conducted: 2026-03-25*
