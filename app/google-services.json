@@ -26,7 +26,7 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
+        "other_platform_oauth_clienthe following rules applies to the Inventoria Version (displayed in the settings screen), not the database schema version.\n•\nYou must maintain the app version as a decimal (e.g., 1.01, 1.45).\n\n2. Incremental Versioning Logic Whenever you modify the codebase, you must propose an increment to the current version based on the impact of the work:\n•\nBug Fixes / Error Resolution: Increment by 0.0001 (e.g., 1.0001 → 1.0002).\n•\nNew Features / UI Enhancements: Increment by 0.0005 (e.g., 1.0002 → 1.0007).\n•\nFeature Removal / Major Logic Refactor: Increment by 0.000 (e.g., 1.007 → 1.008).\n•\nConstraint: You are strictly forbidden from incrementing the whole number (e.g., 1.99 → 2.0). Major version jumps (1 → 2 → 3) are manual user actions only.\n3. Mandatory Confirmation Gate\n•\nTrigger: Before applying any code changes that include a whole number version increment.\n•\nAction: You must pause and present a \"Version Update Proposal\" to the user.\n•\nFormat:\ni.\nChange Type: (e.g., \"Bug Fix\" or \"New Feature\")\nii.\nCalculation: \"Current: [X.XX] -> Proposed: [Y.YY]\"\niii.\nThe Ask: You must explicitly ask: \"May I proceed with the Inventoria whole number version update and the associated code changes?\"\n•\nBlocker: Do not make any whole number changes until the user gives explicit affirmative consent.\t": [
             {
               "client_id": "572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com",
               "client_type": 3

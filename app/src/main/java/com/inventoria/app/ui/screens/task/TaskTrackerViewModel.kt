@@ -144,10 +144,7 @@ class TaskTrackerViewModel @Inject constructor(
             }
             _activeSessions.value.forEach { session ->
                 session.activeSegment?.let { ui ->
-                    if (ui.task.isRunning) {
-                        timerService?.startTask(ui.task.id, ui.task.startTime, 0L)
-                        timerService?.updateTaskName(ui.task.id, ui.task.name)
-                    }
+                    // Service now manages its own observing
                 }
             }
         }
@@ -266,7 +263,6 @@ class TaskTrackerViewModel @Inject constructor(
             session.activeSegment?.let { ui ->
                 val now = System.currentTimeMillis()
                 val updatedTask = ui.task.copy(isRunning = false, isPaused = true, endTime = now, duration = now - ui.task.startTime)
-                timerService?.stopTask(ui.task.id)
                 repository.updateTask(updatedTask)
             } ?: run {
                 val first = session.segments.firstOrNull() ?: return@launch
@@ -281,7 +277,6 @@ class TaskTrackerViewModel @Inject constructor(
             _isLoading.value = true
             val now = System.currentTimeMillis()
             session.activeSegment?.let { ui ->
-                timerService?.stopTask(ui.task.id)
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime)
             } ?: run { repository.endSession(session.groupId) }
             _isLoading.value = false

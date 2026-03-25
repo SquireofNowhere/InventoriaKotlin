@@ -317,8 +317,27 @@ class FirebaseSyncRepository @Inject constructor(
 
     fun triggerFullSync() {
         Log.d(TAG, "Manual sync triggered")
+        val ref = userRef ?: return
+        
         repositoryScope.launch {
-            syncOnAppOpen()
+            try {
+                _syncStatus.value = SyncStatus.Syncing
+                
+                coroutineScope {
+                    listOf(
+                        async { pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList()) },
+                        async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList()) },
+                        async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
+                        async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList()) },
+                        async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList()) }
+                    ).awaitAll()
+                }
+                
+                _syncStatus.value = SyncStatus.Synced
+            } catch (e: Exception) {
+                Log.e(TAG, "Manual sync failed", e)
+                _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
+            }
         }
     }
 
@@ -331,19 +350,25 @@ class FirebaseSyncRepository @Inject constructor(
             _syncStatus.value = SyncStatus.Syncing
             Log.d(TAG, "Performing pull-first sync on app open")
 
-            // 1. Pull first to overwrite stale local state
-            pullItemsFromFirebase(ref.child("items").get().await())
-            pullLinksFromFirebase(ref.child("item_links").get().await())
-            pullTasksFromFirebase(ref.child("tasks").get().await())
-            pullCollectionsFromFirebase(ref.child("collections").get().await())
-            pullCollectionItemsFromFirebase(ref.child("collection_items").get().await())
+            coroutineScope {
+                // 1. Pull first to overwrite stale local state (in parallel)
+                listOf(
+                    async { pullItemsFromFirebase(ref.child("items").get().await()) },
+                    async { pullLinksFromFirebase(ref.child("item_links").get().await()) },
+                    async { pullTasksFromFirebase(ref.child("tasks").get().await()) },
+                    async { pullCollectionsFromFirebase(ref.child("collections").get().await()) },
+                    async { pullCollectionItemsFromFirebase(ref.child("collection_items").get().await()) }
+                ).awaitAll()
 
-            // 2. Then push local changes
-            pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList())
-            pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList())
-            pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList())
-            pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList())
-            pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList())
+                // 2. Then push local changes (in parallel)
+                listOf(
+                    async { pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList()) },
+                    async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList()) },
+                    async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
+                    async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList()) },
+                    async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList()) }
+                ).awaitAll()
+            }
 
             _syncStatus.value = SyncStatus.Synced
             Log.d(TAG, "App open sync completed successfully")
