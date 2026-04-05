@@ -16,20 +16,25 @@ class FirebaseStorageRepository @Inject constructor(
     private val TAG = "FirebaseStorage"
 
     suspend fun uploadItemImage(uri: Uri): Result<String> {
-        val userId = authRepository.getCurrentUserId() 
-            ?: return Result.failure(Exception("User not authenticated"))
+        // Use the active database ID (could be the owner's ID if synced)
+        // This ensures images are stored with the inventory they belong to
+        val storageOwnerId = try {
+            authRepository.getOrCreateUserId()
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
             
-        // Generate a unique filename using UUID and timestamp to prevent overwriting
+        // Generate a unique filename
         val fileName = "img_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
 
         val storageRef = storage.reference
             .child("users")
-            .child(userId)
+            .child(storageOwnerId)
             .child("item_images")
             .child(fileName)
 
         return try {
-            Log.d(TAG, "Starting upload to: ${storageRef.path}")
+            Log.d(TAG, "Starting upload to owner folder ($storageOwnerId): ${storageRef.path}")
             
             // Upload the file
             storageRef.putFile(uri).await()
