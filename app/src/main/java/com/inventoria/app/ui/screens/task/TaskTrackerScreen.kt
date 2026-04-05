@@ -103,6 +103,7 @@ fun TaskTrackerScreen(
     
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    var showProductivityDialog by remember { mutableStateOf(false) }
 
     val currentSelectedSession = remember(selectedSessionGroupId, activeSessions, completedSessions) {
         selectedSessionGroupId?.let { groupId ->
@@ -132,7 +133,7 @@ fun TaskTrackerScreen(
                     navigationIcon = { IconButton(onClick = { viewModel.clearSelection() }) { Icon(Icons.Default.Close, null) } },
                     actions = {
                         IconButton(onClick = { viewModel.saveSelectedTasksToCalendar() }) { Icon(Icons.Default.Save, "Save Selected") }
-                        IconButton(onClick = { viewModel.deleteSelectedTasks() }) { Icon(Icons.Default.Delete, "Delete Selected") }
+                        IconButton(onClick = { viewModel.saveSelectedTasksToCalendar() }) { Icon(Icons.Default.Delete, "Delete Selected") }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 )
@@ -157,11 +158,17 @@ fun TaskTrackerScreen(
         Box(modifier = Modifier.fillMaxSize().padding(padding).pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }) {
             LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
+                    val todayStart = getStartOfDay(currentTime)
+                    val allTodayTasks = (completedSessions.flatten() + activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) })
+                        .filter { (it.endTime ?: currentTime) >= todayStart }
+
                     DailyScoreCard(
                         totalScore = totalScore,
                         personalScore = personalScore,
                         socialScore = socialScore,
-                        onClick = onNavigateToStats
+                        tasks = allTodayTasks,
+                        currentTime = currentTime,
+                        onClick = { showProductivityDialog = true }
                     )
                 }
 
@@ -263,6 +270,20 @@ fun TaskTrackerScreen(
         }
     }
 
+    if (showProductivityDialog) {
+        val todayStart = getStartOfDay(currentTime)
+        val allTodayTasks = (completedSessions.flatten() + activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) })
+            .filter { (it.endTime ?: currentTime) >= todayStart }
+
+        DailyProductivityDialog(
+            tasks = allTodayTasks,
+            totalScore = totalScore,
+            personalScore = personalScore,
+            socialScore = socialScore,
+            onDismiss = { showProductivityDialog = false }
+        )
+    }
+
     currentSelectedSession?.let { segments ->
         SessionDetailDialog(
             segments = segments, onDismiss = { selectedSessionGroupId = null },
@@ -287,7 +308,7 @@ fun TaskTrackerScreen(
 }
 
 @Composable
-fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, onClick: () -> Unit) {
+fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, tasks: List<Task>, currentTime: Long, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = MaterialTheme.shapes.medium,
@@ -298,11 +319,15 @@ fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, onClic
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
-                Text("Today's Productivity", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
-                Text(text = "$totalScore pts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                ProductivityPieChart(tasks = tasks, currentTime = currentTime, modifier = Modifier.size(80.dp))
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text("Today's Productivity", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                    Text(text = "$totalScore pts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ScoreMiniItem("Personal", personalScore, PurplePrimary)
                 ScoreMiniItem("Social", socialScore, Success)
             }

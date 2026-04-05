@@ -184,29 +184,58 @@ class InventoryRepository @Inject constructor(
     }
 
     suspend fun setItemEquipped(id: Long, equipped: Boolean, repack: Boolean = false) = withContext(Dispatchers.IO) {
-        val item = inventoryDao.getItemById(id) ?: return@withContext
-        val currentTime = getNextTimestamp()
+        setItemsEquipped(listOf(id), equipped, repack)
+    }
+
+    /**
+     * Updates the equipped status for multiple items.
+     * When unequipping, items not returned to a container are marked with the current GPS location.
+     */
+    suspend fun setItemsEquipped(ids: List<Long>, equipped: Boolean, repack: Boolean = false) = withContext(Dispatchers.IO) {
+        val items = ids.mapNotNull { inventoryDao.getItemById(it) }
+        if (items.isEmpty()) return@withContext
         
-        if (equipped) {
-            // When equipping, remove from container and track last container
-            // If equipping from root (parentId is null), lastParentId also becomes null
-            inventoryDao.updateItem(item.copy(
-                equipped = true,
-                parentId = null,
-                lastParentId = item.parentId,
-                updatedAt = currentTime,
-                isDirty = true
-            ))
-        } else {
-            // When unequipping, optionally repack
-            val newParentId = if (repack) item.lastParentId else item.parentId
-            inventoryDao.updateItem(item.copy(
-                equipped = false,
-                parentId = newParentId,
-                updatedAt = currentTime,
-                isDirty = true
-            ))
+        val currentTime = getNextTimestamp()
+        var currentGpsLocation: Pair<Double, Double>? = null
+        
+        if (!equipped) {
+            // Only fetch GPS if we are unequipping items that might be left at root
+            currentGpsLocation = getFreshLocation()
         }
+
+        val updatedItems = items.map { item ->
+            if (equipped) {
+                item.copy(
+                    equipped = true,
+                    parentId = null,
+                    lastParentId = item.parentId,
+                    updatedAt = currentTime,
+                    isDirty = true
+                )
+            } else {
+                val newParentId = if (repack) item.lastParentId else item.parentId
+                var latitude = item.latitude
+                var longitude = item.longitude
+                
+                if (newParentId == null) {
+                    currentGpsLocation?.let { (lat, lon) ->
+                        latitude = lat
+                        longitude = lon
+                    }
+                }
+
+                item.copy(
+                    equipped = false,
+                    parentId = newParentId,
+                    latitude = latitude,
+                    longitude = longitude,
+                    updatedAt = currentTime,
+                    isDirty = true
+                )
+            }
+        }
+        
+        inventoryDao.updateItems(updatedItems)
     }
 
     suspend fun updateItemEquippedStatus(id: Long, equipped: Boolean) = withContext(Dispatchers.IO) {
