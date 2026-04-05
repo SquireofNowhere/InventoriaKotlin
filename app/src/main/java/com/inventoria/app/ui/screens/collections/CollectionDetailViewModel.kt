@@ -62,7 +62,9 @@ class CollectionDetailViewModel @Inject constructor(
             
             val collectionItems = collectionRepository.getItemsForCollection(id).first()
             val collectionItemIds = collectionItems.map { it.itemId }.toSet()
-            val filteredItems = allItems.filter { it.id in collectionItemIds }
+            
+            val resolvedItems = inventoryRepository.resolveLocations(allItems, allLinks)
+            val filteredItems = resolvedItems.filter { it.id in collectionItemIds }
 
             CollectionDetailUiState(
                 items = allItems,

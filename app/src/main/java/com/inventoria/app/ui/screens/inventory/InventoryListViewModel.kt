@@ -112,7 +112,7 @@ class InventoryListViewModel @Inject constructor(
             val expandedItemIds = expandedItemIdsStrings.mapNotNull { it.toLongOrNull() }.toSet()
             val activeCollections = activeCollectionsStrings.mapNotNull { it.toLongOrNull() }.toSet()
 
-            val resolvedItems = resolveLocations(allItems, allLinks)
+            val resolvedItems = repository.resolveLocations(allItems, allLinks)
 
             // 1. Identify items that explicitly match filters
             val matchedItems = filterAndSortItems(
@@ -248,44 +248,6 @@ class InventoryListViewModel @Inject constructor(
 
         addChildren(null, 0, false)
         return HierarchyResult(resultItems, depths, hasChildren)
-    }
-
-    private fun resolveLocations(
-        items: List<InventoryItem>,
-        links: List<ItemLink>
-    ): List<InventoryItem> {
-        val itemMap = items.associateBy { it.id }
-        val followerToLeader = links.associate { it.followerId to it.leaderId }
-
-        return items.map { item ->
-            if (item.location.isNotEmpty()) return@map item
-            
-            var currentId = item.id
-            val visited = mutableSetOf<Long>()
-            var resolvedLocation = ""
-            var resolvedLat: Double? = null
-            var resolvedLon: Double? = null
-
-            while (followerToLeader.containsKey(currentId) && currentId !in visited) {
-                visited.add(currentId)
-                val leaderId = followerToLeader[currentId] ?: break
-                val leader = itemMap[leaderId] ?: break
-                
-                if (leader.location.isNotEmpty()) {
-                    resolvedLocation = leader.location
-                    resolvedLat = leader.latitude
-                    resolvedLon = leader.longitude
-                    break
-                }
-                currentId = leaderId
-            }
-
-            if (resolvedLocation.isNotEmpty()) {
-                item.copy(location = resolvedLocation, latitude = resolvedLat, longitude = resolvedLon)
-            } else {
-                item
-            }
-        }
     }
 
     private fun filterAndSortItems(

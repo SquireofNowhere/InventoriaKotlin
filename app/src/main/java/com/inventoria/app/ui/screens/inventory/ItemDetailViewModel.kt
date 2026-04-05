@@ -53,7 +53,17 @@ class ItemDetailViewModel @Inject constructor(
 
     private fun loadItem() {
         viewModelScope.launch {
-            repository.getItemByIdFlow(itemId).collect { item ->
+            combine(
+                repository.getItemByIdFlow(itemId),
+                repository.getAllItems(),
+                repository.getAllLinksFlow()
+            ) { item, allItems, links ->
+                if (item == null) return@combine null
+                
+                // We need all items to resolve hierarchy
+                val resolvedItems = repository.resolveLocations(allItems, links)
+                resolvedItems.find { it.id == itemId }
+            }.collect { item ->
                 if (item != null) {
                     val parentItem = item.parentId?.let { repository.getItemById(it) }
                     val lastParentName = item.lastParentId?.let { repository.getItemById(it)?.name }

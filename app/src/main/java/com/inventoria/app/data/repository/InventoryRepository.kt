@@ -115,7 +115,7 @@ class InventoryRepository @Inject constructor(
         resolveLocations(items, links)
     }
 
-    private fun resolveLocations(items: List<InventoryItem>, links: List<ItemLink>): List<InventoryItem> {
+    fun resolveLocations(items: List<InventoryItem>, links: List<ItemLink>): List<InventoryItem> {
         val itemMap = items.associateBy { it.id }
         val followerToLeader = links.associate { it.followerId to it.leaderId }
 
@@ -125,24 +125,27 @@ class InventoryRepository @Inject constructor(
             var resolvedLat = item.latitude
             var resolvedLon = item.longitude
 
-            if (resolvedLocation.isEmpty()) {
-                var currentParentId = item.parentId
-                val visitedParents = mutableSetOf<Long>()
-                
-                while (currentParentId != null && currentParentId !in visitedParents) {
-                    visitedParents.add(currentParentId)
-                    val parent = itemMap[currentParentId] ?: break
-                    if (parent.location.isNotEmpty()) {
-                        resolvedLocation = parent.location
-                        resolvedLat = parent.latitude
-                        resolvedLon = parent.longitude
-                        break
+            // 1. Handle Container Hierarchy
+            if (resolvedLocation.isEmpty() && item.parentId != null) {
+                val directParent = itemMap[item.parentId]
+                if (directParent != null) {
+                    resolvedLocation = "inside \"${directParent.name}\""
+                    
+                    // Always try to resolve lat/lon from the hierarchy if not set on the item
+                    var currentParentId = item.parentId
+                    val visitedParents = mutableSetOf<Long>()
+                    while (currentParentId != null && currentParentId !in visitedParents) {
+                        visitedParents.add(currentParentId)
+                        val parent = itemMap[currentParentId] ?: break
+                        if (resolvedLat == null) resolvedLat = parent.latitude
+                        if (resolvedLon == null) resolvedLon = parent.longitude
+                        if (resolvedLat != null && resolvedLon != null) break
+                        currentParentId = parent.parentId
                     }
-                    currentParentId = parent.parentId
                 }
             }
 
-            // If still empty, check links (Leader/Follower)
+            // 2. Handle Inheritance from links (if still empty, for followers)
             if (resolvedLocation.isEmpty()) {
                 var currentId = item.id
                 val visitedLinks = mutableSetOf<Long>()
