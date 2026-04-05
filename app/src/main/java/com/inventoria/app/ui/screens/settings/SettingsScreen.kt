@@ -6,6 +6,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
-import com.inventoria.app.ui.theme.PurplePrimary
 import java.util.Currency
 import java.util.Locale
 
@@ -45,6 +45,8 @@ fun SettingsScreen(
     val currencyCode by viewModel.currencyCode.collectAsState()
     val autoCurrencyEnabled by viewModel.autoCurrencyEnabled.collectAsState()
     val manualSyncId by viewModel.manualSyncId.collectAsState()
+    val generatedInviteCode by viewModel.generatedInviteCode.collectAsState()
+    val inviteCodeError by viewModel.inviteCodeError.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -119,18 +121,24 @@ fun SettingsScreen(
                 onCheckedChange = { viewModel.toggleNotifications(it) }
             )
 
-            SettingsCategoryHeader("Account")
+            SettingsCategoryHeader("Account & Sync")
             AccountSection(
                 authState = authState,
                 customUsername = customUsername,
                 manualSyncId = manualSyncId,
                 currentUserId = viewModel.getCurrentUserId(),
+                generatedInviteCode = generatedInviteCode,
+                inviteCodeError = inviteCodeError,
                 onUsernameChange = { viewModel.updateCustomUsername(it) },
                 onSignInClick = { 
                     launcher.launch(viewModel.getGoogleSignInIntent())
                 },
                 onSignOutClick = { viewModel.signOut() },
-                onManualSyncIdChange = { viewModel.setManualSyncId(it) }
+                onDeleteAccountClick = { viewModel.deleteAccount() },
+                onGenerateInviteCode = { viewModel.createInviteCode() },
+                onUseInviteCode = { viewModel.useInviteCode(it) },
+                onClearSync = { viewModel.setManualSyncId(null) },
+                onClearError = { viewModel.clearInviteCodeError() }
             )
 
             SettingsCategoryHeader("About")
@@ -241,13 +249,62 @@ fun AccountSection(
     customUsername: String?,
     manualSyncId: String?,
     currentUserId: String?,
+    generatedInviteCode: String?,
+    inviteCodeError: String?,
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
-    onManualSyncIdChange: (String?) -> Unit
+    onDeleteAccountClick: () -> Unit,
+    onGenerateInviteCode: () -> Unit,
+    onUseInviteCode: (String) -> Unit,
+    onClearSync: () -> Unit,
+    onClearError: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Account & Database?") },
+            text = { 
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Are you sure? This will permanently DESTROY the entire cloud database branch for ID:")
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = currentUserId ?: "Unknown ID",
+                            modifier = Modifier.padding(8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text("This wipes your identity, every database record, and all stored images. This cannot be undone.")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteAccountClick()
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete Everything", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -271,6 +328,7 @@ fun AccountSection(
                         onValueChange = { tempUsername = it },
                         label = { Text("Custom Username") },
                         modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text("Shown on the splash screen") },
                         trailingIcon = {
                             if (tempUsername != (customUsername ?: "")) {
                                 IconButton(onClick = { onUsernameChange(tempUsername) }) {
@@ -283,7 +341,7 @@ fun AccountSection(
                     Button(
                         onClick = onSignOutClick,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                     ) {
                         Text("Sign Out")
                     }
@@ -298,59 +356,109 @@ fun AccountSection(
                 else -> {
                     Text("Sync your inventory across devices by signing in.")
                     SignInButton(onSignInClick)
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Text("Display Name", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                    var tempUsername by remember(customUsername) { mutableStateOf(customUsername ?: "") }
+                    OutlinedTextField(
+                        value = tempUsername,
+                        onValueChange = { tempUsername = it },
+                        label = { Text("Custom Username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text("Shown on the splash screen") },
+                        trailingIcon = {
+                            if (tempUsername != (customUsername ?: "")) {
+                                IconButton(onClick = { onUsernameChange(tempUsername) }) {
+                                    Icon(Icons.Default.Check, contentDescription = "Save")
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (currentUserId != null) {
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.error))
+                ) {
+                    Icon(Icons.Default.DeleteForever, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (authState is AuthState.Authenticated) "Delete Account" else "Wipe Local Account Data")
                 }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
             
-            Text("Database Sync", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text("Invite System", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             
             if (currentUserId != null) {
-                OutlinedTextField(
-                    value = currentUserId,
-                    onValueChange = {},
-                    label = { Text("Your Database ID") },
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        IconButton(onClick = {
-                            clipboardManager.setText(AnnotatedString(currentUserId))
-                            Toast.makeText(context, "ID copied to clipboard", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy ID")
-                        }
-                    },
-                    supportingText = { Text("Share this ID with others to let them sync to your database") }
-                )
+                if (generatedInviteCode == null) {
+                    Button(
+                        onClick = onGenerateInviteCode,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Generate Invite Code")
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = generatedInviteCode,
+                        onValueChange = {},
+                        label = { Text("Your Invite Code") },
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                clipboardManager.setText(AnnotatedString(generatedInviteCode))
+                                Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                            }
+                        },
+                        supportingText = { Text("Give this code to others to let them sync to your data") }
+                    )
+                }
             }
 
-            var syncIdInput by remember(manualSyncId) { mutableStateOf(manualSyncId ?: "") }
+            var codeInput by remember { mutableStateOf("") }
             
             OutlinedTextField(
-                value = syncIdInput,
-                onValueChange = { syncIdInput = it },
-                label = { Text("Sync with Database ID") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Paste Database ID here") },
-                trailingIcon = {
-                    if (syncIdInput.isNotEmpty() && syncIdInput != (manualSyncId ?: "")) {
-                        IconButton(onClick = { onManualSyncIdChange(syncIdInput) }) {
-                            Icon(Icons.Default.Sync, contentDescription = "Sync")
-                        }
-                    }
+                value = codeInput,
+                onValueChange = { 
+                    codeInput = it.uppercase()
+                    if (inviteCodeError != null) onClearError()
                 },
-                supportingText = { 
-                    if (manualSyncId != null) {
+                label = { Text("Enter Invite Code") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("e.g. ABC123") },
+                isError = inviteCodeError != null,
+                supportingText = {
+                    if (inviteCodeError != null) {
+                        Text(inviteCodeError, color = MaterialTheme.colorScheme.error)
+                    } else if (manualSyncId != null) {
                         Text("Currently synced with external database", color = MaterialTheme.colorScheme.primary)
                     } else {
-                        Text("Paste another user's ID to access their database")
+                        Text("Paste an invite code to access another user's database")
+                    }
+                },
+                trailingIcon = {
+                    if (codeInput.length >= 6) {
+                        IconButton(onClick = { onUseInviteCode(codeInput) }) {
+                            Icon(Icons.Default.Sync, contentDescription = "Sync")
+                        }
                     }
                 }
             )
 
             if (manualSyncId != null) {
                 Button(
-                    onClick = { onManualSyncIdChange(null) },
+                    onClick = onClearSync,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,

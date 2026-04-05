@@ -4,3 +4,7 @@
 /.idea
 /build
 /app/build
+screenshot_check.png
+.env
+google-services.json
+app/google-services.json

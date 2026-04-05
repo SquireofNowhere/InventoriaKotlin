@@ -206,7 +206,7 @@ fun ItemDetailScreen(
                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             Column {
-                                Text(item.location, style = MaterialTheme.typography.bodyMedium)
+                                Text(item.getDisplayLocation(), style = MaterialTheme.typography.bodyMedium)
                                 if (item.latitude != null && item.longitude != null) {
                                     Text("View on Map", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
@@ -258,7 +258,44 @@ fun ItemDetailScreen(
                         }
                     }
                 }
-                // Here you would list children items, usually via another flow in VM
+                if (uiState.children.isEmpty()) {
+                    item {
+                        Text("Empty container", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    items(uiState.children) { child ->
+                        ListItem(
+                            headlineContent = { Text(child.name) },
+                            supportingContent = { Text("Qty: ${child.quantity}") },
+                            leadingContent = { Icon(if (child.storage) Icons.Default.Inventory else Icons.Default.Category, contentDescription = null) },
+                            modifier = Modifier.clickable { onNavigateToItemDetail(child.id) }
+                        )
+                    }
+                }
+            }
+
+            // Linked Items
+            if (uiState.links.isNotEmpty()) {
+                item {
+                    Text("Linked Items", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                }
+                items(uiState.links) { link ->
+                    val isLeader = link.leaderId == item.id
+                    val otherItemId = if (isLeader) link.followerId else link.leaderId
+                    val otherItemName = uiState.linkNames[otherItemId] ?: "Unknown Item"
+                    
+                    ListItem(
+                        headlineContent = { Text(otherItemName) },
+                        supportingContent = { Text(if (isLeader) "Follows this item" else "Leads this item") },
+                        leadingContent = { Icon(Icons.Default.Link, contentDescription = null) },
+                        trailingContent = {
+                            IconButton(onClick = { viewModel.removeLink(link.followerId, link.leaderId) }) {
+                                Icon(Icons.Default.LinkOff, contentDescription = "Remove Link", tint = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        modifier = Modifier.clickable { onNavigateToItemDetail(otherItemId) }
+                    )
+                }
             }
             
             // Collections

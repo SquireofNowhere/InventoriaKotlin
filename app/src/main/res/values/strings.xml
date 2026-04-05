@@ -31,16 +31,6 @@
     <string name="pause">Pause</string>
     <string name="resume">Resume</string>
 
-    <!-- Firebase Config -->
-    <string name="google_api_key">AIzaSyBQd56q4K07ChicSy05YxAv8o6hPpElj04</string>
-    <string name="google_app_id">1:572243958143:android:9d9a9731fd169700e7224a</string>
-    <string name="google_crash_reporting_api_key">AIzaSyBQd56q4K07ChicSy05YxAv8o6hPpElj04</string>
-    <string name="google_storage_bucket">inventoriaus.firebasestorage.app</string>
-    <string name="firebase_database_url">https://inventoriaus-default-rtdb.firebaseio.com</string>
-    <string name="project_id">inventoriaus</string>
-    <string name="gcm_defaultSenderId">572243958143</string>
-    <string name="default_web_client_id">572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com</string>
-
     <!-- Map Resources (from OSMDroid) -->
     <string name="map_mode">Map Source</string>
     <string name="my_location">My location</string>

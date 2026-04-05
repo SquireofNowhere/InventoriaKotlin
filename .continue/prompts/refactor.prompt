@@ -1,0 +1,35 @@
+---
+name: Refactor
+description: Suggest refactoring improvements
+---
+
+Analyze this code and suggest refactoring improvements:
+
+1. Can we simplify the logic?
+2. Are there code smells or anti-patterns?
+3. Can we improve naming?
+4. Should we extract methods or classes?
+5. Can we reduce duplication?
+
+Provide before/after examples for each suggestion.
+```
+
+### **Step 4: Restart Continue**
+
+1. In Android Studio, close the Continue sidebar
+2. Reopen it (View → Tool Windows → Continue)
+
+### **Step 5: Use the slash commands!**
+
+Now in Continue chat, you can type:
+
+- `/brainstorm` - Start planning before coding
+- `/plan` - Create implementation steps
+- `/review` - Review current code
+- `/refactor` - Get refactoring suggestions
+
+---
+
+## **Try this workflow:**
+```
+/brainstorm I want to add a new feature to track inventory expiration dates

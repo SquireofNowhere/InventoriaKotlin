@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Junction
 import androidx.room.PrimaryKey
 import androidx.room.Relation
+import com.google.firebase.database.Exclude
 import com.google.firebase.database.PropertyName
 
 @Entity
@@ -19,7 +20,8 @@ data class InventoryCollection(
     @get:PropertyName("requiresSameLocation") @set:PropertyName("requiresSameLocation") var requiresSameLocation: Boolean = false,
     @get:PropertyName("preferredContainerId") @set:PropertyName("preferredContainerId") var preferredContainerId: Long? = null,
     @get:PropertyName("createdAt") @set:PropertyName("createdAt") var createdAt: Long = System.currentTimeMillis(),
-    @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis()
+    @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @get:Exclude @set:Exclude var isDirty: Boolean = false
 )
 
 enum class InventoryCollectionType {
@@ -34,7 +36,8 @@ data class InventoryCollectionItem(
     @get:PropertyName("notes") @set:PropertyName("notes") var notes: String? = null,
     @get:PropertyName("sortOrder") @set:PropertyName("sortOrder") var sortOrder: Int = 0,
     @get:PropertyName("addedAt") @set:PropertyName("addedAt") var addedAt: Long = System.currentTimeMillis(),
-    @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis()
+    @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @get:Exclude @set:Exclude var isDirty: Boolean = false
 )
 
 data class InventoryCollectionWithItems(

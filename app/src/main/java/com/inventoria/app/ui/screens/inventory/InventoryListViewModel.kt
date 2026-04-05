@@ -81,7 +81,6 @@ class InventoryListViewModel @Inject constructor(
             settingsRepository.isInvertFilterEnabled(),
             settingsRepository.getExpandedItemIds(),
             allLinksFlow,
-            repository.getUserLocation(),
             _selectedItemIds
         ) { args ->
             @Suppress("UNCHECKED_CAST")
@@ -106,16 +105,14 @@ class InventoryListViewModel @Inject constructor(
             @Suppress("UNCHECKED_CAST")
             val allLinks = args[12] as List<ItemLink>
             @Suppress("UNCHECKED_CAST")
-            val userLoc = args[13] as Pair<Double, Double>?
-            @Suppress("UNCHECKED_CAST")
-            val selectedIds = args[14] as Set<Long>
+            val selectedIds = args[13] as Set<Long>
 
             val sortOption = SortOption.valueOf(sortOptionStr)
             val groupOption = GroupOption.valueOf(groupOptionStr)
             val expandedItemIds = expandedItemIdsStrings.mapNotNull { it.toLongOrNull() }.toSet()
             val activeCollections = activeCollectionsStrings.mapNotNull { it.toLongOrNull() }.toSet()
 
-            val resolvedItems = resolveLocations(allItems, allLinks, userLoc)
+            val resolvedItems = resolveLocations(allItems, allLinks)
 
             // 1. Identify items that explicitly match filters
             val matchedItems = filterAndSortItems(
@@ -190,7 +187,7 @@ class InventoryListViewModel @Inject constructor(
         val depths = mutableMapOf<Long, Int>()
         val hasChildren = mutableMapOf<Long, Boolean>()
 
-        // Helper to check if an item or any of its descendants match
+        // Helper to check if an item or any of its descendants match explicitly
         val memoMatch = mutableMapOf<Long, Boolean>()
         fun doesMatchOrHaveMatchingDescendant(itemId: Long): Boolean {
             if (memoMatch.containsKey(itemId)) return memoMatch[itemId]!!
@@ -204,11 +201,11 @@ class InventoryListViewModel @Inject constructor(
             return result
         }
 
-        fun addChildren(parentId: Long?, depth: Int) {
+        fun addChildren(parentId: Long?, depth: Int, ancestorMatched: Boolean) {
             val children = childrenMap[parentId] ?: return
             
-            // If filtering, only include items that match OR have matching descendants
-            val filteredChildren = if (isFiltering) {
+            // If filtering, include items that match, have matching descendants, OR if an ancestor matched
+            val filteredChildren = if (isFiltering && !ancestorMatched) {
                 children.filter { doesMatchOrHaveMatchingDescendant(it.id) }
             } else {
                 children
@@ -226,8 +223,10 @@ class InventoryListViewModel @Inject constructor(
                 resultItems.add(child)
                 depths[child.id] = depth
                 
+                val childOrAncestorMatched = ancestorMatched || matchedIds.contains(child.id)
+                
                 val grandChildren = childrenMap[child.id]
-                val visibleGrandChildren = if (isFiltering) {
+                val visibleGrandChildren = if (isFiltering && !childOrAncestorMatched) {
                     grandChildren?.filter { doesMatchOrHaveMatchingDescendant(it.id) }
                 } else {
                     grandChildren
@@ -237,23 +236,23 @@ class InventoryListViewModel @Inject constructor(
                 
                 // Expand if:
                 // 1. User expanded it manually
-                // 2. OR we are filtering and it has matching descendants (auto-reveal matches)
-                val shouldExpand = expandedIds.contains(child.id) || (isFiltering && !visibleGrandChildren.isNullOrEmpty())
+                // 2. OR we are filtering and it has explicitly matching descendants (auto-reveal)
+                val autoReveal = isFiltering && !ancestorMatched && !visibleGrandChildren.isNullOrEmpty()
+                val shouldExpand = expandedIds.contains(child.id) || autoReveal
                 
                 if (shouldExpand) {
-                    addChildren(child.id, depth + 1)
+                    addChildren(child.id, depth + 1, childOrAncestorMatched)
                 }
             }
         }
 
-        addChildren(null, 0)
+        addChildren(null, 0, false)
         return HierarchyResult(resultItems, depths, hasChildren)
     }
 
     private fun resolveLocations(
         items: List<InventoryItem>,
-        links: List<ItemLink>,
-        userLoc: Pair<Double, Double>?
+        links: List<ItemLink>
     ): List<InventoryItem> {
         val itemMap = items.associateBy { it.id }
         val followerToLeader = links.associate { it.followerId to it.leaderId }
@@ -357,22 +356,22 @@ class InventoryListViewModel @Inject constructor(
             SortOption.DATE_DESC -> result.sortedByDescending { it.updatedAt }
             SortOption.QUANTITY_DESC -> result.sortedByDescending { it.quantity }
             SortOption.PRICE_DESC -> result.sortedByDescending { it.price ?: 0.0 }
-        }
-    }
+            }
+            }
 
-    private fun groupItems(
-        items: List<InventoryItem>,
-        option: GroupOption,
-        collections: List<InventoryCollection>,
-        itemToCollections: Map<Long, List<Long>>
-    ): List<Pair<String, List<InventoryItem>>> {
-        return when (option) {
+            private fun groupItems(
+            items: List<InventoryItem>,
+            option: GroupOption,
+            collections: List<InventoryCollection>,
+            itemToCollections: Map<Long, List<Long>>
+            ): List<Pair<String, List<InventoryItem>>> {
+            return when (option) {
             GroupOption.NONE -> emptyList()
             GroupOption.CATEGORY -> {
-                items.groupBy { it.getParsedTags().firstOrNull() ?: "Uncategorized" }.toList().sortedBy { it.first }
+                items.groupBy { it.category ?: "Uncategorized" }.toList().sortedBy { it.first }
             }
             GroupOption.LOCATION -> {
-                items.groupBy { it.location.ifEmpty { "Unknown Location" } }.toList().sortedBy { it.first }
+                items.groupBy { it.getDisplayLocation().ifEmpty { "Unknown Location" } }.toList().sortedBy { it.first }
             }
             GroupOption.COLLECTION -> {
                 val collMap = collections.associateBy { it.id }
@@ -473,14 +472,7 @@ class InventoryListViewModel @Inject constructor(
     fun toggleEquip(itemId: Long, repack: Boolean = false) {
         viewModelScope.launch {
             val item = repository.getItemById(itemId) ?: return@launch
-            if (item.equipped) {
-                if (repack && item.lastParentId != null) {
-                    repository.moveItem(itemId, item.lastParentId)
-                }
-                repository.updateItemEquippedStatus(itemId, false)
-            } else {
-                repository.updateItemEquippedStatus(itemId, true)
-            }
+            repository.setItemEquipped(itemId, !item.equipped, repack)
         }
     }
 
@@ -584,5 +576,9 @@ class InventoryListViewModel @Inject constructor(
 
     fun triggerManualSync() {
         syncRepository.triggerFullSync()
+    }
+
+    suspend fun syncOnAppOpen() {
+        syncRepository.syncOnAppOpen()
     }
 }

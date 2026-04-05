@@ -6,6 +6,19 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+val envFile = project.rootProject.file(".env")
+val envMap = mutableMapOf<String, String>()
+if (envFile.exists()) {
+    envFile.readLines().forEach { line ->
+        if (line.isNotBlank() && !line.startsWith("#")) {
+            val parts = line.split("=", limit = 2)
+            if (parts.size == 2) {
+                envMap[parts[0].trim()] = parts[1].trim()
+            }
+        }
+    }
+}
+
 android {
     namespace = "com.inventoria.app"
     compileSdk = 34
@@ -21,6 +34,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "DEFAULT_WEB_CLIENT_ID", "\"${envMap["DEFAULT_WEB_CLIENT_ID"] ?: ""}\"")
+        buildConfigField("String", "FIREBASE_DATABASE_URL", "\"${envMap["FIREBASE_DATABASE_URL"] ?: ""}\"")
+        buildConfigField("String", "FIREBASE_STORAGE_BUCKET", "\"${envMap["FIREBASE_STORAGE_BUCKET"] ?: ""}\"")
     }
 
     buildTypes {
@@ -33,11 +50,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
     }
     buildFeatures {
         compose = true
@@ -109,6 +126,11 @@ dependencies {
     // DataStore & Preferences
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.preference.ktx)
+
+    // WorkManager
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.hilt.work)
+    kapt(libs.androidx.hilt.compiler)
 
     // Maps & UI
     implementation(libs.osmdroid)

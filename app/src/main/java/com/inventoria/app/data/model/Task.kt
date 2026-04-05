@@ -2,6 +2,7 @@ package com.inventoria.app.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.firebase.database.Exclude
 import com.google.firebase.database.PropertyName
 
 @Entity
@@ -21,7 +22,8 @@ data class Task(
     @get:PropertyName("isNameCustom") @set:PropertyName("isNameCustom") var isNameCustom: Boolean = false,
     @get:PropertyName("isKindCustom") @set:PropertyName("isKindCustom") var isKindCustom: Boolean = false,
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
-    @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis()
+    @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @get:Exclude @set:Exclude var isDirty: Boolean = false
 ) {
     val score: Int
         get() = kind.productivityValue

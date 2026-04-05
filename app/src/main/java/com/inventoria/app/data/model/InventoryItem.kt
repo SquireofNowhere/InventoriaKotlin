@@ -2,6 +2,7 @@ package com.inventoria.app.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.firebase.database.Exclude
 import com.google.firebase.database.PropertyName
 
 @Entity
@@ -27,7 +28,8 @@ data class InventoryItem(
     @get:PropertyName("profilePictureUrl") @set:PropertyName("profilePictureUrl") var profilePictureUrl: String? = null,
     @get:PropertyName("barcode") @set:PropertyName("barcode") var barcode: String? = null,
     @get:PropertyName("sku") @set:PropertyName("sku") var sku: String? = null,
-    @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false
+    @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
+    @get:Exclude @set:Exclude var isDirty: Boolean = false
 ) {
     fun isInStock(): Boolean = quantity > 0
     
@@ -37,6 +39,10 @@ data class InventoryItem(
     
     fun getPrimaryImage(): String? {
         return profilePictureUrl ?: imageUrls.firstOrNull()
+    }
+
+    fun getDisplayLocation(): String {
+        return if (equipped) "Equipped (On Person)" else location
     }
 
     fun getParsedTags(): List<String> {

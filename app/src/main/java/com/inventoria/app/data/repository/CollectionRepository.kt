@@ -33,11 +33,11 @@ class CollectionRepository @Inject constructor(
     fun getCollectionReadiness(collectionId: Long): Flow<InventoryCollectionReadiness?> = collectionDao.getCollectionReadiness(collectionId)
 
     suspend fun createCollection(collection: InventoryCollection): Long = withContext(Dispatchers.IO) {
-        collectionDao.insertCollection(collection)
+        collectionDao.insertCollection(collection.copy(isDirty = true))
     }
 
     suspend fun updateCollection(collection: InventoryCollection) = withContext(Dispatchers.IO) {
-        collectionDao.updateCollection(collection.copy(updatedAt = System.currentTimeMillis()))
+        collectionDao.updateCollection(collection.copy(updatedAt = System.currentTimeMillis(), isDirty = true))
     }
 
     suspend fun deleteCollection(collectionId: Long) = withContext(Dispatchers.IO) {
@@ -47,7 +47,7 @@ class CollectionRepository @Inject constructor(
     }
 
     suspend fun addItemToCollection(collectionId: Long, itemId: Long, requiredQuantity: Int = 1, notes: String? = null) = withContext(Dispatchers.IO) {
-        collectionDao.insertCollectionItem(InventoryCollectionItem(collectionId, itemId, requiredQuantity, notes))
+        collectionDao.insertCollectionItem(InventoryCollectionItem(collectionId, itemId, requiredQuantity, notes, isDirty = true))
     }
 
     suspend fun removeItemFromCollection(collectionId: Long, itemId: Long) = withContext(Dispatchers.IO) {
@@ -63,7 +63,7 @@ class CollectionRepository @Inject constructor(
             itemsInColl.forEach { ci ->
                 val item = inventoryDao.getItemById(ci.itemId)
                 if (item != null) {
-                    itemsToUpdate.add(item.copy(parentId = containerId, equipped = false, updatedAt = System.currentTimeMillis()))
+                    itemsToUpdate.add(item.copy(parentId = containerId, equipped = false, updatedAt = System.currentTimeMillis(), isDirty = true))
                 } else {
                     errors.add("Item ${ci.itemId} not found")
                 }
@@ -85,7 +85,7 @@ class CollectionRepository @Inject constructor(
             itemsInColl.forEach { ci ->
                 val item = inventoryDao.getItemById(ci.itemId)
                 if (item != null) {
-                    itemsToUpdate.add(item.copy(parentId = null, updatedAt = System.currentTimeMillis()))
+                    itemsToUpdate.add(item.copy(parentId = null, updatedAt = System.currentTimeMillis(), isDirty = true))
                 }
             }
             inventoryDao.updateItems(itemsToUpdate)
@@ -103,7 +103,7 @@ class CollectionRepository @Inject constructor(
             itemsInColl.forEach { ci ->
                 val item = inventoryDao.getItemById(ci.itemId)
                 if (item != null) {
-                    itemsToUpdate.add(item.copy(equipped = true, parentId = null, updatedAt = System.currentTimeMillis()))
+                    itemsToUpdate.add(item.copy(equipped = true, parentId = null, updatedAt = System.currentTimeMillis(), isDirty = true))
                 }
             }
             inventoryDao.updateItems(itemsToUpdate)
@@ -122,7 +122,7 @@ class CollectionRepository @Inject constructor(
                 val item = inventoryDao.getItemById(ci.itemId)
                 if (item != null && item.equipped) {
                     val newParentId = if (repack) item.lastParentId else null
-                    itemsToUpdate.add(item.copy(equipped = false, parentId = newParentId, updatedAt = System.currentTimeMillis()))
+                    itemsToUpdate.add(item.copy(equipped = false, parentId = newParentId, updatedAt = System.currentTimeMillis(), isDirty = true))
                 }
             }
             inventoryDao.updateItems(itemsToUpdate)

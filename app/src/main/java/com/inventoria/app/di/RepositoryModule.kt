@@ -24,9 +24,11 @@ class RepositoryModule {
     fun provideFirebaseAuthRepository(
         auth: FirebaseAuth,
         googleSignInClient: GoogleSignInClient,
-        settingsRepository: SettingsRepository
+        settingsRepository: SettingsRepository,
+        firebaseDatabase: FirebaseDatabase,
+        firebaseStorage: FirebaseStorage
     ): FirebaseAuthRepository {
-        return FirebaseAuthRepository(auth, googleSignInClient, settingsRepository)
+        return FirebaseAuthRepository(auth, googleSignInClient, settingsRepository, firebaseDatabase, firebaseStorage)
     }
 
     @Provides
@@ -53,9 +55,10 @@ class RepositoryModule {
         itemLinkDao: ItemLinkDao,
         syncRepository: FirebaseSyncRepository,
         authRepository: FirebaseAuthRepository,
+        storageRepository: FirebaseStorageRepository,
         @ApplicationContext context: Context
     ): InventoryRepository {
-        return InventoryRepository(inventoryDao, itemLinkDao, syncRepository, authRepository, context)
+        return InventoryRepository(inventoryDao, itemLinkDao, syncRepository, authRepository, storageRepository, context)
     }
 
     @Provides

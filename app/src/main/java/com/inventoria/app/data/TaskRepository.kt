@@ -42,6 +42,7 @@ class TaskRepository @Inject constructor(
 
     private fun hasMeaningfulChanges(old: Task, new: Task): Boolean {
         return old.name != new.name ||
+                old.groupId != new.groupId ||
                 old.kind != new.kind ||
                 old.startTime != new.startTime ||
                 old.endTime != new.endTime ||
@@ -56,14 +57,12 @@ class TaskRepository @Inject constructor(
                 old.isDeleted != new.isDeleted
     }
 
-    fun getRunningTasks(): Flow<List<Task>> = taskDao.getRunningTasks()
-    fun getCompletedTasks(): Flow<List<Task>> = taskDao.getCompletedTasks()
     fun getVisibleTasks(): Flow<List<Task>> = taskDao.getVisibleTasks()
     fun getAllTasksForSync(): Flow<List<Task>> = taskDao.getAllTasks()
 
     suspend fun insertTask(task: Task) {
         val timestamp = getNextTimestamp(task.updatedAt)
-        taskDao.insertTask(task.copy(updatedAt = timestamp))
+        taskDao.insertTask(task.copy(updatedAt = timestamp, isDirty = true))
     }
 
     suspend fun insertTasks(tasks: List<Task>) {
@@ -71,7 +70,7 @@ class TaskRepository @Inject constructor(
         val maxInBatch = tasks.maxOf { it.updatedAt }
         val baseTime = getNextTimestamp(maxInBatch)
         val tasksWithTimestamps = tasks.mapIndexed { index, task ->
-            task.copy(updatedAt = baseTime + index)
+            task.copy(updatedAt = baseTime + index, isDirty = true)
         }
         taskDao.insertTasks(tasksWithTimestamps)
     }
@@ -80,22 +79,33 @@ class TaskRepository @Inject constructor(
         val existing = taskDao.getTaskById(task.id)
         if (existing == null || hasMeaningfulChanges(existing, task)) {
             val timestamp = getNextTimestamp(existing?.updatedAt ?: 0L)
-            taskDao.updateTask(task.copy(updatedAt = timestamp))
+            taskDao.updateTask(task.copy(updatedAt = timestamp, isDirty = true))
         }
     }
 
     suspend fun updateSessionName(groupId: String, newName: String) {
-        val tasks = taskDao.getTasksByGroupId(groupId)
-        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-        val timestamp = getNextTimestamp(maxT)
-        taskDao.updateSessionName(groupId, newName, timestamp)
+        val existingGroupId = taskDao.getGroupIdByName(newName)
+        if (existingGroupId != null && existingGroupId != groupId) {
+            val timestamp = getNextTimestamp()
+            taskDao.joinGroupAtomically(groupId, newName, existingGroupId, timestamp)
+        } else {
+            val tasks = taskDao.getTasksByGroupId(groupId)
+            val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+            val timestamp = getNextTimestamp(maxT)
+            taskDao.updateSessionName(groupId, newName, timestamp)
+        }
+    }
+
+    suspend fun updateSessionNameAndGroupId(oldGroupId: String, newName: String, newGroupId: String) {
+        val timestamp = getNextTimestamp()
+        taskDao.joinGroupAtomically(oldGroupId, newName, newGroupId, timestamp)
     }
 
     suspend fun updateSessionKind(groupId: String, newKind: TaskKind) {
         val tasks = taskDao.getTasksByGroupId(groupId)
         val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
         val timestamp = getNextTimestamp(maxT)
-        taskDao.updateSessionKind(groupId, newKind, timestamp)
+        taskDao.updateSessionKindAndResetCustom(groupId, newKind, timestamp)
     }
 
     suspend fun endSession(groupId: String) {
@@ -125,13 +135,5 @@ class TaskRepository @Inject constructor(
 
     suspend fun purgeOldDeletedTasks(threshold: Long) {
         taskDao.purgeOldDeletedTasks(threshold)
-    }
-
-    suspend fun deleteTask(task: Task) {
-        taskDao.deleteTask(task)
-    }
-
-    suspend fun deleteSession(groupId: String) {
-        taskDao.deleteTasksByGroupId(groupId)
     }
 }

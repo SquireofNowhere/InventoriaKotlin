@@ -33,9 +33,9 @@ fun ProductivityStatsScreen(
     val completedSessions by viewModel.completedSessions.collectAsState()
     val allTasks = remember(completedSessions) { completedSessions.flatten() }
     
-    val personalScore by viewModel.personalScore.collectAsState()
-    val socialScore by viewModel.socialScore.collectAsState()
-    val totalScore by viewModel.totalScore.collectAsState()
+    val personalScore by viewModel.personalScoreLifetime.collectAsState()
+    val socialScore by viewModel.socialScoreLifetime.collectAsState()
+    val totalScore by viewModel.totalScoreLifetime.collectAsState()
     
     var selectedTab by remember { mutableIntStateOf(0) }
     var selectedKindForDetail by remember { mutableStateOf<TaskKind?>(null) }

@@ -41,8 +41,15 @@ class SettingsViewModel @Inject constructor(
     val manualSyncId: StateFlow<String?> = settingsRepository.manualSyncId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _generatedInviteCode = MutableStateFlow<String?>(null)
+    val generatedInviteCode: StateFlow<String?> = _generatedInviteCode.asStateFlow()
+
+    private val _inviteCodeError = MutableStateFlow<String?>(null)
+    val inviteCodeError: StateFlow<String?> = _inviteCodeError.asStateFlow()
+
     init {
         checkCurrentUser()
+        loadExistingInviteCode()
     }
 
     private fun checkCurrentUser() {
@@ -54,6 +61,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private fun loadExistingInviteCode() {
+        viewModelScope.launch {
+            val code = authRepository.getExistingInviteCode()
+            _generatedInviteCode.value = code
+        }
+    }
+
     fun onGoogleSignInSuccess(idToken: String) {
         viewModelScope.launch {
             _authState.value = AuthState.Loading
@@ -61,6 +75,7 @@ class SettingsViewModel @Inject constructor(
                 val user = authRepository.signInWithGoogle(idToken)
                 if (user != null) {
                     _authState.value = AuthState.Authenticated(user)
+                    loadExistingInviteCode()
                 } else {
                     _authState.value = AuthState.Error("Sign in failed")
                 }
@@ -76,6 +91,24 @@ class SettingsViewModel @Inject constructor(
 
     fun signOut() {
         authRepository.signOut()
+        _authState.value = AuthState.Idle
+        _generatedInviteCode.value = null
+    }
+
+    fun deleteAccount() {
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+            val result = authRepository.deleteUserAccount()
+            if (result.isSuccess) {
+                _authState.value = AuthState.Idle
+                _generatedInviteCode.value = null
+            } else {
+                _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Failed to delete account")
+            }
+        }
+    }
+
+    fun clearAuthState() {
         _authState.value = AuthState.Idle
     }
 
@@ -119,6 +152,41 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.saveManualSyncId(syncId)
         }
+    }
+
+    fun createInviteCode() {
+        viewModelScope.launch {
+            try {
+                val code = authRepository.generateInviteCode()
+                _generatedInviteCode.value = code
+            } catch (e: Exception) {
+                _inviteCodeError.value = e.message
+            }
+        }
+    }
+
+    fun useInviteCode(code: String) {
+        viewModelScope.launch {
+            _inviteCodeError.value = null
+            try {
+                val targetUserId = authRepository.getUserIdFromInviteCode(code)
+                if (targetUserId != null) {
+                    // Inform the backend/owner that we want to link
+                    // We pass the code itself so the backend rules can verify it
+                    authRepository.linkToUser(targetUserId, code)
+                    // Set local sync ID to the owner's ID
+                    settingsRepository.saveManualSyncId(targetUserId)
+                } else {
+                    _inviteCodeError.value = "Invalid or expired invite code"
+                }
+            } catch (e: Exception) {
+                _inviteCodeError.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    fun clearInviteCodeError() {
+        _inviteCodeError.value = null
     }
     
     fun getCurrentUserId(): String? = authRepository.getCurrentUserId()

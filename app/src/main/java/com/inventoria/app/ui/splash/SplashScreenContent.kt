@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -39,23 +40,27 @@ import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.ui.theme.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
 fun SplashScreenContent(
     authRepository: FirebaseAuthRepository,
-    @Suppress("UNUSED_PARAMETER") settingsRepository: SettingsRepository,
+    settingsRepository: SettingsRepository,
     onNavigateToMain: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+
     var startAnimation by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
     var isSigningIn by remember { mutableStateOf(false) }
-    
+    var displayName by remember { mutableStateOf<String?>(null) }
+
     val currentUser = authRepository.getCurrentUser()
-    val isAuthenticated = currentUser != null && !currentUser.isAnonymous
+    val isGoogleAuthenticated = currentUser != null && !currentUser.isAnonymous
+    // Local account exists if Firebase has ANY user (anonymous counts)
+    val hasLocalAccount = currentUser != null
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -97,12 +102,24 @@ fun SplashScreenContent(
     )
 
     LaunchedEffect(Unit) {
+        // Load display name — custom username > Google display name > "User"
+        val customUsername = settingsRepository.customUsername.first()
+        displayName = when {
+            !customUsername.isNullOrBlank() -> customUsername
+            isGoogleAuthenticated -> currentUser?.displayName?.takeIf { it.isNotBlank() }
+            else -> null
+        }
+
         startAnimation = true
         delay(1500)
-        if (isAuthenticated) {
-            onNavigateToMain()
-        } else {
-            showActions = true
+
+        when {
+            // Google signed in → go straight in
+            isGoogleAuthenticated -> onNavigateToMain()
+            // Local account already initialized → go straight in, no button needed
+            hasLocalAccount -> onNavigateToMain()
+            // Brand new install → show sign-in options
+            else -> showActions = true
         }
     }
 
@@ -118,7 +135,8 @@ fun SplashScreenContent(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (isAuthenticated && !isSigningIn) {
+                // Tapping anywhere also navigates if account exists
+                if ((isGoogleAuthenticated || hasLocalAccount) && !isSigningIn) {
                     onNavigateToMain()
                 }
             },
@@ -143,17 +161,35 @@ fun SplashScreenContent(
                     modifier = Modifier.size(120.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text(
                 text = "Inventoria",
                 color = Color.White,
                 fontSize = 44.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Show greeting if we have a name, or generic welcome if returning local user
+            if (!showActions) {
+                val greeting = when {
+                    !displayName.isNullOrBlank() -> "Welcome back, $displayName"
+                    hasLocalAccount -> "Welcome back"
+                    else -> null
+                }
+                greeting?.let {
+                    Text(
+                        text = it,
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
 
             AnimatedVisibility(
                 visible = showActions,
@@ -164,7 +200,7 @@ fun SplashScreenContent(
                         CircularProgressIndicator(color = Color.White)
                     } else {
                         Spacer(modifier = Modifier.height(32.dp))
-                        
+
                         Button(
                             onClick = {
                                 isSigningIn = true
@@ -187,9 +223,9 @@ fun SplashScreenContent(
                             Spacer(Modifier.width(8.dp))
                             Text("Sign in with Google", fontWeight = FontWeight.Bold)
                         }
-                        
+
                         Spacer(modifier = Modifier.height(16.dp))
-                        
+
                         OutlinedButton(
                             onClick = onNavigateToMain,
                             modifier = Modifier
@@ -198,7 +234,9 @@ fun SplashScreenContent(
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = Color.White
                             ),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                            border = ButtonDefaults.outlinedButtonBorder.copy(
+                                brush = SolidColor(Color.White)
+                            )
                         ) {
                             Icon(Icons.Default.Person, contentDescription = null)
                             Spacer(Modifier.width(8.dp))

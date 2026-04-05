@@ -10,10 +10,25 @@ interface TaskDao {
     @Query("SELECT * FROM Task WHERE isDeleted = 0 ORDER BY startTime DESC")
     fun getAllTasks(): Flow<List<Task>>
 
+    @Query("SELECT * FROM Task ORDER BY updatedAt DESC")
+    fun getAllTasksForSync(): Flow<List<Task>>
+
+    @Query("SELECT * FROM Task WHERE isDirty = 1")
+    fun getDirtyTasksFlow(): Flow<List<Task>>
+
+    @Query("SELECT * FROM Task WHERE isDirty = 1")
+    suspend fun getDirtyTasksList(): List<Task>
+
+    @Query("UPDATE Task SET isDirty = 0 WHERE id IN (:taskIds)")
+    suspend fun markTasksClean(taskIds: List<String>)
+
+    @Query("SELECT * FROM Task")
+    suspend fun getAllTasksForSyncList(): List<Task>
+
     @Query("SELECT * FROM Task WHERE isDeleted = 0")
     suspend fun getAllTasksList(): List<Task>
 
-    @Query("SELECT * FROM Task WHERE isDeleted = 0 AND isSessionActive = 1 ORDER BY startTime DESC")
+    @Query("SELECT * FROM Task WHERE isDeleted = 0 ORDER BY startTime DESC")
     fun getVisibleTasks(): Flow<List<Task>>
 
     @Query("SELECT * FROM Task WHERE id = :id LIMIT 1")
@@ -22,11 +37,11 @@ interface TaskDao {
     @Query("SELECT * FROM Task WHERE groupId = :groupId AND isDeleted = 0")
     suspend fun getTasksByGroupId(groupId: String): List<Task>
 
-    @Query("SELECT * FROM Task WHERE isRunning = 1 AND isDeleted = 0")
-    fun getRunningTasks(): Flow<List<Task>>
+    @Query("SELECT groupId FROM Task WHERE name = :name AND isDeleted = 0 LIMIT 1")
+    suspend fun getGroupIdByName(name: String): String?
 
-    @Query("SELECT * FROM Task WHERE isRunning = 0 AND isDeleted = 0")
-    fun getCompletedTasks(): Flow<List<Task>>
+    @Query("SELECT kind FROM Task WHERE groupId = :groupId AND isDeleted = 0 LIMIT 1")
+    suspend fun getKindByGroupId(groupId: String): TaskKind?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: Task)
@@ -37,32 +52,35 @@ interface TaskDao {
     @Update
     suspend fun updateTask(task: Task)
 
-    @Delete
-    suspend fun deleteTask(task: Task)
-
-    @Query("DELETE FROM Task WHERE id = :id")
-    suspend fun deleteTaskById(id: String)
-
-    @Query("DELETE FROM Task WHERE groupId = :groupId")
-    suspend fun deleteTasksByGroupId(groupId: String)
-
-    @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp WHERE id = :id")
+    @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE id = :id")
     suspend fun softDeleteTaskById(id: String, timestamp: Long)
 
-    @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp WHERE groupId = :groupId")
+    @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun softDeleteTasksByGroupId(groupId: String, timestamp: Long)
 
-    @Query("UPDATE Task SET isRunning = 0, endTime = :endTime, duration = :duration, updatedAt = :timestamp WHERE id = :taskId")
+    @Query("UPDATE Task SET isRunning = 0, endTime = :endTime, duration = :duration, updatedAt = :timestamp, isDirty = 1 WHERE id = :taskId")
     suspend fun completeTask(taskId: String, endTime: Long, duration: Long, timestamp: Long)
 
-    @Query("UPDATE Task SET isSessionActive = 0, updatedAt = :timestamp WHERE groupId = :groupId")
+    @Query("UPDATE Task SET isSessionActive = 0, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun endSession(groupId: String, timestamp: Long)
 
-    @Query("UPDATE Task SET name = :newName, updatedAt = :timestamp WHERE groupId = :groupId")
+    @Query("UPDATE Task SET name = :newName, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun updateSessionName(groupId: String, newName: String, timestamp: Long)
 
-    @Query("UPDATE Task SET kind = :newKind, updatedAt = :timestamp WHERE groupId = :groupId")
-    suspend fun updateSessionKind(groupId: String, newKind: TaskKind, timestamp: Long)
+    @Query("UPDATE Task SET name = :newName, groupId = :newGroupId, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :oldGroupId")
+    suspend fun updateSessionNameAndGroupId(oldGroupId: String, newName: String, newGroupId: String, timestamp: Long)
+
+    @Query("UPDATE Task SET kind = :newKind, isKindCustom = 0, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
+    suspend fun updateSessionKindAndResetCustom(groupId: String, newKind: TaskKind, timestamp: Long)
+
+    @Transaction
+    suspend fun joinGroupAtomically(oldGroupId: String, newName: String, newGroupId: String, timestamp: Long) {
+        val targetKind = getKindByGroupId(newGroupId)
+        updateSessionNameAndGroupId(oldGroupId, newName, newGroupId, timestamp)
+        if (targetKind != null) {
+            updateSessionKindAndResetCustom(newGroupId, targetKind, timestamp + 1)
+        }
+    }
 
     @Transaction
     suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, timestamp: Long) {
@@ -72,7 +90,4 @@ interface TaskDao {
 
     @Query("DELETE FROM Task WHERE isDeleted = 1 AND updatedAt < :threshold")
     suspend fun purgeOldDeletedTasks(threshold: Long)
-
-    @Query("DELETE FROM Task")
-    suspend fun deleteAllTasks()
 }

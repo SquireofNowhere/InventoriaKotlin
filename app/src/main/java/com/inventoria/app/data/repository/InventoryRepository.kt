@@ -24,9 +24,10 @@ class InventoryRepository @Inject constructor(
     private val itemLinkDao: ItemLinkDao,
     private val syncRepository: FirebaseSyncRepository,
     private val authRepository: FirebaseAuthRepository,
+    private val storageRepository: FirebaseStorageRepository,
     @ApplicationContext private val context: Context
 ) {
-    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     private val lastTimestamp = AtomicLong(0L)
@@ -36,6 +37,7 @@ class InventoryRepository @Inject constructor(
             try {
                 authRepository.getOrCreateUserId()
                 syncRepository.startSync()
+                syncRepository.syncOnAppOpen()
                 Log.d("InventoryRepository", "Firebase sync initialized successfully")
             } catch (e: Exception) {
                 Log.e("InventoryRepository", "Failed to initialize Firebase sync", e)
@@ -45,6 +47,40 @@ class InventoryRepository @Inject constructor(
         repositoryScope.launch {
             getFreshLocation()?.let {
                 _userLocation.value = it
+            }
+        }
+    }
+
+    fun uploadImagesInBackground(
+        itemId: Long,
+        pendingUris: List<android.net.Uri>,
+        profileUri: android.net.Uri?,
+        existingUrls: List<String>,
+        currentProfileUrl: String?
+    ) {
+        repositoryScope.launch {
+            val finalImageUrls = existingUrls.toMutableList()
+            var finalProfilePictureUrl = currentProfileUrl
+
+            pendingUris.forEach { uri ->
+                val result = storageRepository.uploadItemImage(uri)
+                if (result.isSuccess) {
+                    val url = result.getOrNull()
+                    if (url != null) {
+                        finalImageUrls.add(url)
+                        if (uri == profileUri) {
+                            finalProfilePictureUrl = url
+                        }
+                    }
+                }
+            }
+
+            // Update item with new URLs
+            getItemById(itemId)?.let { item ->
+                updateItem(item.copy(
+                    imageUrls = finalImageUrls,
+                    profilePictureUrl = finalProfilePictureUrl ?: item.profilePictureUrl ?: finalImageUrls.firstOrNull()
+                ))
             }
         }
     }
@@ -125,18 +161,18 @@ class InventoryRepository @Inject constructor(
 
     suspend fun insertItem(item: InventoryItem): Long = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
-        val itemToInsert = item.copy(createdAt = currentTime, updatedAt = currentTime)
+        val itemToInsert = item.copy(createdAt = currentTime, updatedAt = currentTime, isDirty = true)
         inventoryDao.insertItem(itemToInsert)
     }
 
     suspend fun updateItem(item: InventoryItem) = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItem(item.copy(updatedAt = currentTime))
+        inventoryDao.updateItem(item.copy(updatedAt = currentTime, isDirty = true))
     }
 
     suspend fun updateItems(items: List<InventoryItem>) = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItems(items.map { it.copy(updatedAt = currentTime) })
+        inventoryDao.updateItems(items.map { it.copy(updatedAt = currentTime, isDirty = true) })
     }
 
     suspend fun deleteItemById(id: Long) = withContext(Dispatchers.IO) {
@@ -148,26 +184,58 @@ class InventoryRepository @Inject constructor(
     }
 
     suspend fun setItemEquipped(id: Long, equipped: Boolean, repack: Boolean = false) = withContext(Dispatchers.IO) {
-        val item = inventoryDao.getItemById(id) ?: return@withContext
-        val currentTime = getNextTimestamp()
+        setItemsEquipped(listOf(id), equipped, repack)
+    }
+
+    /**
+     * Updates the equipped status for multiple items.
+     * When unequipping, items not returned to a container are marked with the current GPS location.
+     */
+    suspend fun setItemsEquipped(ids: List<Long>, equipped: Boolean, repack: Boolean = false) = withContext(Dispatchers.IO) {
+        val items = ids.mapNotNull { inventoryDao.getItemById(it) }
+        if (items.isEmpty()) return@withContext
         
-        if (equipped) {
-            // When equipping, remove from container and track last container
-            inventoryDao.updateItem(item.copy(
-                equipped = true,
-                parentId = null,
-                lastParentId = item.parentId ?: item.lastParentId,
-                updatedAt = currentTime
-            ))
-        } else {
-            // When unequipping, optionally repack
-            val newParentId = if (repack) item.lastParentId else item.parentId
-            inventoryDao.updateItem(item.copy(
-                equipped = false,
-                parentId = newParentId,
-                updatedAt = currentTime
-            ))
+        val currentTime = getNextTimestamp()
+        var currentGpsLocation: Pair<Double, Double>? = null
+        
+        if (!equipped) {
+            // Only fetch GPS if we are unequipping items that might be left at root
+            currentGpsLocation = getFreshLocation()
         }
+
+        val updatedItems = items.map { item ->
+            if (equipped) {
+                item.copy(
+                    equipped = true,
+                    parentId = null,
+                    lastParentId = item.parentId,
+                    updatedAt = currentTime,
+                    isDirty = true
+                )
+            } else {
+                val newParentId = if (repack) item.lastParentId else item.parentId
+                var latitude = item.latitude
+                var longitude = item.longitude
+                
+                if (newParentId == null) {
+                    currentGpsLocation?.let { (lat, lon) ->
+                        latitude = lat
+                        longitude = lon
+                    }
+                }
+
+                item.copy(
+                    equipped = false,
+                    parentId = newParentId,
+                    latitude = latitude,
+                    longitude = longitude,
+                    updatedAt = currentTime,
+                    isDirty = true
+                )
+            }
+        }
+        
+        inventoryDao.updateItems(updatedItems)
     }
 
     suspend fun updateItemEquippedStatus(id: Long, equipped: Boolean) = withContext(Dispatchers.IO) {
@@ -177,13 +245,36 @@ class InventoryRepository @Inject constructor(
     suspend fun moveItem(id: Long, newParentId: Long?) = withContext(Dispatchers.IO) {
         val item = inventoryDao.getItemById(id) ?: return@withContext
         val currentTime = getNextTimestamp()
-        inventoryDao.updateItem(item.copy(
-            parentId = newParentId, 
-            lastParentId = if (newParentId == null) item.parentId else item.lastParentId,
-            updatedAt = currentTime
-        ))
-    }
 
+        val links = itemLinkDao.getAllLinksList()
+        val adjList = mutableMapOf<Long, MutableList<Long>>()
+        links.forEach { link ->
+            adjList.getOrPut(link.leaderId) { mutableListOf() }.add(link.followerId)
+            adjList.getOrPut(link.followerId) { mutableListOf() }.add(link.leaderId)
+        }
+
+        val visited = mutableSetOf<Long>()
+        val queue = ArrayDeque<Long>()
+        queue.add(id)
+        while (queue.isNotEmpty()) {
+            val curr = queue.removeFirst()
+            if (visited.add(curr)) {
+                adjList[curr]?.let { queue.addAll(it) }
+            }
+        }
+
+        val itemsToUpdate = visited.mapNotNull { inventoryDao.getItemById(it) }
+        if (itemsToUpdate.isNotEmpty()) {
+            inventoryDao.updateItems(itemsToUpdate.map { 
+                it.copy(
+                    parentId = newParentId,
+                    lastParentId = if (newParentId == null) it.parentId else it.lastParentId,
+                    updatedAt = currentTime,
+                    isDirty = true
+                )
+            })
+        }
+    }
     fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)
     fun getItemsByCategory(category: String): Flow<List<InventoryItem>> = inventoryDao.getItemsByCategory(category)
     fun getOutOfStockItems(): Flow<List<InventoryItem>> = inventoryDao.getOutOfStockItems()
@@ -197,9 +288,16 @@ class InventoryRepository @Inject constructor(
 
     suspend fun addLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
         if (followerId == leaderId) return@withContext
-        itemLinkDao.insertLink(ItemLink(followerId, leaderId))
-        touchItem(followerId)
-        touchItem(leaderId)
+        itemLinkDao.insertLink(ItemLink(followerId, leaderId, isDirty = true))
+        
+        val itemsToTouch = listOfNotNull(
+            inventoryDao.getItemById(followerId),
+            inventoryDao.getItemById(leaderId)
+        )
+        if (itemsToTouch.isNotEmpty()) {
+            val currentTime = getNextTimestamp()
+            inventoryDao.updateItems(itemsToTouch.map { it.copy(updatedAt = currentTime, isDirty = true) })
+        }
     }
 
     suspend fun removeLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
@@ -209,7 +307,7 @@ class InventoryRepository @Inject constructor(
 
     suspend fun touchItem(id: Long) {
         inventoryDao.getItemById(id)?.let {
-            inventoryDao.updateItem(it.copy(updatedAt = getNextTimestamp()))
+            inventoryDao.updateItem(it.copy(updatedAt = getNextTimestamp(), isDirty = true))
         }
     }
 

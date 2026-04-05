@@ -8,25 +8,37 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.ui.main.MainActivity
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import java.util.*
-import java.util.*
-import java.util.*
-import java.util.*
+import kotlinx.coroutines.flow.collectLatest
 import java.util.*
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class TaskTimerService : Service() {
     companion object {
         const val CHANNEL_ID = "task_tracker_channel"
         const val NOTIFICATION_ID = 1
     }
 
+    @Inject
+    lateinit var syncRepository: FirebaseSyncRepository
+
+    @Inject
+    lateinit var repository: TaskRepository
+
     private var isServiceRunning = false
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val binder = TimerBinder()
+    
+    private var syncJob: Job? = null
+    private var observeJob: Job? = null
+    private var timerJob: Job? = null
     
     private val runningTasks = mutableMapOf<String, Pair<Long, Long>>() // id -> (startTime, prevDuration)
     private val taskNames = mutableMapOf<String, String>()
@@ -49,14 +61,49 @@ class TaskTimerService : Service() {
         startForegroundService()
         if (!isServiceRunning) {
             isServiceRunning = true
-            startTimerLoop()
+            startObservingTasks()
+            startSyncLoop()
         }
         return START_STICKY
     }
 
+    private fun startObservingTasks() {
+        observeJob?.cancel()
+        observeJob = serviceScope.launch {
+            repository.getVisibleTasks().collectLatest { tasks ->
+                val activeTasks = tasks.filter { it.isRunning }
+                
+                if (activeTasks.isEmpty()) {
+                    runningTasks.clear()
+                    taskNames.clear()
+                    _taskUpdates.value = emptyMap()
+                    stopSelf()
+                    return@collectLatest
+                }
+
+                runningTasks.clear()
+                taskNames.clear()
+                
+                activeTasks.forEach { task ->
+                    runningTasks[task.id] = task.startTime to (task.duration ?: 0L)
+                    taskNames[task.id] = task.name
+                }
+
+                if (timerJob == null || timerJob?.isActive != true) {
+                    startTimerLoop()
+                }
+            }
+        }
+    }
+
     private fun startTimerLoop() {
-        serviceScope.launch {
+        timerJob?.cancel()
+        timerJob = serviceScope.launch {
             while (isActive) {
+                if (runningTasks.isEmpty()) {
+                    delay(1000L)
+                    continue
+                }
                 val now = System.currentTimeMillis()
                 val updates = runningTasks.mapValues { (_, data) ->
                     val (startTime, prevDuration) = data
@@ -69,23 +116,26 @@ class TaskTimerService : Service() {
         }
     }
 
-    fun startTask(id: String, startTime: Long, prevDuration: Long = 0L) {
-        runningTasks[id] = startTime to prevDuration
-        if (!taskNames.containsKey(id)) {
-            taskNames[id] = "Task"
+    private fun startSyncLoop() {
+        syncJob?.cancel()
+        syncJob = serviceScope.launch {
+            while (isActive) {
+                syncRepository.triggerFullSync()
+                delay(30_000L) // sync every 30 seconds while service is alive
+            }
         }
+    }
+
+    fun startTask(id: String, startTime: Long, prevDuration: Long = 0L) {
+        // Now handled via startObservingTasks()
     }
 
     fun updateTaskName(id: String, name: String) {
-        taskNames[id] = name
+        // Now handled via startObservingTasks()
     }
 
     fun stopTask(id: String) {
-        runningTasks.remove(id)
-        taskNames.remove(id)
-        if (runningTasks.isEmpty()) {
-            stopSelf()
-        }
+        // Now handled via startObservingTasks()
     }
 
     private fun startForegroundService() {
@@ -158,6 +208,9 @@ class TaskTimerService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        syncJob?.cancel()
+        observeJob?.cancel()
+        timerJob?.cancel()
         serviceScope.cancel()
     }
 }
