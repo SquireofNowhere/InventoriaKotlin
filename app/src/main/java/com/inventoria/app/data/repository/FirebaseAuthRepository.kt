@@ -65,6 +65,58 @@ class FirebaseAuthRepository @Inject constructor(
         return googleSignInClient.signInIntent
     }
 
+    suspend fun generateInviteCode(): String {
+        val userId = getCurrentUserId() ?: throw IllegalStateException("User not logged in")
+        // Generate a 6-character alphanumeric code
+        val chars = ('A'..'Z') + ('0'..'9')
+        val code = (1..6).map { chars.random() }.joinToString("")
+
+        // 1. Map code to userId in a public invites node
+        firebaseDatabase.getReference("invites").child(code).setValue(userId).await()
+        
+        // 2. Store the code in the user's own record for reference
+        firebaseDatabase.getReference("users").child(userId).child("my_invite_code").setValue(code).await()
+        
+        return code
+    }
+
+    suspend fun getExistingInviteCode(): String? {
+        val userId = getCurrentUserId() ?: return null
+        return try {
+            val snapshot = firebaseDatabase.getReference("users").child(userId).child("my_invite_code").get().await()
+            snapshot.getValue(String::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun getUserIdFromInviteCode(code: String): String? {
+        val snapshot = firebaseDatabase.getReference("invites").child(code.uppercase()).get().await()
+        return snapshot.getValue(String::class.java)
+    }
+
+    /**
+     * Links the current user to another user's inventory using an invite code.
+     * We write the invite code as the value to allow Firebase rules to validate the link.
+     */
+    suspend fun linkToUser(targetUserId: String, inviteCode: String): Result<Unit> {
+        val currentUserId = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            // Update the target user's sharedWith list to include the current user.
+            // We store the invite code used to allow the backend to verify this request.
+            firebaseDatabase.getReference("users")
+                .child(targetUserId)
+                .child("sharedWith")
+                .child(currentUserId)
+                .setValue(inviteCode.uppercase())
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update sharedWith. Check Firebase rules.", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun deleteUserAccount(): Result<Unit> {
         val user = firebaseAuth.currentUser ?: return Result.failure(Exception("No user logged in"))
         val uid = user.uid

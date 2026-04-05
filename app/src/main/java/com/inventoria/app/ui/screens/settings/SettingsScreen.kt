@@ -6,6 +6,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,17 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
-import com.inventoria.app.ui.theme.PurplePrimary
 import java.util.Currency
 import java.util.Locale
 
@@ -55,6 +45,8 @@ fun SettingsScreen(
     val currencyCode by viewModel.currencyCode.collectAsState()
     val autoCurrencyEnabled by viewModel.autoCurrencyEnabled.collectAsState()
     val manualSyncId by viewModel.manualSyncId.collectAsState()
+    val generatedInviteCode by viewModel.generatedInviteCode.collectAsState()
+    val inviteCodeError by viewModel.inviteCodeError.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -129,19 +121,24 @@ fun SettingsScreen(
                 onCheckedChange = { viewModel.toggleNotifications(it) }
             )
 
-            SettingsCategoryHeader("Account")
+            SettingsCategoryHeader("Account & Sync")
             AccountSection(
                 authState = authState,
                 customUsername = customUsername,
                 manualSyncId = manualSyncId,
                 currentUserId = viewModel.getCurrentUserId(),
+                generatedInviteCode = generatedInviteCode,
+                inviteCodeError = inviteCodeError,
                 onUsernameChange = { viewModel.updateCustomUsername(it) },
                 onSignInClick = { 
                     launcher.launch(viewModel.getGoogleSignInIntent())
                 },
                 onSignOutClick = { viewModel.signOut() },
                 onDeleteAccountClick = { viewModel.deleteAccount() },
-                onManualSyncIdChange = { viewModel.setManualSyncId(it) }
+                onGenerateInviteCode = { viewModel.createInviteCode() },
+                onUseInviteCode = { viewModel.useInviteCode(it) },
+                onClearSync = { viewModel.setManualSyncId(null) },
+                onClearError = { viewModel.clearInviteCodeError() }
             )
 
             SettingsCategoryHeader("About")
@@ -252,11 +249,16 @@ fun AccountSection(
     customUsername: String?,
     manualSyncId: String?,
     currentUserId: String?,
+    generatedInviteCode: String?,
+    inviteCodeError: String?,
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
     onDeleteAccountClick: () -> Unit,
-    onManualSyncIdChange: (String?) -> Unit
+    onGenerateInviteCode: () -> Unit,
+    onUseInviteCode: (String) -> Unit,
+    onClearSync: () -> Unit,
+    onClearError: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -392,54 +394,71 @@ fun AccountSection(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
             
-            Text("Database Sync", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text("Invite System", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             
             if (currentUserId != null) {
-                OutlinedTextField(
-                    value = currentUserId,
-                    onValueChange = {},
-                    label = { Text("Your Database ID") },
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        IconButton(onClick = {
-                            clipboardManager.setText(AnnotatedString(currentUserId))
-                            Toast.makeText(context, "ID copied to clipboard", Toast.LENGTH_SHORT).show()
-                        }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy ID")
-                        }
-                    },
-                    supportingText = { Text("Share this ID with others to let them sync to your database") }
-                )
+                if (generatedInviteCode == null) {
+                    Button(
+                        onClick = onGenerateInviteCode,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Generate Invite Code")
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = generatedInviteCode,
+                        onValueChange = {},
+                        label = { Text("Your Invite Code") },
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                clipboardManager.setText(AnnotatedString(generatedInviteCode))
+                                Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                            }
+                        },
+                        supportingText = { Text("Give this code to others to let them sync to your data") }
+                    )
+                }
             }
 
-            var syncIdInput by remember(manualSyncId) { mutableStateOf(manualSyncId ?: "") }
+            var codeInput by remember { mutableStateOf("") }
             
             OutlinedTextField(
-                value = syncIdInput,
-                onValueChange = { syncIdInput = it },
-                label = { Text("Sync with Database ID") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Paste Database ID here") },
-                trailingIcon = {
-                    if (syncIdInput.isNotEmpty() && syncIdInput != (manualSyncId ?: "")) {
-                        IconButton(onClick = { onManualSyncIdChange(syncIdInput) }) {
-                            Icon(Icons.Default.Sync, contentDescription = "Sync")
-                        }
-                    }
+                value = codeInput,
+                onValueChange = { 
+                    codeInput = it.uppercase()
+                    if (inviteCodeError != null) onClearError()
                 },
-                supportingText = { 
-                    if (manualSyncId != null) {
+                label = { Text("Enter Invite Code") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("e.g. ABC123") },
+                isError = inviteCodeError != null,
+                supportingText = {
+                    if (inviteCodeError != null) {
+                        Text(inviteCodeError, color = MaterialTheme.colorScheme.error)
+                    } else if (manualSyncId != null) {
                         Text("Currently synced with external database", color = MaterialTheme.colorScheme.primary)
                     } else {
-                        Text("Paste another user's ID to access their database")
+                        Text("Paste an invite code to access another user's database")
+                    }
+                },
+                trailingIcon = {
+                    if (codeInput.length >= 6) {
+                        IconButton(onClick = { onUseInviteCode(codeInput) }) {
+                            Icon(Icons.Default.Sync, contentDescription = "Sync")
+                        }
                     }
                 }
             )
 
             if (manualSyncId != null) {
                 Button(
-                    onClick = { onManualSyncIdChange(null) },
+                    onClick = onClearSync,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
