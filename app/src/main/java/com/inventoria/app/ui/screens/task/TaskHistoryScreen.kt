@@ -94,8 +94,13 @@ fun TaskHistoryScreen(
                             selectedTaskIds = selectedTaskIds,
                             onClick = { selectedSessionGroupId = session.first().groupId },
                             onDelete = { viewModel.deleteSession(session.first().groupId) },
-                            onSegmentClick = { task -> selectedTaskId = task.id },
-                            onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) }
+                            onSegmentClick = { 
+                                if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
+                                else selectedTaskId = it.id 
+                            },
+                            onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
+                            onSegmentDelete = { viewModel.deleteSegment(it) },
+                            onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
                         )
                     } else {
                         val task = session.first()
@@ -125,7 +130,8 @@ fun TaskHistoryScreen(
             onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
             onFlatten = { viewModel.flattenSession(segments.first().groupId) },
-            onNavigateToTaskDetail = { selectedTaskId = it }
+            onNavigateToTaskDetail = { selectedTaskId = it },
+            onDeleteSegment = { viewModel.deleteSegment(it) }
         )
     }
 
@@ -136,7 +142,8 @@ fun TaskHistoryScreen(
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
-            onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) }
+            onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
+            onDelete = { viewModel.deleteSegment(task); selectedTaskId = null }
         )
     }
 }

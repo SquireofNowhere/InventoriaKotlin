@@ -133,7 +133,7 @@ fun TaskTrackerScreen(
                     navigationIcon = { IconButton(onClick = { viewModel.clearSelection() }) { Icon(Icons.Default.Close, null) } },
                     actions = {
                         IconButton(onClick = { viewModel.saveSelectedTasksToCalendar() }) { Icon(Icons.Default.Save, "Save Selected") }
-                        IconButton(onClick = { viewModel.saveSelectedTasksToCalendar() }) { Icon(Icons.Default.Delete, "Delete Selected") }
+                        IconButton(onClick = { viewModel.deleteSelectedTasks() }) { Icon(Icons.Default.Delete, "Delete Selected") }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 )
@@ -249,7 +249,9 @@ fun TaskTrackerScreen(
                                 onSegmentClick = { 
                                     if (isSelectionMode) viewModel.toggleTaskSelection(it.id) 
                                     else selectedTaskId = it.id 
-                                }
+                                },
+                                onSegmentDelete = { viewModel.deleteSegment(it) },
+                                onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
                             )
                         } else {
                             val task = session.first()
@@ -291,7 +293,8 @@ fun TaskTrackerScreen(
             onUpdateSessionKind = { viewModel.updateSessionKind(segments.first().groupId, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
             onFlatten = { viewModel.flattenSession(segments.first().groupId) },
-            onNavigateToTaskDetail = { selectedTaskId = it } // Bypassing route, using dialog
+            onNavigateToTaskDetail = { selectedTaskId = it }, // Bypassing route, using dialog
+            onDeleteSegment = { viewModel.deleteSegment(it) }
         )
     }
 
@@ -302,7 +305,8 @@ fun TaskTrackerScreen(
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
-            onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) }
+            onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
+            onDelete = { viewModel.deleteSegment(task); selectedTaskId = null }
         )
     }
 }
@@ -433,7 +437,9 @@ fun CompletedSessionCard(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onSegmentClick: (Task) -> Unit,
-    onSegmentLongClick: (Task) -> Unit
+    onSegmentLongClick: (Task) -> Unit,
+    onSegmentDelete: (Task) -> Unit,
+    onSegmentToggleCalendar: (Task) -> Unit
 ) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
@@ -502,8 +508,9 @@ fun CompletedSessionCard(
                             isSelected = segment.id in selectedTaskIds,
                             onClick = { onSegmentClick(segment) },
                             onLongClick = { onSegmentLongClick(segment) },
-                            onToggleCalendar = { /* Handled in dialog */ },
-                            onAddToCalendar = { addToGoogleCalendar(context, segment) }
+                            onToggleCalendar = { onSegmentToggleCalendar(segment) },
+                            onAddToCalendar = { addToGoogleCalendar(context, segment) },
+                            onDelete = { onSegmentDelete(segment) }
                         )
                     }
                 }
@@ -520,7 +527,8 @@ private fun SegmentRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleCalendar: () -> Unit,
-    onAddToCalendar: () -> Unit
+    onAddToCalendar: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val context = LocalContext.current
     val segmentColor = Color(segment.kind.colorValue)
@@ -558,6 +566,9 @@ private fun SegmentRow(
             } else {
                 IconButton(onClick = { if (!segment.savedToCalendar) onAddToCalendar(); onToggleCalendar() }, modifier = Modifier.size(32.dp)) {
                     Icon(if (segment.savedToCalendar) Icons.Default.EventAvailable else Icons.Outlined.CalendarToday, null, tint = if (segment.savedToCalendar) Success else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -629,7 +640,8 @@ fun SessionDetailDialog(
     segments: List<Task>, onDismiss: () -> Unit,
     onUpdateSessionName: (String) -> Unit, onUpdateSessionKind: (TaskKind) -> Unit,
     onToggleCalendar: (Task) -> Unit,
-    onFlatten: () -> Unit, onNavigateToTaskDetail: (String) -> Unit
+    onFlatten: () -> Unit, onNavigateToTaskDetail: (String) -> Unit,
+    onDeleteSegment: (Task) -> Unit
 ) {
     val sessionRef = segments.first(); var sessionNameInput by remember { mutableStateOf(sessionRef.name) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; var showFlattenConfirm by remember { mutableStateOf(false) }
     AlertDialog(
@@ -649,6 +661,7 @@ fun SessionDetailDialog(
                                 Icon(Icons.Default.EventAvailable, null, modifier = Modifier.size(16.dp), tint = Color(0xFF4285F4))
                             } else {
                                 IconButton(onClick = { onToggleCalendar(segment) }, modifier = Modifier.size(24.dp)) { Icon(if (segment.savedToCalendar) Icons.Default.EventAvailable else Icons.Default.CalendarToday, null, modifier = Modifier.size(16.dp), tint = if (segment.savedToCalendar) Success else PurplePrimary) }
+                                IconButton(onClick = { onDeleteSegment(segment) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) }
                             }
                         }
                         Text(text = "${formatDetailedDuration(segment.duration)} \u2022 ${formatStartEndRange(segment.startTime, segment.endTime)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(start = 16.dp))
@@ -663,7 +676,7 @@ fun SessionDetailDialog(
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit) {
+fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
     
     // Duration Editor State
@@ -702,6 +715,13 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                 if (name != task.name && !isCalendarTask) onSaveName(name)
                 onDismiss() 
             }) { Text("Done") } 
+        },
+        dismissButton = {
+            if (!isCalendarTask) {
+                TextButton(onClick = onDelete) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            }
         },
         title = { Text("Task Details") },
         text = {
