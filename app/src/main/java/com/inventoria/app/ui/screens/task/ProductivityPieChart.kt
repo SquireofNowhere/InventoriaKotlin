@@ -63,7 +63,7 @@ fun ProductivityPieChart(
             it.startTime < todayStart + dayDuration && end > todayStart
         }
         
-        todayTasks.map { task ->
+        val initialSegments = todayTasks.map { task ->
             val start = maxOf(task.startTime, todayStart)
             val end = minOf(task.endTime ?: currentTime, todayStart + dayDuration)
             
@@ -76,7 +76,55 @@ fun ProductivityPieChart(
                 sweepAngle = sweepAngle,
                 name = task.name
             )
+        }.sortedBy { it.startAngle }
+
+        val clusters = mutableListOf<MutableList<ChartSegment>>()
+        var currentCluster = mutableListOf<ChartSegment>()
+        var currentClusterEnd = -1000f
+
+        for (segment in initialSegments) {
+            if (segment.startAngle >= currentClusterEnd) {
+                if (currentCluster.isNotEmpty()) {
+                    clusters.add(currentCluster)
+                }
+                currentCluster = mutableListOf(segment)
+                currentClusterEnd = segment.startAngle + segment.sweepAngle
+            } else {
+                currentCluster.add(segment)
+                currentClusterEnd = maxOf(currentClusterEnd, segment.startAngle + segment.sweepAngle)
+            }
         }
+        if (currentCluster.isNotEmpty()) {
+            clusters.add(currentCluster)
+        }
+
+        for (cluster in clusters) {
+            val tracks = mutableListOf<MutableList<ChartSegment>>()
+            for (segment in cluster) {
+                var placed = false
+                for (i in tracks.indices) {
+                    val track = tracks[i]
+                    val lastSegment = track.last()
+                    val lastEndAngle = lastSegment.startAngle + lastSegment.sweepAngle
+                    if (segment.startAngle >= lastEndAngle) {
+                        track.add(segment)
+                        segment.trackIndex = i
+                        placed = true
+                        break
+                    }
+                }
+                if (!placed) {
+                    segment.trackIndex = tracks.size
+                    tracks.add(mutableListOf(segment))
+                }
+            }
+            val maxTracks = tracks.size
+            for (segment in cluster) {
+                segment.maxTracks = maxTracks
+            }
+        }
+
+        initialSegments
     }
 
     val animationProgress by animateFloatAsState(
@@ -140,20 +188,42 @@ fun ProductivityPieChart(
 
             // 3. Task Productivity Segments: Overlays the black "passed" track
             segments.forEach { segment ->
+                val trackWidth = strokeWidth / segment.maxTracks
+                val trackRadius = innerRadius - strokeWidth / 2f + (segment.trackIndex + 0.5f) * trackWidth
+                val trackSize = Size(trackRadius * 2, trackRadius * 2)
+                val trackTopLeft = Offset(center.x - trackRadius, center.y - trackRadius)
+
                 drawArc(
                     color = segment.color,
                     startAngle = segment.startAngle,
                     sweepAngle = segment.sweepAngle * animationProgress,
                     useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                    size = arcSize,
-                    topLeft = topLeft
+                    style = Stroke(width = trackWidth, cap = StrokeCap.Round),
+                    size = trackSize,
+                    topLeft = trackTopLeft
                 )
             }
         }
 
-        val totalTracked = segments.sumOf { it.sweepAngle.toDouble() }
-        val percentage = (totalTracked / 360.0 * 100.0).toInt()
+        var totalTrackedDegrees = 0.0
+        var currentStart = -1000f
+        var currentEnd = -1000f
+        for (segment in segments) {
+            if (segment.startAngle > currentEnd) {
+                if (currentEnd > -1000f) {
+                    totalTrackedDegrees += (currentEnd - currentStart)
+                }
+                currentStart = segment.startAngle
+                currentEnd = segment.startAngle + segment.sweepAngle
+            } else {
+                currentEnd = maxOf(currentEnd, segment.startAngle + segment.sweepAngle)
+            }
+        }
+        if (currentEnd > -1000f) {
+            totalTrackedDegrees += (currentEnd - currentStart)
+        }
+
+        val percentage = minOf((totalTrackedDegrees / 360.0 * 100.0).toInt(), 100)
         
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -385,5 +455,7 @@ data class ChartSegment(
     val color: Color,
     val startAngle: Float,
     val sweepAngle: Float,
-    val name: String
+    val name: String,
+    var trackIndex: Int = 0,
+    var maxTracks: Int = 1
 )

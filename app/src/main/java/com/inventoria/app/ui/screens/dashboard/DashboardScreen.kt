@@ -1,6 +1,7 @@
 package com.inventoria.app.ui.screens.dashboard
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -24,9 +27,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
+import com.inventoria.app.data.model.Task
+import com.inventoria.app.ui.components.UnequipRepackDialog
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import java.text.NumberFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,7 +89,7 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                GradientHeaderCard()
+                GradientHeaderCard(uiState)
             }
 
             item {
@@ -142,7 +148,7 @@ fun DashboardScreen(
 }
 
 @Composable
-fun GradientHeaderCard() {
+fun GradientHeaderCard(uiState: DashboardUiState) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -173,10 +179,159 @@ fun GradientHeaderCard() {
                     color = Color.White.copy(alpha = 0.8f),
                     style = MaterialTheme.typography.bodyMedium
                 )
+                
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                LinearProductivityChart(
+                    tasks = uiState.tasks,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                )
             }
         }
     }
 }
+
+@Composable
+fun LinearProductivityChart(
+    tasks: List<Task>,
+    modifier: Modifier = Modifier,
+    currentTime: Long = System.currentTimeMillis()
+) {
+    val todayStart = remember(currentTime) {
+        Calendar.getInstance().apply {
+            timeInMillis = currentTime
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    val dayDuration = 24 * 60 * 60 * 1000L
+
+    val segments = remember(tasks, todayStart, currentTime) {
+        val todayTasks = tasks.filter {
+            val end = it.endTime ?: currentTime
+            it.startTime < todayStart + dayDuration && end > todayStart
+        }
+
+        val initialSegments = todayTasks.map { task ->
+            val start = maxOf(task.startTime, todayStart)
+            val end = minOf(task.endTime ?: currentTime, todayStart + dayDuration)
+            val startRatio = (start - todayStart).toFloat() / dayDuration.toFloat()
+            val endRatio = (end - todayStart).toFloat() / dayDuration.toFloat()
+            
+            DashboardChartSegment(
+                color = Color(task.kind.colorValue),
+                startRatio = startRatio,
+                endRatio = endRatio
+            )
+        }.sortedBy { it.startRatio }
+
+        val clusters = mutableListOf<MutableList<DashboardChartSegment>>()
+        var currentCluster = mutableListOf<DashboardChartSegment>()
+        var currentClusterEnd = -1f
+
+        for (segment in initialSegments) {
+            if (segment.startRatio >= currentClusterEnd) {
+                if (currentCluster.isNotEmpty()) clusters.add(currentCluster)
+                currentCluster = mutableListOf(segment)
+                currentClusterEnd = segment.endRatio
+            } else {
+                currentCluster.add(segment)
+                currentClusterEnd = maxOf(currentClusterEnd, segment.endRatio)
+            }
+        }
+        if (currentCluster.isNotEmpty()) clusters.add(currentCluster)
+
+        for (cluster in clusters) {
+            val tracks = mutableListOf<MutableList<DashboardChartSegment>>()
+            for (segment in cluster) {
+                var placed = false
+                for (i in tracks.indices) {
+                    val track = tracks[i]
+                    if (segment.startRatio >= track.last().endRatio) {
+                        track.add(segment)
+                        segment.trackIndex = i
+                        placed = true
+                        break
+                    }
+                }
+                if (!placed) {
+                    segment.trackIndex = tracks.size
+                    tracks.add(mutableListOf(segment))
+                }
+            }
+            val maxTracks = tracks.size
+            for (segment in cluster) segment.maxTracks = maxTracks
+        }
+        initialSegments
+    }
+
+    Column(modifier = modifier) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val width = size.width
+                val height = size.height
+                
+                // Background Track
+                drawRect(
+                    color = Color.White.copy(alpha = 0.15f),
+                    size = size
+                )
+
+                // Passed time indicator (slightly darker)
+                val passedRatio = (currentTime - todayStart).toFloat() / dayDuration.toFloat()
+                drawRect(
+                    color = Color.Black.copy(alpha = 0.1f),
+                    size = Size(width * passedRatio, height)
+                )
+
+                // Task segments
+                segments.forEach { segment ->
+                    val trackHeight = height / segment.maxTracks
+                    val yOffset = segment.trackIndex * trackHeight
+                    drawRect(
+                        color = segment.color,
+                        topLeft = Offset(width * segment.startRatio, yOffset),
+                        size = Size(width * (segment.endRatio - segment.startRatio), trackHeight)
+                    )
+                }
+                
+                // Current time line
+                drawLine(
+                    color = Color.White.copy(alpha = 0.8f),
+                    start = Offset(width * passedRatio, 0f),
+                    end = Offset(width * passedRatio, height),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+        }
+        
+        // Hour marks (6h intervals)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            listOf("00:00", "06:00", "12:00", "18:00", "24:00").forEach { time ->
+                Text(
+                    text = time,
+                    color = Color.White.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+
+private data class DashboardChartSegment(
+    val color: Color,
+    val startRatio: Float,
+    val endRatio: Float,
+    var trackIndex: Int = 0,
+    var maxTracks: Int = 1
+)
 
 @Composable
 fun StatisticsSection(uiState: DashboardUiState, shimmerOffset: Float) {

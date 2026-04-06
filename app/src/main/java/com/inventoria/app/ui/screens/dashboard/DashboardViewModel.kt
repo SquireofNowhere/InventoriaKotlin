@@ -2,6 +2,8 @@ package com.inventoria.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
 import com.inventoria.app.data.repository.SettingsRepository
@@ -13,6 +15,7 @@ import javax.inject.Inject
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repository: InventoryRepository,
+    private val taskRepository: TaskRepository,
     private val settingsRepository: SettingsRepository,
     private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
@@ -31,7 +34,8 @@ class DashboardViewModel @Inject constructor(
             repository.getOutOfStockItems(),
             repository.getAllItemsWithResolvedLocations(),
             repository.getAllCategories(),
-            settingsRepository.getShowValueOnDashboard()
+            settingsRepository.getShowValueOnDashboard(),
+            taskRepository.getVisibleTasks()
         ) { array ->
             val itemCount = array[0] as Int
             val totalVal = array[1] as Double?
@@ -39,6 +43,7 @@ class DashboardViewModel @Inject constructor(
             val allItems = array[3] as List<*>
             val categories = array[4] as List<*>
             val showValue = array[5] as Boolean
+            val tasks = array[6] as List<Task>
 
             DashboardUiState(
                 totalItems = itemCount,
@@ -46,6 +51,7 @@ class DashboardViewModel @Inject constructor(
                 outOfStockCount = outOfStock.size,
                 recentItems = allItems.filterIsInstance<com.inventoria.app.data.model.InventoryItem>().take(5),
                 categories = categories.filterIsInstance<String>(),
+                tasks = tasks,
                 isLoading = false,
                 showTotalValue = showValue
             )
