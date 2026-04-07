@@ -343,7 +343,7 @@ class AddEditItemViewModel @Inject constructor(
                 }
                 
                 // Trigger background upload so user can navigate back immediately
-                repository.uploadImagesInBackground(
+                repository. uploadImagesInBackground(
                     itemId = initialItem.id,
                     pendingUris = pendingImages.map { it.uri },
                     profileUri = pendingProfilePictureUri,

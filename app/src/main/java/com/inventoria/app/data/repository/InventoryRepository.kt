@@ -88,10 +88,11 @@ class InventoryRepository @Inject constructor(
 
     private fun getNextTimestamp(): Long {
         val now = System.currentTimeMillis()
+        var last = lastTimestamp.get()
         while (true) {
-            val last = lastTimestamp.get()
             val next = if (now > last) now else last + 1
             if (lastTimestamp.compareAndSet(last, next)) return next
+            last = lastTimestamp.get()
         }
     }
 
@@ -137,9 +138,9 @@ class InventoryRepository @Inject constructor(
                     while (currentParentId != null && currentParentId !in visitedParents) {
                         visitedParents.add(currentParentId)
                         val parent = itemMap[currentParentId] ?: break
-                        if (resolvedLat == null) resolvedLat = parent.latitude
-                        if (resolvedLon == null) resolvedLon = parent.longitude
-                        if (resolvedLat != null && resolvedLon != null) break
+                        if (resolvedLat == null || resolvedLat == 0.0) resolvedLat = parent.latitude
+                        if (resolvedLon == null || resolvedLon == 0.0) resolvedLon = parent.longitude
+                        if (resolvedLat != null && resolvedLat != 0.0 && resolvedLon != null && resolvedLon != 0.0) break
                         currentParentId = parent.parentId
                     }
                 }
@@ -165,11 +166,16 @@ class InventoryRepository @Inject constructor(
                 }
             }
 
-            if (resolvedLocation.isNotEmpty()) {
-                item.copy(location = resolvedLocation, latitude = resolvedLat, longitude = resolvedLon)
-            } else {
-                item
+            // 3. Handle Equipment Status
+            if (item.equipped) {
+                resolvedLocation = "Equipped (On Person)"
             }
+
+            item.copy(
+                location = resolvedLocation,
+                latitude = resolvedLat,
+                longitude = resolvedLon
+            )
         }
     }
 
@@ -186,7 +192,8 @@ class InventoryRepository @Inject constructor(
     suspend fun insertItem(item: InventoryItem): Long = withContext(Dispatchers.IO) {
         val currentTime = getNextTimestamp()
         val itemToInsert = item.copy(createdAt = currentTime, updatedAt = currentTime, isDirty = true)
-        inventoryDao.insertItem(itemToInsert)
+        val id = inventoryDao.insertItem(itemToInsert)
+        id
     }
 
     suspend fun updateItem(item: InventoryItem) = withContext(Dispatchers.IO) {
@@ -213,59 +220,29 @@ class InventoryRepository @Inject constructor(
 
     /**
      * Updates the equipped status for multiple items.
-     * When unequipping, items not returned to a container are marked with the current street address.
+     * Fast response: updates status immediately, resolves location in background if unequipping.
      */
     suspend fun setItemsEquipped(ids: List<Long>, equipped: Boolean, repack: Boolean = false) = withContext(Dispatchers.IO) {
         val items = ids.mapNotNull { inventoryDao.getItemById(it) }
         if (items.isEmpty()) return@withContext
         
         val currentTime = getNextTimestamp()
-        var currentGpsLocation: Pair<Double, Double>? = null
-        var streetAddress: String? = null
-        
-        if (!equipped) {
-            currentGpsLocation = getFreshLocation()
-            currentGpsLocation?.let { (lat, lon) ->
-                streetAddress = reverseGeocode(lat, lon)
-            }
-        }
 
         val updatedItems = items.map { item ->
             if (equipped) {
                 item.copy(
                     equipped = true,
                     parentId = null,
-                    // BUG 2 FIX: lastParentId should be exactly where it was before equipping. 
-                    // If it was at root, it's null.
                     lastParentId = item.parentId,
                     updatedAt = currentTime,
                     isDirty = true
                 )
             } else {
                 val newParentId = if (repack) item.lastParentId else null
-                var latitude = item.latitude
-                var longitude = item.longitude
-                var location = item.location
-                
-                if (newParentId == null) {
-                    currentGpsLocation?.let { (lat, lon) ->
-                        latitude = lat
-                        longitude = lon
-                        location = streetAddress ?: "Dropped at current location"
-                    } ?: run {
-                        location = "Dropped (location unknown)"
-                    }
-                } else {
-                    // If repacking, clear explicit location so it resolves from container
-                    location = ""
-                }
-
                 item.copy(
                     equipped = false,
                     parentId = newParentId,
-                    latitude = latitude,
-                    longitude = longitude,
-                    location = location,
+                    location = if (newParentId != null) "" else "Dropped (locating...)",
                     updatedAt = currentTime,
                     isDirty = true
                 )
@@ -273,11 +250,28 @@ class InventoryRepository @Inject constructor(
         }
         
         inventoryDao.updateItems(updatedItems)
+
+        if (!equipped && !repack) {
+            repositoryScope.launch {
+                val loc = getFreshLocation()
+                loc?.let { (lat, lon) ->
+                    val streetAddress = reverseGeocode(lat, lon)
+                    val finalizedItems = updatedItems.map { it.copy(
+                        latitude = lat,
+                        longitude = lon,
+                        location = streetAddress,
+                        updatedAt = getNextTimestamp()
+                    ) }
+                    inventoryDao.updateItems(finalizedItems)
+                }
+            }
+        }
     }
 
     private fun reverseGeocode(lat: Double, lon: Double): String {
         return try {
             val geocoder = Geocoder(context, Locale.getDefault())
+            @Suppress("DEPRECATION")
             val addresses = geocoder.getFromLocation(lat, lon, 1)
             if (addresses.isNullOrEmpty()) {
                 "Dropped at (${String.format(Locale.US, "%.4f", lat)}, ${String.format(Locale.US, "%.4f", lon)})"
@@ -332,30 +326,33 @@ class InventoryRepository @Inject constructor(
         }
 
         val itemsToUpdate = visited.mapNotNull { inventoryDao.getItemById(it) }
-        if (itemsToUpdate.isNotEmpty()) {
-            // BUG 1 FIX: When moving to root (newParentId == null), we must fetch fresh location
-            var streetAddress: String? = null
-            var currentGps: Pair<Double, Double>? = null
-            
-            if (newParentId == null) {
-                currentGps = getFreshLocation()
-                currentGps?.let { (lat, lon) ->
-                    streetAddress = reverseGeocode(lat, lon)
+        
+        // Update UI immediately
+        inventoryDao.updateItems(itemsToUpdate.map { 
+            it.copy(
+                parentId = newParentId,
+                lastParentId = if (newParentId == null) null else it.lastParentId,
+                location = if (newParentId != null) "" else "Moving...",
+                updatedAt = currentTime,
+                isDirty = true
+            )
+        })
+
+        if (newParentId == null) {
+            repositoryScope.launch {
+                val loc = getFreshLocation()
+                loc?.let { (lat, lon) ->
+                    val streetAddress = reverseGeocode(lat, lon)
+                    inventoryDao.updateItems(itemsToUpdate.map {
+                        it.copy(
+                            latitude = lat,
+                            longitude = lon,
+                            location = streetAddress,
+                            updatedAt = getNextTimestamp()
+                        )
+                    })
                 }
             }
-
-            inventoryDao.updateItems(itemsToUpdate.map { 
-                it.copy(
-                    parentId = newParentId,
-                    // BUG 2 FIX: When moving to root, we clear lastParentId because root is its new permanent home.
-                    lastParentId = if (newParentId == null) null else it.lastParentId,
-                    location = if (newParentId != null) "" else (streetAddress ?: "Dropped at current location"),
-                    latitude = if (newParentId == null) (currentGps?.first ?: it.latitude) else it.latitude,
-                    longitude = if (newParentId == null) (currentGps?.second ?: it.longitude) else it.longitude,
-                    updatedAt = currentTime,
-                    isDirty = true
-                )
-            })
         }
     }
     fun searchItems(query: String): Flow<List<InventoryItem>> = inventoryDao.searchItems(query)

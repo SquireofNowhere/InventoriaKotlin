@@ -8,30 +8,29 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:572243958143:android:9d9a9731fd169700e7224a",
+        "mobilesdk_app_id": "1:572243958143:android:35c2ddc37b242e33e7224a",
         "android_client_info": {
           "package_name": "com.inventoria.app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com",
-          "client_type": 3
+          "client_id": "572243958143-nl7cltucheqsmag2mgkofh9dba3t6rg5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.inventoria.app",
+            "certificate_hash": "7396ba0d9081b10be4d5d12e0b8819ed07fceff1"
+          }
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDtMgBWOpJRdYiqVxHhNCl1H8Uiz20dzNI"
+          "current_key": "AIzaSyCGEcMz7X0_1LQdur_dEpqNZeKOODpLbqI"
         }
       ],
       "services": {
         "appinvite_service": {
-        "other_platform_oauth_clienthe following rules applies to the Inventoria Version (displayed in the settings screen), not the database schema version.\n•\nYou must maintain the app version as a decimal (e.g., 1.01, 1.45).\n\n2. Incremental Versioning Logic Whenever you modify the codebase, you must propose an increment to the current version based on the impact of the work:\n•\nBug Fixes / Error Resolution: Increment by 0.0001 (e.g., 1.0001 → 1.0002).\n•\nNew Features / UI Enhancements: Increment by 0.0005 (e.g., 1.0002 → 1.0007).\n•\nFeature Removal / Major Logic Refactor: Increment by 0.000 (e.g., 1.007 → 1.008).\n•\nConstraint: You are strictly forbidden from incrementing the whole number (e.g., 1.99 → 2.0). Major version jumps (1 → 2 → 3) are manual user actions only.\n3. Mandatory Confirmation Gate\n•\nTrigger: Before applying any code changes that include a whole number version increment.\n•\nAction: You must pause and present a \"Version Update Proposal\" to the user.\n•\nFormat:\ni.\nChange Type: (e.g., \"Bug Fix\" or \"New Feature\")\nii.\nCalculation: \"Current: [X.XX] -> Proposed: [Y.YY]\"\niii.\nThe Ask: You must explicitly ask: \"May I proceed with the Inventoria whole number version update and the associated code changes?\"\n•\nBlocker: Do not make any whole number changes until the user gives explicit affirmative consent.\t": [
-            {
-              "client_id": "572243958143-5s6u8lnhtu5abej8fc3ggghes111d2fu.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }
