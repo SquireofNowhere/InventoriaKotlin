@@ -288,7 +288,7 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             val now = System.currentTimeMillis()
-            val stoppedTask = session.activeSegment?.task
+            val stoppedTask = session.activeSegment?.task ?: session.segments.firstOrNull()
             session.activeSegment?.let { ui ->
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime)
             } ?: run { repository.endSession(session.groupId) }
