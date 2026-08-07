@@ -38,11 +38,7 @@ A fully functional and animated `SyncStatusIndicator` component exists, and `Inv
 In `CollectionDetailViewModel.observeItems()`, the code calls `.first()` (a suspend function) inside a `combine()` flow transform.
 - **Risk**: This creates hidden coroutines that can cause deadlocks or stale reads. Since collection readiness is already computed via a separate dedicated flow, this manual lookup is redundant and dangerous.
 
-### 7. Import Repetition in TaskTimerService
-`TaskTimerService.kt` contains `import java.util.*` repeated five times in succession at the top of the file.
-- **Origin**: This is a classic artifact of APK decompilation, indicating that this specific file was reconstructed from bytecode and not fully cleaned up.
-
-### 8. Package Name Mismatch in Tests
+### 7. Package Name Mismatch in Tests
 The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package name is `com.example.inventoria_kotlin`.
 - **Status**: The actual project package is `com.inventoria.app`. This test will always fail until updated to match the current project structure.
 
@@ -50,19 +46,19 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 
 ## ✅ Resolved & Implemented Features
 
-### 9. Custom Username on Splash
+### 8. Custom Username on Splash
 - **Implemented**: `SplashScreenContent` now reads `customUsername` from `SettingsRepository`.
 - **Logic**: Greets the user with "Welcome back, [Name]" if a custom name or Google display name is available.
 
-### 10. Automatic Splash Navigation
+### 9. Automatic Splash Navigation
 - **Implemented**: The splash screen now automatically navigates to the main screen if any account (Google or Local Anonymous) exists, eliminating the need for returning users to press a button.
 
-### 11. Local Account Management
+### 10. Local Account Management
 - **Implemented**: `SettingsScreen` now allows local account users to set a custom display name, which is persisted and shown on the splash screen.
 
 ## 🔄 Sync Architecture & Incremental Merging Strategy (New)
 
-### 12. The "isDirty" Incremental Merge Pattern
+### 11. The "isDirty" Incremental Merge Pattern
 - **Status**: ✅ Implemented (Replaces Destructive "Overwrite All" Strategy)
 - **Background**: The app previously suffered from a "Simultaneous Online" bug. Because Room `Flow`s emit immediately upon connection, opening the app would trigger an instant push of the *entire* local database to Firebase via `setValue()`, destroying any remote changes made by other devices before they could be pulled.
 - **Solution (`isDirty` flag)**: 

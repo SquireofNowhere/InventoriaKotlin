@@ -81,16 +81,14 @@ Manage your assets with a system that understands the real world.
 
 ## Step 3: Production Rollout
 
-### Release Notes Example:
+### Release Notes Format:
 ```
-🎉 Version 1.15 - The Tactile Update
+🎉 Version <versionName> - <Update Nickname>
 
-✨ NEW: Deep hierarchical views now available inside Collections.
-✨ NEW: Context-aware drag-and-drop (Store vs Link).
-✨ NEW: Monotonic task syncing for perfect multi-device harmony.
-✨ NEW: Automatic sync every time you switch tabs.
-🛠️ FIXED: Circular dependency loops are now automatically detected and healed.
+✨ NEW: <feature added this release>
+🛠️ FIXED: <bug fixed this release>
 ```
+Pull the actual `versionName` from `app/build.gradle.kts` when writing notes — don't hardcode a version number here.
 
 ## Step 4: Post-Launch Monitoring
 

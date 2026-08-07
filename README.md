@@ -31,6 +31,8 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
     *   **Live Editing**: Instant saving of task names and notes during active sessions.
 *   **Productivity Dashboard**: Visualize your productivity trends and task history.
 *   **Calendar Integration**: Sync tasks with the system calendar; identify "Inventoria" tasks via smart description tags.
+*   **Segmented Sessions**: Sessions spanning multiple calendar days show a per-day percentage breakdown (e.g., "0.4% of Today - 5.3% of 25 Feb"). Multi-segment sessions can be "Flattened" in the details dialog to merge all segments into one continuous block (irreversible).
+*   **Automatic Cleanup**: Tasks saved to the calendar are soft-deleted from the local database after 24 hours, keeping the UI clean while preserving the data in Google Calendar.
 
 ### 🎒 Collections & Readiness
 *   **Project-Based Collections**: Create custom sets of items (e.g., "Emergency Kit", "Photography Gear").
@@ -46,9 +48,10 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 
 ### ☁️ Sync & Security
 *   **Real-time Cloud Sync**: Firebase Realtime Database ensures data is identical across all your devices.
-*   **Incremental Merging**: Uses an `isDirty` flag system to surgicaly sync only local changes, preventing accidental overwrites during simultaneous device usage.
+*   **Incremental Merging**: Only locally-changed (dirty) records are pushed, so simultaneous device usage doesn't overwrite concurrent remote edits. See [TECHNICAL_AUDIT.md](TECHNICAL_AUDIT.md#11-the-isdirty-incremental-merge-pattern) for the full mechanism.
 *   **Conflict Resolution**: High-precision timestamping (`updatedAt`) handles offline edits and ensures the latest version prevails.
 *   **Google Authentication**: Securely sign in and back up your data to the cloud.
+*   **Collaborative Syncing (Invite Codes)**: Generate an invite code to let another account read and write to your database, or paste one to sync with someone else's — useful for shared households/inventories. Manage or disconnect this from Settings.
 *   **Soft Deletion**: All data is soft-deleted first, allowing for recovery or cleanup during sync.
 
 ### ⚙️ Customization & Localization
@@ -73,7 +76,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 To permanently wipe all your data and start fresh, the app supports complete account deletion.
 
 ### Automated Deletion (In-App)
-*(If exposed in the UI)* Calling the `deleteUserAccount()` function from the settings will automatically:
+The "Delete Account" button in Settings calls `deleteUserAccount()`, which automatically:
 1. Delete your entire user branch (`users/{uid}`) from the **Firebase Realtime Database**.
 2. Delete all your uploaded images (`users/{uid}/item_images`) from **Firebase Storage**.
 3. Delete your **Firebase Authentication** record.
