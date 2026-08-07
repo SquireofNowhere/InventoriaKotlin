@@ -61,6 +61,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 
 ## 🚀 Upcoming Features (TODO)
 *   **Productivity Pie Chart**: Add a circular visualization to the daily productivity card in the Tasks screen. This chart should outline the full 24 hours of the day and visually represent how time was spent across different task kinds.
+*   **Inner Tasks (Pause Interruptions)**: When pausing an active task, show a popup offering to start a nested "inner task" for the interruption itself (e.g. pausing "Coding" to get water starts an inner "Get Water" task). The inner task tracks its own time independently; resuming the original paused task automatically stops the inner task, so short interruptions get captured as their own segment without any manual stop/start bookkeeping.
 
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
