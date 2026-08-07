@@ -91,6 +91,7 @@ fun TaskTrackerScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val isFlowModeEnabled by viewModel.isFlowModeEnabled.collectAsState()
+    val isFlowModeCarryOverEnabled by viewModel.isFlowModeCarryOverEnabled.collectAsState()
     val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
 
@@ -195,6 +196,22 @@ fun TaskTrackerScreen(
                                 checked = isFlowModeEnabled,
                                 onCheckedChange = { viewModel.toggleFlowMode(it) }
                             )
+                        }
+                        AnimatedVisibility(visible = isFlowModeEnabled) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.padding(start = 36.dp)) {
+                                    Text("Carry Over on Stop & Continue", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                    Text("Next task keeps the same name & kind instead of starting blank", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = isFlowModeCarryOverEnabled,
+                                    onCheckedChange = { viewModel.toggleFlowModeCarryOver(it) }
+                                )
+                            }
                         }
                     }
                 }

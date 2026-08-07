@@ -59,6 +59,9 @@ class TaskTrackerViewModel @Inject constructor(
     val isFlowModeEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val isFlowModeCarryOverEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeCarryOverEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _isAutoStartPending = MutableStateFlow(false)
     val isAutoStartPending: StateFlow<Boolean> = _isAutoStartPending.asStateFlow()
 
@@ -73,6 +76,10 @@ class TaskTrackerViewModel @Inject constructor(
                 _isAutoStartPending.value = false
             }
         }
+    }
+
+    fun toggleFlowModeCarryOver(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setFlowModeCarryOverEnabled(enabled) }
     }
 
     private var timerService: TaskTimerService? = null
@@ -242,12 +249,21 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    fun addNewTask() {
+    fun addNewTask(carryOverFrom: Task? = null) {
         flowModeJob?.cancel()
         _isAutoStartPending.value = false
         if (_activeSessions.value.size >= 5) return
         viewModelScope.launch {
-            val task = Task(id = UUID.randomUUID().toString(), groupId = UUID.randomUUID().toString(), name = "Task $taskCounter", isRunning = true, startTime = System.currentTimeMillis())
+            val task = Task(
+                id = UUID.randomUUID().toString(),
+                groupId = UUID.randomUUID().toString(),
+                name = carryOverFrom?.name ?: "Task $taskCounter",
+                kind = carryOverFrom?.kind ?: TaskKind.GRAPHITE,
+                isNameCustom = carryOverFrom?.isNameCustom ?: false,
+                isKindCustom = carryOverFrom?.isKindCustom ?: false,
+                isRunning = true,
+                startTime = System.currentTimeMillis()
+            )
             repository.insertTask(task)
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
@@ -276,6 +292,7 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             val now = System.currentTimeMillis()
+            val stoppedTask = session.activeSegment?.task
             session.activeSegment?.let { ui ->
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime)
             } ?: run { repository.endSession(session.groupId) }
@@ -289,7 +306,7 @@ class TaskTrackerViewModel @Inject constructor(
                     if (isFlowModeEnabled.value && _activeSessions.value.size < 5) {
                         // Wait for syncIgnoreCount to settle
                         while (syncRepository.isSyncing()) delay(100)
-                        addNewTask()
+                        addNewTask(if (isFlowModeCarryOverEnabled.value) stoppedTask else null)
                     }
                     _isAutoStartPending.value = false
                 }
