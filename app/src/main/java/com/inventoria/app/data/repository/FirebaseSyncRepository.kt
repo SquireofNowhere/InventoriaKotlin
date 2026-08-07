@@ -161,8 +161,13 @@ class FirebaseSyncRepository @Inject constructor(
                 val cloudUsername = snapshot.getValue(String::class.java)
                 scope.launch {
                     syncIgnoreCount.incrementAndGet()
-                    settingsRepository.saveCustomUsername(cloudUsername)
-                    syncIgnoreCount.decrementAndGet()
+                    try {
+                        settingsRepository.saveCustomUsername(cloudUsername)
+                    } finally {
+                        withContext(NonCancellable) {
+                            syncIgnoreCount.decrementAndGet()
+                        }
+                    }
                 }
             }
             override fun onCancelled(error: DatabaseError) {}
@@ -202,8 +207,10 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull items failed", e)
         } finally {
-            delay(1000)
-            syncIgnoreCount.decrementAndGet()
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
         }
     }
 
@@ -232,8 +239,10 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull links failed", e)
         } finally {
-            delay(1000)
-            syncIgnoreCount.decrementAndGet()
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
         }
     }
 
@@ -265,8 +274,10 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull tasks failed", e)
         } finally {
-            delay(1000)
-            syncIgnoreCount.decrementAndGet()
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
         }
     }
 
@@ -295,8 +306,10 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull collections failed", e)
         } finally {
-            delay(1000)
-            syncIgnoreCount.decrementAndGet()
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
         }
     }
 
@@ -325,8 +338,10 @@ class FirebaseSyncRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pull collection items failed", e)
         } finally {
-            delay(1000)
-            syncIgnoreCount.decrementAndGet()
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
         }
     }
 
