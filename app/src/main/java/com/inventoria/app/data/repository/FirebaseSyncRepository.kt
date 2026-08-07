@@ -352,11 +352,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     suspend fun syncOnAppOpen() {
-        val userId = authRepository.getOrCreateUserId()
-        val ref = firebaseDatabase.getReference("users").child(userId)
-        userRef = ref
-
         try {
+            val userId = authRepository.getOrCreateUserId()
+            val ref = firebaseDatabase.getReference("users").child(userId)
+            userRef = ref
+
             _syncStatus.value = SyncStatus.Syncing
             Log.d(TAG, "Performing pull-first sync on app open")
 
