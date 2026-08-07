@@ -272,4 +272,23 @@ In running sessions, when a user changes the type (TaskKind) of the currently ru
 - **UI State Verification**: Verify that the `TaskKindDropdownMenu` in `ActiveSessionCard` is correctly passing the intent to update the *running* task specifically.
 
 ---
-*Last Updated: 2026-03-23*
+
+## 🐞 19. Flow Mode "Stop & Continue" Always Started a Blank Task
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Flow Mode's "Stop & Continue" button always started the next task as a blank "Task N" with the default kind, even when the user was clearly doing a string of similar work (e.g. repeated "Coding" sessions) and wanted it to carry over. This took three separate fixes to fully resolve.
+
+### 🔍 Root Cause
+- **No carry-over existed at all**: `stopTask()`'s Flow Mode auto-start always called `addNewTask()` with no arguments — the same function the "+" FAB uses — which mints a brand-new session with a generic name and `TaskKind.GRAPHITE`, discarding the session just stopped.
+- **Paused-session fallback gap**: After adding a `carryOverFrom` parameter, `stopTask()` captured it as `session.activeSegment?.task`. `activeSegment` is `null` whenever the session is *paused* (not actively running) at the moment "Stop & Continue" is pressed, so carry-over had nothing to copy from and silently fell back to blank — confirmed by pulling the on-device Room DB and finding a blank "Task 29" inserted mid-session despite the setting being on.
+- **Dead StateFlow after moving the toggle to Settings**: The toggle was first placed under the Flow Mode card on the Task Tracker screen, then moved to Settings per request. `TaskTrackerViewModel.isFlowModeCarryOverEnabled` used `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)`, which only starts collecting from `SettingsRepository` while something in the UI observes it. Once the only `collectAsState()` call on it was removed from `TaskTrackerScreen`, nothing collected it anymore, so it never read `DataStore` and stayed frozen at its initial default (`false`) forever — even though the value on disk was correctly `true` (verified by pulling `files/datastore/settings.preferences_pb` directly off the device and inspecting the raw protobuf bytes).
+
+### 🛠️ Final Fix
+- Added `SettingsRepository.isFlowModeCarryOverEnabled()` / `setFlowModeCarryOverEnabled()`, a real per-user `DataStore` boolean (default off).
+- `addNewTask()` now takes an optional `carryOverFrom: Task?` and seeds the new task's `name`, `kind`, `isNameCustom`, and `isKindCustom` from it instead of the blank default when present.
+- `stopTask()` captures the carry-over source as `session.activeSegment?.task ?: session.segments.firstOrNull()`, matching the same fallback `pauseResumeTask()` already used for its own resume path, so a paused-then-stopped session still carries over correctly.
+- The toggle lives in **Settings → Tasks → "Carry Over on Stop & Continue"** (`SettingsViewModel`/`SettingsScreen`), while `TaskTrackerViewModel.isFlowModeCarryOverEnabled` switched from `SharingStarted.WhileSubscribed(5000)` to `SharingStarted.Eagerly` so it always actively collects the real setting regardless of what the UI is or isn't observing.
+
+---
+*Last Updated: 2026-08-07*
