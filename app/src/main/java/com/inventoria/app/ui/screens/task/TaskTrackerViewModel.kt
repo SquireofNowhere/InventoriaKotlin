@@ -78,10 +78,6 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    fun toggleFlowModeCarryOver(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setFlowModeCarryOverEnabled(enabled) }
-    }
-
     private var timerService: TaskTimerService? = null
     private var isBound = false
     private var taskCounter = 1

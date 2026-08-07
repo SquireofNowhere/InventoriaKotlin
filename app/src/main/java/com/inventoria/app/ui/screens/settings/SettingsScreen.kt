@@ -45,6 +45,7 @@ fun SettingsScreen(
     val currencyCode by viewModel.currencyCode.collectAsState()
     val autoCurrencyEnabled by viewModel.autoCurrencyEnabled.collectAsState()
     val manualSyncId by viewModel.manualSyncId.collectAsState()
+    val flowModeCarryOverEnabled by viewModel.flowModeCarryOverEnabled.collectAsState()
     val generatedInviteCode by viewModel.generatedInviteCode.collectAsState()
     val inviteCodeError by viewModel.inviteCodeError.collectAsState()
 
@@ -110,6 +111,15 @@ fun SettingsScreen(
                 icon = Icons.Default.AccountBalanceWallet,
                 checked = showValueOnDashboard,
                 onCheckedChange = { viewModel.toggleShowValue(it) }
+            )
+
+            SettingsCategoryHeader("Tasks")
+            SettingsToggleRow(
+                title = "Carry Over on Stop & Continue",
+                subtitle = "Flow Mode's next task keeps the same name & kind instead of starting blank",
+                icon = Icons.Default.Autorenew,
+                checked = flowModeCarryOverEnabled,
+                onCheckedChange = { viewModel.toggleFlowModeCarryOver(it) }
             )
 
             SettingsCategoryHeader("Notifications")
