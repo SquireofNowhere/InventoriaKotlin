@@ -31,7 +31,6 @@ class SettingsRepository @Inject constructor(
     private val AUTO_CURRENCY = booleanPreferencesKey("auto_currency")
     private val MANUAL_SYNC_ID = stringPreferencesKey("manual_sync_id")
     private val FLOW_MODE_ENABLED = booleanPreferencesKey("flow_mode_enabled")
-    private val FLOW_MODE_CARRY_OVER = booleanPreferencesKey("flow_mode_carry_over")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -52,7 +51,6 @@ class SettingsRepository @Inject constructor(
     val manualSyncId: Flow<String?> = context.dataStore.data.map { it[MANUAL_SYNC_ID] }
     
     fun isFlowModeEnabled(): Flow<Boolean> = context.dataStore.data.map { it[FLOW_MODE_ENABLED] ?: false }
-    fun isFlowModeCarryOverEnabled(): Flow<Boolean> = context.dataStore.data.map { it[FLOW_MODE_CARRY_OVER] ?: false }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }
@@ -118,9 +116,5 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setFlowModeEnabled(enabled: Boolean) {
         context.dataStore.edit { it[FLOW_MODE_ENABLED] = enabled }
-    }
-
-    suspend fun setFlowModeCarryOverEnabled(enabled: Boolean) {
-        context.dataStore.edit { it[FLOW_MODE_CARRY_OVER] = enabled }
     }
 }

@@ -38,9 +38,6 @@ class SettingsViewModel @Inject constructor(
     val autoCurrencyEnabled: StateFlow<Boolean> = settingsRepository.isAutoCurrencyEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val flowModeCarryOverEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeCarryOverEnabled()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
     val manualSyncId: StateFlow<String?> = settingsRepository.manualSyncId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -130,12 +127,6 @@ class SettingsViewModel @Inject constructor(
     fun toggleShowValue(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.toggleShowValue(enabled)
-        }
-    }
-
-    fun toggleFlowModeCarryOver(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setFlowModeCarryOverEnabled(enabled)
         }
     }
 
