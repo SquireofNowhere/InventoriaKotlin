@@ -59,8 +59,11 @@ class TaskTrackerViewModel @Inject constructor(
     val isFlowModeEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // Eagerly (not WhileSubscribed): nothing in this screen's UI collects this value since the
+    // toggle itself lives in Settings, so a subscriber-gated policy would never start collecting
+    // and stopTask() would always read the frozen initial default instead of the real setting.
     val isFlowModeCarryOverEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeCarryOverEnabled()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _isAutoStartPending = MutableStateFlow(false)
     val isAutoStartPending: StateFlow<Boolean> = _isAutoStartPending.asStateFlow()
