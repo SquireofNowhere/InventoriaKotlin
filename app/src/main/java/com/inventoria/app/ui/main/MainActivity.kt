@@ -32,27 +32,31 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        lifecycleScope.launch {
-            Log.d("MainActivity", "Performing initial app-open sync")
-            inventoryViewModel.syncOnAppOpen()
+        setContent {
+            val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
 
-            setContent {
-                val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
-                
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val notificationPermissionState = rememberPermissionState(
-                        Manifest.permission.POST_NOTIFICATIONS
-                    )
-                    LaunchedEffect(Unit) {
-                        if (!notificationPermissionState.status.isGranted) {
-                            notificationPermissionState.launchPermissionRequest()
-                        }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val notificationPermissionState = rememberPermissionState(
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
+                LaunchedEffect(Unit) {
+                    if (!notificationPermissionState.status.isGranted) {
+                        notificationPermissionState.launchPermissionRequest()
                     }
                 }
+            }
 
-                InventoriaTheme(darkTheme = isDarkMode) {
-                    InventoriaApp()
-                }
+            InventoriaTheme(darkTheme = isDarkMode) {
+                InventoriaApp()
+            }
+        }
+
+        lifecycleScope.launch {
+            Log.d("MainActivity", "Performing initial app-open sync")
+            try {
+                inventoryViewModel.syncOnAppOpen()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Initial app-open sync failed", e)
             }
         }
 
