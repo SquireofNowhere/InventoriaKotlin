@@ -131,11 +131,16 @@ class FirebaseSyncRepository @Inject constructor(
         }
 
         scope.launch {
-            firebaseFlow.collect { snapshot ->
-                pullAction(snapshot)
+            try {
+                firebaseFlow.collect { snapshot ->
+                    pullAction(snapshot)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Listener failed for ${nodeRef.path}", e)
+                _syncStatus.value = SyncStatus.Error(e.message ?: "Sync listener failed")
             }
         }
-        
+
         return job
     }
 
