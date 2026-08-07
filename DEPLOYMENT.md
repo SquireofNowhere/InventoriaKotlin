@@ -22,6 +22,16 @@ This guide walks you through preparing and publishing Inventoria to the Google P
 - [ ] Privacy policy created (must mention Firebase usage).
 - [ ] Target audience defined (13+).
 
+## Versioning
+
+Both fields live in `app/build.gradle.kts` under `defaultConfig`:
+
+- **`versionName`** (`MAJOR.MINOR`, e.g. `1.23`) — human-readable, shown in Settings and release notes.
+  - **MAJOR**: bumped manually and rarely, only for real breaking changes or a ground-up redesign.
+  - **MINOR**: bumped by 1 for each batch of shipped work (a PR, a dev session's worth of fixes/features) — not per individual line fix.
+- **`versionCode`** (plain integer) — required by Google Play to strictly increase on every submitted build, invisible to users.
+  - **Increment by exactly 1 every time `versionName` changes.** Keep the two in lockstep from here on so a real Play Store submission never silently fails on a stale `versionCode`.
+
 ## Step 1: Generate Release Artifacts
 
 ### 1.1 Create a Keystore
