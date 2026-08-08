@@ -71,10 +71,10 @@
         </provider>
 
         <!-- WorkManager auto-initializes itself via this provider before Application.onCreate()
-             runs, using its default (non-Hilt) worker factory -- which silently makes
+             runs, using its default (non-Hilt) worker factory, which silently makes
              InventoriaApplication's Configuration.Provider/HiltWorkerFactory setup ineffective,
              since WorkManager.getInstance() then just returns the already-initialized default
-             instance. Removing the auto-init meta-data is required for @HiltWorker workers
+             instance. Removing the auto-init meta-data is required for HiltWorker workers
              (SyncWorker) to actually be constructible; without this, WorkManager fails every
              SyncWorker run with NoSuchMethodException since the default factory can't supply its
              Hilt-injected constructor params. -->
