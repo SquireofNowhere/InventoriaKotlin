@@ -86,5 +86,9 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 - **Status**: ✅ Resolved — see [ErrorLog.md #24](ErrorLog.md)
 - All score/breakdown `StateFlow`s in `TaskTrackerViewModel` (today/lifetime, personal/social/total) previously derived only from `_completedSessions` (sessions where every row has `isSessionActive = false`), so an already-finished, already-paused segment of a still-in-progress session didn't count toward metrics until the whole session was eventually stopped. `allFinishedTasks` now combines `_completedSessions` with the finished (`isRunning = false`) segments still sitting inside `_activeSessions`. `ProductivityStatsScreen` had an independent copy of the same bug (its own `completedSessions`-only derivation) and was fixed the same way.
 
+### 15. Collections All Shared Primary Key 0 (Resolved)
+- **Status**: ✅ Resolved — see [ErrorLog.md #26](ErrorLog.md)
+- `InventoryCollection.id` was a bare `@PrimaryKey` with no `autoGenerate = true`, and `AddEditCollectionViewModel` inserted new collections with `id = 0`. Every collection ever created collided on the same primary key, and the entire "Add Items" flow treats `id != 0L` as its collection-picker-mode sentinel, so it silently never activated. Fixed by making the primary key auto-generate.
+
 ---
-*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, sections 12-14 added)*
+*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, sections 12-14 added, section 15 added)*

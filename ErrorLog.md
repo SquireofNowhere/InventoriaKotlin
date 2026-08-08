@@ -406,4 +406,18 @@ Editing a completed segment's start/end time from the Task Detail dialog changed
 Added `TaskRepository.updateSegmentTime(task, start, end)`, which recomputes `score` via the same `computeFrozenScore()` used by pause/stop, using the current streak state (there's no way to reconstruct exactly what the streak looked like at the segment's original completion time, so this is the same best-effort the initial freeze already relies on). `TaskTrackerViewModel.updateSegmentTime()` now calls this instead of building the update inline.
 
 ---
+
+## 🐞 26. Every Collection Got Primary Key 0, Breaking "Add Items"
+**Status:** ✅ Resolved
+
+### 📝 Problem
+"Adding items into a collection doesn't work" — reported twice, still broken on v1.51 despite a prior fix (wiring up `InventoryListScreen`'s tap-to-toggle in collection-picker mode). Live-reproduced by relaunching the app and stepping through Collections → a collection → Add Items on the physical tablet: the screen that opened was the plain "Inventory" screen (title "Inventory", "+" FAB visible), not "Collection Items" — meaning picker mode never activated at all.
+
+### 🔍 Root Cause
+`InventoryCollection.id` was declared `@PrimaryKey` **without** `autoGenerate = true`. `AddEditCollectionViewModel.onSave()` builds new collections with `id = id ?: 0L`, so every collection ever created (not just this user's test one) got inserted with `id = 0` — confirmed directly in the Room DB (`SELECT id, name FROM InventoryCollection` returned `(0, 'test things')`). Since `CollectionDao.insertCollection` uses `OnConflictStrategy.REPLACE`, creating a second collection would have silently overwritten the first (same colliding id). Separately, the entire add-items flow (`InventoryListScreen`'s `isCollectionPickerMode`, the nav route's `fromCollection` arg default) uses `id != 0L` as its "is a real collection" sentinel — so a collection whose actual id *is* 0 is indistinguishable from "no collection selected" and always fell through to the plain Inventory screen.
+
+### 🛠️ Final Fix
+Added `autoGenerate = true` to `InventoryCollection`'s `@PrimaryKey` (`Collection.kt`) so Room assigns real, unique, non-zero ids going forward. Bumped `InventoryDatabase` to version 7 (relies on the existing `fallbackToDestructiveMigration()`, same as prior schema bumps this session — local data resets, cloud data unaffected).
+
+---
 *Last Updated: 2026-08-08*

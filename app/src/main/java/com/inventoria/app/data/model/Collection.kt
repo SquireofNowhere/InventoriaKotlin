@@ -10,7 +10,7 @@ import com.google.firebase.database.PropertyName
 
 @Entity
 data class InventoryCollection(
-    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0L,
+    @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0L,
     @get:PropertyName("name") @set:PropertyName("name") var name: String = "",
     @get:PropertyName("description") @set:PropertyName("description") var description: String? = null,
     @get:PropertyName("icon") @set:PropertyName("icon") var icon: String? = null,
