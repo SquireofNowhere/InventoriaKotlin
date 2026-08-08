@@ -44,9 +44,21 @@ class FirebaseAuthRepository @Inject constructor(
         if (manualId != null) return manualId
 
         firebaseAuth.currentUser?.let { return it.uid }
-        
+
         val result = firebaseAuth.signInAnonymously().await()
-        return result.user?.uid ?: throw IllegalStateException("Failed to sign in anonymously")
+        val uid = result.user?.uid ?: throw IllegalStateException("Failed to sign in anonymously")
+
+        // A freshly-created anonymous session's ID token can briefly lag behind Firebase's
+        // backend recognizing it as valid (see generateInviteCode's fix for the diagnosed
+        // case). This is the single point every other operation gets its UID from after a
+        // brand-new sign-in, so force the refresh here once instead of at every call site.
+        try {
+            result.user?.getIdToken(true)?.await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Token refresh after fresh anonymous sign-in failed, proceeding anyway", e)
+        }
+
+        return uid
     }
 
     suspend fun signInWithGoogle(idToken: String): FirebaseUser? {
