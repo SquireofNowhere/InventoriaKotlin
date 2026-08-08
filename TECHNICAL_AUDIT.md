@@ -92,9 +92,9 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 - Fixing that surfaced a follow-on bug (runaway duplicate collections on every sync) — see #16 below.
 
 ### 16. Deletes Never Sync to Firebase (Items, Tasks, Links, and — until now — Collections)
-- **Status**: ⚠️ Partially resolved (collections only) — see [ErrorLog.md #27](ErrorLog.md)
-- **The gap**: None of the DAO-level delete methods (`InventoryDao.deleteItem`, `TaskDao`'s deletes, `ItemLinkDao`'s deletes) push a corresponding removal to Firebase — the sync engine's "isDirty incremental merge" pattern (#11 above) only ever pushes upserts, never tombstones. A device deleting something locally will have it silently reappear the next time that node's Firebase listener fires and pulls the still-present remote copy back down.
-- **Collections fixed as a side effect**: `CollectionRepository.deleteCollection` now also calls `FirebaseSyncRepository.deleteCollectionRemote()`, added specifically to make cleanup of the #15/#27 duplicate-collections bug actually stick. Items, tasks, and item links still have the same underlying gap and would need the equivalent treatment.
+- **Status**: ✅ Resolved for collections and item links. Items and tasks were never actually affected — see below.
+- **The gap, and why it only ever hit collections and links**: `InventoryItem` and `Task` both delete via a soft-delete (`isDeleted = 1, isDirty = 1` on the existing row), which rides the normal "isDirty incremental merge" push (#11) automatically and asynchronously — no fix needed there. `InventoryCollection` and `ItemLink`, by contrast, delete via a hard Room `@Delete`/`DELETE` query with no dirty-flaggable tombstone row left behind, so the sync engine had no way to know a removal ever happened; the local delete would silently reappear the next time that Firebase node's listener pulled the still-present remote copy back down.
+- **Fix**: `CollectionRepository.deleteCollection` (see [ErrorLog.md #27](ErrorLog.md)) and `InventoryRepository.removeLink` (see [ErrorLog.md #29](ErrorLog.md)) now both call a matching `FirebaseSyncRepository.delete*Remote()` that explicitly removes the corresponding Firebase node, fire-and-forget on the repository's own scope so the (already-instant) local delete is never gated on the network call.
 
 ---
 *Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, sections 12-14 added, sections 15-16 added)*

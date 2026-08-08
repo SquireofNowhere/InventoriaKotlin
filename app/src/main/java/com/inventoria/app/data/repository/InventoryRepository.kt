@@ -382,6 +382,9 @@ class InventoryRepository @Inject constructor(
 
     suspend fun removeLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
         itemLinkDao.removeLink(followerId, leaderId)
+        // ItemLink has no isDirty tombstone to ride the normal sync flow, so the removal needs
+        // to be pushed to Firebase explicitly or it silently reappears on the next pull.
+        syncRepository.deleteLinkRemote(followerId, leaderId)
         touchItem(followerId)
     }
 

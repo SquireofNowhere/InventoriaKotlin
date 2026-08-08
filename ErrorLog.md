@@ -453,4 +453,18 @@ Two related issues, both from the #27 fix that made collection deletes push a re
 `FirebaseSyncRepository.deleteCollectionRemote()` is no longer `suspend` — it fires the Firebase removal on the repository's own background scope instead of making callers await it, since local-first deletion should never be gated on a network round-trip. `CollectionRepository.deleteCollection()` now returns as soon as the local row is gone. Also parallelized `deleteSelectedCollections()`'s per-id calls with `async`/`awaitAll` as defense in depth for any future case where a delete path does need to wait on something.
 
 ---
+
+## 🐞 29. Unlinking Items Never Synced Either
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Follow-up to #27/#28: asked whether items and tasks had the same "delete doesn't sync" gap as collections. They don't — both use a soft-delete (`isDeleted`/`isDirty` flag) that rides the normal sync automatically. But checking surfaced a real instance of the same underlying gap in a different feature: removing a link between two items (`ItemDetailScreen`'s unlink button) only ever deleted the local `ItemLink` row.
+
+### 🔍 Root Cause
+`ItemLinkDao.removeLink` is a hard `DELETE FROM ItemLink WHERE ...` with no `isDirty`-flaggable tombstone possible (the row is just gone), same category of gap as #27's collections bug. `InventoryRepository.removeLink` never told Firebase about the removal at all.
+
+### 🛠️ Final Fix
+Added `FirebaseSyncRepository.deleteLinkRemote(followerId, leaderId)` (same fire-and-forget-on-repositoryScope pattern as `deleteCollectionRemote`, keyed the same way the existing link push already does: `"${followerId}_${leaderId}"`), called from `InventoryRepository.removeLink` right after the local delete.
+
+---
 *Last Updated: 2026-08-08*

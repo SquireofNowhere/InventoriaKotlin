@@ -339,6 +339,19 @@ class FirebaseSyncRepository @Inject constructor(
         }
     }
 
+    fun deleteLinkRemote(followerId: Long, leaderId: Long) {
+        // Same fire-and-forget pattern as deleteCollectionRemote -- ItemLink has no isDirty
+        // tombstone (it's a hard @Delete with a composite key, unlike Item/Task's soft-delete
+        // flag), so unlinking never had anything to push to Firebase at all before this.
+        repositoryScope.launch {
+            try {
+                userRef?.child("item_links")?.child("${followerId}_${leaderId}")?.removeValue()?.await()
+            } catch (e: Exception) {
+                Log.e(TAG, "Delete link remote failed", e)
+            }
+        }
+    }
+
     private suspend fun pushCollectionItemsToFirebase(ref: DatabaseReference, items: List<InventoryCollectionItem>) {
         if (items.isEmpty()) return
         try {
