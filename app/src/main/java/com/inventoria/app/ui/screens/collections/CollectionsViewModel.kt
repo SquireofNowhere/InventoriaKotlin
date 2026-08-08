@@ -21,6 +21,9 @@ class CollectionsViewModel @Inject constructor(
     private val _filterType = MutableStateFlow<InventoryCollectionType?>(null)
     val filterType: StateFlow<InventoryCollectionType?> = _filterType.asStateFlow()
 
+    private val _selectedCollectionIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedCollectionIds: StateFlow<Set<Long>> = _selectedCollectionIds.asStateFlow()
+
     val collections: StateFlow<List<InventoryCollectionWithCount>> = combine(
         _searchQuery,
         _filterType
@@ -47,6 +50,32 @@ class CollectionsViewModel @Inject constructor(
 
     fun setFilter(type: InventoryCollectionType?) {
         _filterType.value = type
+    }
+
+    fun toggleSelection(collectionId: Long) {
+        val current = _selectedCollectionIds.value
+        _selectedCollectionIds.value = if (collectionId in current) current - collectionId else current + collectionId
+    }
+
+    fun clearSelection() {
+        _selectedCollectionIds.value = emptySet()
+    }
+
+    fun selectAll() {
+        val visibleIds = collections.value.map { it.collection.id }.toSet()
+        _selectedCollectionIds.value = if (visibleIds.isNotEmpty() && visibleIds == _selectedCollectionIds.value) {
+            emptySet()
+        } else {
+            visibleIds
+        }
+    }
+
+    fun deleteSelectedCollections() {
+        viewModelScope.launch {
+            val idsToDelete = _selectedCollectionIds.value
+            _selectedCollectionIds.value = emptySet()
+            idsToDelete.forEach { collectionRepository.deleteCollection(it) }
+        }
     }
 
     fun quickEquipCollection(collectionId: Long) {
