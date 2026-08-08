@@ -72,10 +72,11 @@ class TaskTrackerViewModel @Inject constructor(
     private val _pendingInnerTaskPrompt = MutableStateFlow<String?>(null)
     val pendingInnerTaskPrompt: StateFlow<String?> = _pendingInnerTaskPrompt.asStateFlow()
 
-    // groupId of the session that was just paused, awaiting a name for the inner task tracking
-    // what's interrupting it (shown once the feature is already known/enabled).
-    private val _pendingInnerTaskName = MutableStateFlow<String?>(null)
-    val pendingInnerTaskName: StateFlow<String?> = _pendingInnerTaskName.asStateFlow()
+    // The inner task, already created and running, awaiting an optional rename. It starts
+    // immediately on pause rather than waiting for a name so the interruption is timed from
+    // the moment it actually begins, not from whenever the user finishes typing.
+    private val _pendingInnerTaskRename = MutableStateFlow<Task?>(null)
+    val pendingInnerTaskRename: StateFlow<Task?> = _pendingInnerTaskRename.asStateFlow()
 
     private val _isAutoStartPending = MutableStateFlow(false)
     val isAutoStartPending: StateFlow<Boolean> = _isAutoStartPending.asStateFlow()
@@ -287,23 +288,28 @@ class TaskTrackerViewModel @Inject constructor(
                 if (!hasSeenInnerTaskPrompt.value) {
                     _pendingInnerTaskPrompt.value = session.groupId
                 } else if (isInnerTaskEnabled.value) {
-                    _pendingInnerTaskName.value = session.groupId
+                    _pendingInnerTaskRename.value = createAndStartInnerTask(session.groupId)
                 }
             } ?: run {
                 // RESUMING: auto-stop whatever inner task is tracking this session's interruption
-                _activeSessions.value
-                    .mapNotNull { it.activeSegment }
-                    .find { it.task.interruptedGroupId == session.groupId }
-                    ?.let { interrupting ->
-                        val now = System.currentTimeMillis()
-                        repository.stopTaskAndSession(interrupting.task.id, interrupting.task.groupId, now, now - interrupting.task.startTime)
-                    }
-
-                val first = session.segments.firstOrNull() ?: return@launch
-                val newTask = Task(id = UUID.randomUUID().toString(), groupId = session.groupId, name = first.name, kind = first.kind, isRunning = true, startTime = System.currentTimeMillis())
-                repository.insertTask(newTask)
+                findActiveInterruptionFor(session.groupId)?.let { interrupting ->
+                    val now = System.currentTimeMillis()
+                    repository.stopTaskAndSession(interrupting.task.id, interrupting.task.groupId, now, now - interrupting.task.startTime)
+                }
+                resumeSession(session)
             }
         }
+    }
+
+    private fun findActiveInterruptionFor(groupId: String): RunningTaskUI? =
+        _activeSessions.value
+            .mapNotNull { it.activeSegment }
+            .find { it.task.interruptedGroupId == groupId }
+
+    private suspend fun resumeSession(session: TaskSessionUI) {
+        val first = session.segments.firstOrNull() ?: return
+        val newTask = Task(id = UUID.randomUUID().toString(), groupId = session.groupId, name = first.name, kind = first.kind, isRunning = true, startTime = System.currentTimeMillis())
+        repository.insertTask(newTask)
     }
 
     /** User answered the first-time "enable interruption tracking?" prompt. */
@@ -313,42 +319,57 @@ class TaskTrackerViewModel @Inject constructor(
             _pendingInnerTaskPrompt.value = null
             if (enable) {
                 settingsRepository.setInnerTaskEnabled(true)
-                _pendingInnerTaskName.value = pausedGroupId
+                _pendingInnerTaskRename.value = createAndStartInnerTask(pausedGroupId)
             }
         }
     }
 
-    fun startInnerTask(interruptedGroupId: String, name: String) {
-        _pendingInnerTaskName.value = null
+    private suspend fun createAndStartInnerTask(interruptedGroupId: String): Task {
+        val task = Task(
+            id = UUID.randomUUID().toString(),
+            groupId = UUID.randomUUID().toString(),
+            name = "Interruption",
+            isRunning = true,
+            startTime = System.currentTimeMillis(),
+            interruptedGroupId = interruptedGroupId
+        )
+        repository.insertTask(task)
+        val intent = Intent(context, TaskTimerService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
+        else { context.startService(intent) }
+        syncRepository.triggerFullSync()
+        return task
+    }
+
+    fun renameInnerTask(task: Task, name: String) {
+        _pendingInnerTaskRename.value = null
+        if (name.isBlank() || name == task.name) return
         viewModelScope.launch {
-            val task = Task(
-                id = UUID.randomUUID().toString(),
-                groupId = UUID.randomUUID().toString(),
-                name = name.ifBlank { "Interruption" },
-                isRunning = true,
-                startTime = System.currentTimeMillis(),
-                interruptedGroupId = interruptedGroupId
-            )
-            repository.insertTask(task)
-            val intent = Intent(context, TaskTimerService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
-            else { context.startService(intent) }
-            syncRepository.triggerFullSync()
+            repository.updateTask(task.copy(name = name, isNameCustom = true))
         }
     }
 
-    fun dismissInnerTaskDialog() {
-        _pendingInnerTaskName.value = null
+    fun dismissInnerTaskRenameDialog() {
+        _pendingInnerTaskRename.value = null
     }
 
     fun stopTask(session: TaskSessionUI) {
         viewModelScope.launch {
             _isLoading.value = true
             val now = System.currentTimeMillis()
+            val interruptedGroupId = session.activeSegment?.task?.interruptedGroupId
             session.activeSegment?.let { ui ->
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime)
             } ?: run { repository.endSession(session.groupId) }
             _isLoading.value = false
+
+            // Stopping an interruption means "back to what I was doing" -- resume it automatically
+            // rather than leaving the user to find and un-pause it themselves.
+            if (interruptedGroupId != null) {
+                _activeSessions.value
+                    .find { it.groupId == interruptedGroupId && it.activeSegment == null }
+                    ?.let { resumeSession(it) }
+            }
 
             if (isFlowModeEnabled.value) {
                 flowModeJob?.cancel()

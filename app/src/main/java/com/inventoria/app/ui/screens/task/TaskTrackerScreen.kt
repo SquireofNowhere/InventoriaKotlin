@@ -93,7 +93,7 @@ fun TaskTrackerScreen(
     val isFlowModeEnabled by viewModel.isFlowModeEnabled.collectAsState()
     val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
     val pendingInnerTaskPrompt by viewModel.pendingInnerTaskPrompt.collectAsState()
-    val pendingInnerTaskName by viewModel.pendingInnerTaskName.collectAsState()
+    val pendingInnerTaskRename by viewModel.pendingInnerTaskRename.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
 
     val totalScore by viewModel.totalScoreToday.collectAsState()
@@ -330,23 +330,31 @@ fun TaskTrackerScreen(
         )
     }
 
-    pendingInnerTaskName?.let { groupId ->
-        var interruptionName by remember(groupId) { mutableStateOf("") }
+    pendingInnerTaskRename?.let { innerTask ->
+        var interruptionName by remember(innerTask.id) { mutableStateOf(innerTask.name) }
         AlertDialog(
-            onDismissRequest = { viewModel.dismissInnerTaskDialog() },
+            onDismissRequest = { viewModel.dismissInnerTaskRenameDialog() },
             title = { Text("What's interrupting you?") },
             text = {
-                OutlinedTextField(
-                    value = interruptionName,
-                    onValueChange = { interruptionName = it },
-                    label = { Text("e.g. Get Water") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Tracking: ${formatTime(currentTime - innerTask.startTime)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    OutlinedTextField(
+                        value = interruptionName,
+                        onValueChange = { interruptionName = it },
+                        label = { Text("e.g. Get Water") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.startInnerTask(groupId, interruptionName) }) {
-                    Text("Start")
+                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName) }) {
+                    Text("Save")
                 }
             }
         )
