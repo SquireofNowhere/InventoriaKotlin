@@ -224,6 +224,31 @@ fun InventoriaApp() {
                 )
             }
 
+            // Same screen/ViewModel as the Map tab above, but a distinct route: this is reached
+            // as a drill-down from Item Detail ("view this item's location"), not from the
+            // bottom nav. Sharing Screen.Map.route here caused the bottom nav's save/restore
+            // state logic to conflate the two -- tapping Inventory after viewing an item's
+            // location on the map would land back on Map, since both paths resolved to the same
+            // destination ID and the framework couldn't tell which "visit" was more recent for
+            // which purpose.
+            composable(
+                route = "item_location_map?lat={lat}&lon={lon}",
+                arguments = listOf(
+                    navArgument("lat") { type = NavType.FloatType; defaultValue = -1f },
+                    navArgument("lon") { type = NavType.FloatType; defaultValue = -1f }
+                )
+            ) { backStackEntry ->
+                val lat = backStackEntry.arguments?.getFloat("lat")?.toDouble()?.takeIf { it != -1.0 }
+                val lon = backStackEntry.arguments?.getFloat("lon")?.toDouble()?.takeIf { it != -1.0 }
+                val initialLocation = if (lat != null && lon != null) lat to lon else null
+                val viewModel: InventoryListViewModel = hiltViewModel()
+                InventoryMapScreen(
+                    viewModel = viewModel,
+                    initialLocation = initialLocation,
+                    onItemClick = { id -> navController.navigate("item_detail/$id") }
+                )
+            }
+
             composable(Screen.Tasks.route) {
                 val viewModel: TaskTrackerViewModel = hiltViewModel()
                 TaskTrackerScreen(
@@ -294,8 +319,8 @@ fun InventoriaApp() {
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onEditItem = { navController.navigate("edit_item/$it") },
-                    onLocationClick = { lat, lon -> 
-                        navController.navigate(Screen.Map.route + "?lat=${lat.toFloat()}&lon=${lon.toFloat()}")
+                    onLocationClick = { lat, lon ->
+                        navController.navigate("item_location_map?lat=${lat.toFloat()}&lon=${lon.toFloat()}")
                     },
                     onNavigateToItemDetail = { navController.navigate("item_detail/$it") },
                     onAddItemInside = { navController.navigate("add_item?parentId=$it") },
