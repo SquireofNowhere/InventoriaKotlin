@@ -437,4 +437,20 @@ A second, compounding gap: collection deletion (`CollectionRepository.deleteColl
 - Added `FirebaseSyncRepository.deleteCollectionRemote(id)` and wired it into `CollectionRepository.deleteCollection`, so deleting a collection now actually removes it from Firebase instead of only the local row. (Item/task/link deletion still don't push to Firebase either — same gap, out of scope here; see [TECHNICAL_AUDIT.md #16](TECHNICAL_AUDIT.md).)
 
 ---
+
+## 🐞 28. Collection Delete Felt Laggy / "Didn't Delete Immediately"
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Reported right after the multi-select delete feature shipped: deleting collections didn't remove them from the list right away.
+
+### 🔍 Root Cause
+Two related issues, both from the #27 fix that made collection deletes push a removal to Firebase:
+1. `CollectionsViewModel.deleteSelectedCollections()` looped over selected ids with a plain `forEach`, calling the suspend `CollectionRepository.deleteCollection()` for each one in sequence. Each call's local delete is instant, but the function didn't return until it *also* awaited the Firebase `removeValue()` network round-trip — so with multiple collections selected, every subsequent item's instant local delete was stuck waiting behind the previous item's network call.
+2. Separately, `CollectionDetailViewModel.deleteCollection()`'s single-collection delete button only calls `onDeleted()` (navigate back) *after* `collectionRepository.deleteCollection()` fully returns — which included that same Firebase await, so even a single delete could sit unresponsive for a moment on a slow connection.
+
+### 🛠️ Final Fix
+`FirebaseSyncRepository.deleteCollectionRemote()` is no longer `suspend` — it fires the Firebase removal on the repository's own background scope instead of making callers await it, since local-first deletion should never be gated on a network round-trip. `CollectionRepository.deleteCollection()` now returns as soon as the local row is gone. Also parallelized `deleteSelectedCollections()`'s per-id calls with `async`/`awaitAll` as defense in depth for any future case where a delete path does need to wait on something.
+
+---
 *Last Updated: 2026-08-08*

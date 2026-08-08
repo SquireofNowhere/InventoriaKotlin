@@ -6,6 +6,8 @@ import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.InventoryCollectionWithCount
 import com.inventoria.app.data.repository.CollectionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -74,7 +76,11 @@ class CollectionsViewModel @Inject constructor(
         viewModelScope.launch {
             val idsToDelete = _selectedCollectionIds.value
             _selectedCollectionIds.value = emptySet()
-            idsToDelete.forEach { collectionRepository.deleteCollection(it) }
+            // Each delete's local removal is instant, but it also awaits a Firebase network
+            // round-trip (see ErrorLog.md #27). A sequential forEach would gate every
+            // subsequent item's instant local delete behind the previous item's network call,
+            // making a multi-select delete look stalled/laggy -- run them concurrently instead.
+            idsToDelete.map { id -> async { collectionRepository.deleteCollection(id) } }.awaitAll()
         }
     }
 

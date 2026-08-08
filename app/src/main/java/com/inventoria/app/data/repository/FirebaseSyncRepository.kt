@@ -326,11 +326,16 @@ class FirebaseSyncRepository @Inject constructor(
         }
     }
 
-    suspend fun deleteCollectionRemote(collectionId: Long) {
-        try {
-            userRef?.child("collections")?.child(collectionId.toString())?.removeValue()?.await()
-        } catch (e: Exception) {
-            Log.e(TAG, "Delete collection remote failed", e)
+    fun deleteCollectionRemote(collectionId: Long) {
+        // Fire-and-forget on repositoryScope rather than suspending: callers delete the local
+        // row first and want that to feel instant (both in the UI list and before navigating
+        // away from a detail screen), and shouldn't be gated on a Firebase round-trip to do so.
+        repositoryScope.launch {
+            try {
+                userRef?.child("collections")?.child(collectionId.toString())?.removeValue()?.await()
+            } catch (e: Exception) {
+                Log.e(TAG, "Delete collection remote failed", e)
+            }
         }
     }
 
