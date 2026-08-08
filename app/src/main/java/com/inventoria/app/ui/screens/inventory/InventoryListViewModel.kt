@@ -442,13 +442,13 @@ class InventoryListViewModel @Inject constructor(
         return repository.getItemById(id)?.name
     }
 
-    fun toggleItemInCollection(itemId: Long, collectionId: Long) {
+    // The collection-item picker stages selections locally in the UI (see InventoryListScreen)
+    // and only calls this once, on explicit confirm, rather than writing on every tap.
+    fun commitCollectionSelection(collectionId: Long, desiredItemIds: Set<Long>) {
         viewModelScope.launch {
-            if (_uiState.value.collectionItemIds.contains(itemId)) {
-                collectionRepository.removeItemFromCollection(collectionId, itemId)
-            } else {
-                collectionRepository.addItemToCollection(collectionId, itemId)
-            }
+            val currentItemIds = _uiState.value.collectionItemIds
+            (desiredItemIds - currentItemIds).forEach { collectionRepository.addItemToCollection(collectionId, it) }
+            (currentItemIds - desiredItemIds).forEach { collectionRepository.removeItemFromCollection(collectionId, it) }
         }
     }
 

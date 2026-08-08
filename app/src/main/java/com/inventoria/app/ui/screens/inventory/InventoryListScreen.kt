@@ -2,6 +2,7 @@ package com.inventoria.app.ui.screens.inventory
 
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -44,6 +45,7 @@ import java.text.NumberFormat
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 enum class DragAction { MOVE, LINK, REMOVE, NONE }
@@ -69,12 +71,35 @@ fun InventoryListScreen(
 
     val isSelectionMode = uiState.selectedItemIds.isNotEmpty()
     // "Add Items" was reached from CollectionDetailScreen with a specific collection to add to --
-    // tapping a row toggles membership instead of opening item detail. This was previously wired
-    // up as far as the ViewModel (setCollectionId/toggleItemInCollection) but never actually
-    // triggered or given a tap affordance here, so the whole flow silently did nothing.
+    // tapping a row toggles membership instead of opening item detail.
     val isCollectionPickerMode = fromCollectionId != 0L
     LaunchedEffect(fromCollectionId) {
         viewModel.setCollectionId(fromCollectionId.takeIf { it != 0L })
+    }
+
+    // Picker taps only stage a selection locally; nothing is written until the user explicitly
+    // confirms (checkmark) or chooses "Save" from the unsaved-changes dialog. Seeded once from
+    // the first real snapshot of the collection's current items, then left alone -- re-seeding on
+    // every uiState emission would clobber whatever the user has staged so far.
+    var stagedCollectionItemIds by remember(fromCollectionId) { mutableStateOf<Set<Long>?>(null) }
+    var showUnsavedChangesDialog by remember(fromCollectionId) { mutableStateOf(false) }
+    LaunchedEffect(fromCollectionId) {
+        if (isCollectionPickerMode) {
+            stagedCollectionItemIds = viewModel.uiState.first { !it.isLoading }.collectionItemIds
+        }
+    }
+    val hasUnsavedCollectionChanges = isCollectionPickerMode &&
+        stagedCollectionItemIds != null && stagedCollectionItemIds != uiState.collectionItemIds
+
+    val confirmCollectionSelection: () -> Unit = {
+        stagedCollectionItemIds?.let { viewModel.commitCollectionSelection(fromCollectionId, it) }
+        onNavigateBack()
+    }
+    val requestLeaveCollectionPicker: () -> Unit = {
+        if (hasUnsavedCollectionChanges) showUnsavedChangesDialog = true else onNavigateBack()
+    }
+    if (isCollectionPickerMode) {
+        BackHandler(onBack = requestLeaveCollectionPicker)
     }
 
     // Drag and Drop State
@@ -221,11 +246,16 @@ fun InventoryListScreen(
                         Text(if (fromCollectionId != 0L) "Collection Items" else "Inventory", fontWeight = FontWeight.Bold) 
                     },
                     navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
+                        IconButton(onClick = if (isCollectionPickerMode) requestLeaveCollectionPicker else onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
                     actions = {
+                        if (isCollectionPickerMode) {
+                            IconButton(onClick = confirmCollectionSelection) {
+                                Icon(Icons.Default.Check, contentDescription = "Confirm Selection")
+                            }
+                        }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Default.Sort, contentDescription = "Sort")
@@ -382,7 +412,7 @@ fun InventoryListScreen(
                                     isExpanded = item.id in uiState.expandedItemIds,
                                     isMatched = uiState.matchedItemIds.contains(item.id),
                                     isFiltering = uiState.isFiltering,
-                                    isSelected = if (isCollectionPickerMode) item.id in uiState.collectionItemIds else item.id in uiState.selectedItemIds,
+                                    isSelected = if (isCollectionPickerMode) item.id in (stagedCollectionItemIds ?: emptySet()) else item.id in uiState.selectedItemIds,
                                     isDragged = draggedItemId == item.id && isDraggingActive,
                                     isHovered = isHovered && isDraggingActive,
                                     isLinked = item.id in uiState.linkedItemIds,
@@ -391,7 +421,9 @@ fun InventoryListScreen(
                                     onDismissContextMenu = { contextMenuItemId = null },
                                     onClick = {
                                         when {
-                                            isCollectionPickerMode -> viewModel.toggleItemInCollection(item.id, fromCollectionId)
+                                            isCollectionPickerMode -> stagedCollectionItemIds = stagedCollectionItemIds?.let {
+                                                if (item.id in it) it - item.id else it + item.id
+                                            }
                                             isSelectionMode -> viewModel.toggleSelection(item.id)
                                             else -> onItemClick(item.id)
                                         }
@@ -429,7 +461,7 @@ fun InventoryListScreen(
                                     val isHovered = hoverItemId == item.id
                                     InventoryItemRow(
                                         item = item,
-                                        isSelected = if (isCollectionPickerMode) item.id in uiState.collectionItemIds else item.id in uiState.selectedItemIds,
+                                        isSelected = if (isCollectionPickerMode) item.id in (stagedCollectionItemIds ?: emptySet()) else item.id in uiState.selectedItemIds,
                                         isMatched = uiState.matchedItemIds.contains(item.id),
                                         isFiltering = uiState.isFiltering,
                                         isDragged = draggedItemId == item.id && isDraggingActive,
@@ -440,7 +472,9 @@ fun InventoryListScreen(
                                         onDismissContextMenu = { contextMenuItemId = null },
                                         onClick = {
                                             when {
-                                                isCollectionPickerMode -> viewModel.toggleItemInCollection(item.id, fromCollectionId)
+                                                isCollectionPickerMode -> stagedCollectionItemIds = stagedCollectionItemIds?.let {
+                                                    if (item.id in it) it - item.id else it + item.id
+                                                }
                                                 isSelectionMode -> viewModel.toggleSelection(item.id)
                                                 else -> onItemClick(item.id)
                                             }
@@ -546,6 +580,35 @@ fun InventoryListScreen(
             dismissButton = {
                 TextButton(onClick = { showMergeDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showUnsavedChangesDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnsavedChangesDialog = false },
+            title = { Text("Leave without saving?") },
+            text = { Text("You picked items for this collection but haven't saved yet.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showUnsavedChangesDialog = false
+                    confirmCollectionSelection()
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { showUnsavedChangesDialog = false }) {
+                        Text("Cancel")
+                    }
+                    TextButton(onClick = {
+                        showUnsavedChangesDialog = false
+                        onNavigateBack()
+                    }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         )

@@ -42,6 +42,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
     *   Percentage-based readiness indicators for each collection.
 *   **Collection Presets**: Specific types like TRAVEL_KIT, OUTFIT, and WORK_GEAR.
 *   **Multi-Select Delete**: Long-press (or tap in selection mode) to select collections on the Collections screen, with a Select All toggle and bulk delete.
+*   **Add Items Picker**: Tapping items in a collection's "Add Items" picker only stages the change locally (checkmark updates instantly, nothing is written) until confirmed with the checkmark in the top bar. Leaving with unsaved picks prompts Save / Cancel / Delete (discard).
 
 ### 🗺️ Map & Location Features
 *   **OSMDroid Integration**: Interactive map for picking and viewing item locations.
