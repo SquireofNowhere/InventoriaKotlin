@@ -78,6 +78,10 @@ class SettingsViewModel @Inject constructor(
 
     fun onGoogleSignInSuccess(idToken: String) {
         viewModelScope.launch {
+            if (settingsRepository.manualSyncId.first() != null) {
+                _authState.value = AuthState.Error("Clear the external sync connection first — local, Google, and external-sync are separate states and shouldn't overlap.")
+                return@launch
+            }
             _authState.value = AuthState.Loading
             try {
                 val user = authRepository.signInWithGoogle(idToken)
@@ -182,6 +186,10 @@ class SettingsViewModel @Inject constructor(
     fun useInviteCode(code: String) {
         viewModelScope.launch {
             _inviteCodeError.value = null
+            if (_authState.value is AuthState.Authenticated) {
+                _inviteCodeError.value = "Sign out of your Google account first — local, Google, and external-sync are separate states and shouldn't overlap."
+                return@launch
+            }
             try {
                 val targetUserId = authRepository.getUserIdFromInviteCode(code)
                 if (targetUserId != null) {

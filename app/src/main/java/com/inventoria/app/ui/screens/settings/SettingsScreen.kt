@@ -259,7 +259,7 @@ fun SyncStatusBanner(authState: AuthState, manualSyncId: String?) {
             SyncStatusVisuals(
                 Icons.Default.Warning,
                 "Synced to an External Account",
-                "This device reads/writes someone else's database$signedInNote. Clear it below to go back to your own.",
+                "This device reads/writes UID $manualSyncId$signedInNote. Clear it below to go back to your own.",
                 MaterialTheme.colorScheme.errorContainer,
                 MaterialTheme.colorScheme.onErrorContainer
             )
@@ -280,13 +280,24 @@ fun SyncStatusBanner(authState: AuthState, manualSyncId: String?) {
         )
     }
 
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Surface(color = containerColor, contentColor = contentColor, shape = MaterialTheme.shapes.small) {
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null)
             Spacer(Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall)
+            }
+            if (manualSyncId != null) {
+                IconButton(onClick = {
+                    clipboardManager.setText(AnnotatedString(manualSyncId))
+                    Toast.makeText(context, "UID copied", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy UID", tint = contentColor)
+                }
             }
         }
     }
@@ -415,8 +426,16 @@ fun AccountSection(
                     SignInButton(onSignInClick)
                 }
                 else -> {
-                    Text("Sync your inventory across devices by signing in.")
-                    SignInButton(onSignInClick)
+                    if (manualSyncId != null) {
+                        Text(
+                            "Signing in is disabled while connected to an external account — clear the sync connection below first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        Text("Sync your inventory across devices by signing in.")
+                        SignInButton(onSignInClick)
+                    }
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -520,33 +539,44 @@ fun AccountSection(
                 }
             }
 
-            var codeInput by remember { mutableStateOf("") }
-            
-            OutlinedTextField(
-                value = codeInput,
-                onValueChange = { 
-                    codeInput = it.uppercase()
-                    if (inviteCodeError != null) onClearError()
-                },
-                label = { Text("Enter Invite Code") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("e.g. ABC123") },
-                isError = inviteCodeError != null,
-                supportingText = {
-                    if (inviteCodeError != null) {
-                        Text(inviteCodeError, color = MaterialTheme.colorScheme.error)
-                    } else {
-                        Text("Paste an invite code to access another user's database")
-                    }
-                },
-                trailingIcon = {
-                    if (codeInput.length >= 6) {
-                        IconButton(onClick = { onUseInviteCode(codeInput) }) {
-                            Icon(Icons.Default.Sync, contentDescription = "Sync")
+            if (authState is AuthState.Authenticated) {
+                if (inviteCodeError != null) {
+                    Text(inviteCodeError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Text(
+                    "Sign out of your Google account to connect to someone else's database instead — these are separate states.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                var codeInput by remember { mutableStateOf("") }
+
+                OutlinedTextField(
+                    value = codeInput,
+                    onValueChange = {
+                        codeInput = it.uppercase()
+                        if (inviteCodeError != null) onClearError()
+                    },
+                    label = { Text("Enter Invite Code") },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("e.g. ABC123") },
+                    isError = inviteCodeError != null,
+                    supportingText = {
+                        if (inviteCodeError != null) {
+                            Text(inviteCodeError, color = MaterialTheme.colorScheme.error)
+                        } else {
+                            Text("Paste an invite code to access another user's database")
+                        }
+                    },
+                    trailingIcon = {
+                        if (codeInput.length >= 6) {
+                            IconButton(onClick = { onUseInviteCode(codeInput) }) {
+                                Icon(Icons.Default.Sync, contentDescription = "Sync")
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
 
             if (manualSyncId != null) {
                 Button(
