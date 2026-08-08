@@ -480,5 +480,7 @@ A race between local delete and Firebase's **live** listener. `FirebaseSyncRepos
 ### 🛠️ Final Fix
 Added `pendingCollectionDeletes`/`pendingLinkDeletes` (`ConcurrentHashMap.newKeySet()`) to `FirebaseSyncRepository`: `deleteCollectionRemote`/`deleteLinkRemote` register the id/key before starting the Firebase removal and unregister it once the removal settles (success or failure). `pullCollectionsFromFirebase`/`pullLinksFromFirebase` skip reinserting anything currently in these sets, closing the race window. This is the same class of bug as #27 (a pull racing ahead of an in-flight local-first mutation) but on the delete side rather than the create side.
 
+**Follow-up (still #30):** the first version of this fix removed the id from the pending set the instant `removeValue()`'s own `Task` resolved. Retested live with a real batch delete (all 19 duplicates): they all vanished, then **all** came back about a second later — worse than the original partial-resurrection symptom, because the guard window was too short. `removeValue()` completing doesn't guarantee every listener echo of the pre-delete state has already been delivered; a stale `onDataChange` can land slightly after. This is the exact same straggler-event problem the pre-existing `delay(1000)` before decrementing `syncIgnoreCount` (elsewhere in this file) already guards against. Applied the same pattern here: hold each id/key in the pending set for `delay(2000)` after the removal settles, instead of clearing it immediately.
+
 ---
 *Last Updated: 2026-08-08*

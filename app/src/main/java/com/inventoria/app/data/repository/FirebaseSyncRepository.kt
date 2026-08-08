@@ -349,7 +349,14 @@ class FirebaseSyncRepository @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Delete collection remote failed", e)
             } finally {
-                pendingCollectionDeletes.remove(collectionId)
+                // removeValue()'s own Task resolving doesn't guarantee every listener echo of the
+                // pre-delete state has already been delivered -- a stale onDataChange can still
+                // land a moment later (same straggler-event issue the delay(1000) elsewhere in
+                // this file guards against). Hold the guard a bit longer than that to absorb it.
+                withContext(NonCancellable) {
+                    delay(2000)
+                    pendingCollectionDeletes.remove(collectionId)
+                }
             }
         }
     }
@@ -366,7 +373,10 @@ class FirebaseSyncRepository @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Delete link remote failed", e)
             } finally {
-                pendingLinkDeletes.remove(key)
+                withContext(NonCancellable) {
+                    delay(2000)
+                    pendingLinkDeletes.remove(key)
+                }
             }
         }
     }
