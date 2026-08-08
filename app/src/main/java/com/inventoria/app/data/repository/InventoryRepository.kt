@@ -210,6 +210,10 @@ class InventoryRepository @Inject constructor(
         inventoryDao.deleteItemById(id, getNextTimestamp())
     }
 
+    suspend fun purgeOldDeletedLinks(threshold: Long) = withContext(Dispatchers.IO) {
+        itemLinkDao.purgeOldDeletedLinks(threshold)
+    }
+
     suspend fun updateQuantity(id: Long, newQuantity: Int) = withContext(Dispatchers.IO) {
         inventoryDao.updateQuantity(id, newQuantity, getNextTimestamp())
     }
@@ -381,10 +385,10 @@ class InventoryRepository @Inject constructor(
     }
 
     suspend fun removeLink(followerId: Long, leaderId: Long) = withContext(Dispatchers.IO) {
-        itemLinkDao.removeLink(followerId, leaderId)
-        // ItemLink has no isDirty tombstone to ride the normal sync flow, so the removal needs
-        // to be pushed to Firebase explicitly or it silently reappears on the next pull.
-        syncRepository.deleteLinkRemote(followerId, leaderId)
+        // Soft-delete (isDeleted+isDirty), same pattern as Item/Task -- rides the normal dirty-flow
+        // sync automatically and correctly propagates to every device, including ones with their
+        // own stale local copy of this link. See ErrorLog.md #33.
+        itemLinkDao.removeLink(followerId, leaderId, getNextTimestamp())
         touchItem(followerId)
     }
 

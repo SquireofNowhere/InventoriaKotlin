@@ -8,7 +8,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,15 +30,6 @@ class FirebaseSyncRepository @Inject constructor(
     private val syncIgnoreCount = AtomicInteger(0)
     private var userRef: DatabaseReference? = null
     private var syncJobs = mutableListOf<Job>()
-
-    // Deletes with no isDirty tombstone (collections, links) go local-delete-then-remove-remote.
-    // The live Firebase listener fires on every individual removal as it lands server-side, each
-    // time delivering a snapshot that still contains sibling rows whose own removal hasn't landed
-    // yet -- with the local row already gone, the pull logic reads that as "new data, insert it"
-    // and resurrects it. Tracking in-flight deletes here lets pull skip them until the removal
-    // actually completes. See ErrorLog.md #30.
-    private val pendingCollectionDeletes = ConcurrentHashMap.newKeySet<Long>()
-    private val pendingLinkDeletes = ConcurrentHashMap.newKeySet<String>()
 
     fun isSyncing(): Boolean = syncIgnoreCount.get() > 0
 
@@ -225,18 +215,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushLinksToFirebase(ref: DatabaseReference, links: List<ItemLink>) {
-        // Both the reactive dirty-flow push and TaskTimerService's periodic triggerFullSync()
-        // (every 30s while a task is running) push whatever the local table currently holds.
-        // If either reads a link a moment before deleteLinkRemote's local delete removes it,
-        // it would faithfully re-upload the link to Firebase, undoing the delete outright --
-        // a different race than the pull-side one pendingLinkDeletes was originally added for
-        // (see ErrorLog.md #30/#32). Filtering here closes it at the source.
-        val toPush = links.filterNot { "${it.followerId}_${it.leaderId}" in pendingLinkDeletes }
-        if (toPush.isEmpty()) return
+        if (links.isEmpty()) return
         try {
-            val updates = toPush.associate { "${it.followerId}_${it.leaderId}" to it }
+            val updates = links.associate { "${it.followerId}_${it.leaderId}" to it }
             ref.updateChildren(updates).await()
-            itemLinkDao.markLinksClean(toPush)
+            itemLinkDao.markLinksClean(links)
         } catch (e: Exception) {
             Log.e(TAG, "Push links failed", e)
         }
@@ -246,9 +229,8 @@ class FirebaseSyncRepository @Inject constructor(
         try {
             syncIgnoreCount.incrementAndGet()
             val cloudLinks = snapshot.children.mapNotNull { it.getValue(ItemLink::class.java) }
-            
+
             cloudLinks.forEach { cloudLink ->
-                if ("${cloudLink.followerId}_${cloudLink.leaderId}" in pendingLinkDeletes) return@forEach
                 val localLink = itemLinkDao.getLink(cloudLink.followerId, cloudLink.leaderId)
                 if (localLink == null || cloudLink.updatedAt > localLink.updatedAt) {
                     itemLinkDao.insertLink(cloudLink)
@@ -300,16 +282,11 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushCollectionsToFirebase(ref: DatabaseReference, collections: List<InventoryCollection>) {
-        // See pushLinksToFirebase for why: TaskTimerService's periodic triggerFullSync() (every
-        // 30s while a task is running) reads and re-pushes every local collection regardless of
-        // an in-flight delete, so a stale read caught a moment before deleteCollectionRemote's
-        // local delete would re-upload the collection to Firebase and undo the delete.
-        val toPush = collections.filterNot { it.id in pendingCollectionDeletes }
-        if (toPush.isEmpty()) return
+        if (collections.isEmpty()) return
         try {
-            val updates = toPush.associate { it.id.toString() to it }
+            val updates = collections.associate { it.id.toString() to it }
             ref.updateChildren(updates).await()
-            collectionDao.markCollectionsClean(toPush.map { it.id })
+            collectionDao.markCollectionsClean(collections.map { it.id })
         } catch (e: Exception) {
             Log.e(TAG, "Push collections failed", e)
         }
@@ -331,7 +308,6 @@ class FirebaseSyncRepository @Inject constructor(
                     child.ref.removeValue()
                     return@forEach
                 }
-                if (key in pendingCollectionDeletes) return@forEach
                 // Trust the Firebase key as the authoritative id rather than the payload's own
                 // `id` field, so key and row can never disagree.
                 val cloudColl = child.getValue(InventoryCollection::class.java)?.copy(id = key) ?: return@forEach
@@ -346,49 +322,6 @@ class FirebaseSyncRepository @Inject constructor(
             withContext(NonCancellable) {
                 delay(1000)
                 syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    fun deleteCollectionRemote(collectionId: Long) {
-        // Fire-and-forget on repositoryScope rather than suspending: callers delete the local
-        // row first and want that to feel instant (both in the UI list and before navigating
-        // away from a detail screen), and shouldn't be gated on a Firebase round-trip to do so.
-        pendingCollectionDeletes.add(collectionId)
-        repositoryScope.launch {
-            try {
-                userRef?.child("collections")?.child(collectionId.toString())?.removeValue()?.await()
-            } catch (e: Exception) {
-                Log.e(TAG, "Delete collection remote failed", e)
-            } finally {
-                // removeValue()'s own Task resolving doesn't guarantee every listener echo of the
-                // pre-delete state has already been delivered -- a stale onDataChange can still
-                // land a moment later (same straggler-event issue the delay(1000) elsewhere in
-                // this file guards against). Hold the guard a bit longer than that to absorb it.
-                withContext(NonCancellable) {
-                    delay(2000)
-                    pendingCollectionDeletes.remove(collectionId)
-                }
-            }
-        }
-    }
-
-    fun deleteLinkRemote(followerId: Long, leaderId: Long) {
-        // Same fire-and-forget pattern as deleteCollectionRemote -- ItemLink has no isDirty
-        // tombstone (it's a hard @Delete with a composite key, unlike Item/Task's soft-delete
-        // flag), so unlinking never had anything to push to Firebase at all before this.
-        val key = "${followerId}_${leaderId}"
-        pendingLinkDeletes.add(key)
-        repositoryScope.launch {
-            try {
-                userRef?.child("item_links")?.child(key)?.removeValue()?.await()
-            } catch (e: Exception) {
-                Log.e(TAG, "Delete link remote failed", e)
-            } finally {
-                withContext(NonCancellable) {
-                    delay(2000)
-                    pendingLinkDeletes.remove(key)
-                }
             }
         }
     }
@@ -436,10 +369,10 @@ class FirebaseSyncRepository @Inject constructor(
                 coroutineScope {
                     listOf(
                         async { pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList()) },
-                        async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksList()) },
+                        async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksForSyncList()) },
                         async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
-                        async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsList()) },
-                        async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsList()) }
+                        async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsForSyncList()) },
+                        async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsForSyncList()) }
                     ).awaitAll()
                 }
                 

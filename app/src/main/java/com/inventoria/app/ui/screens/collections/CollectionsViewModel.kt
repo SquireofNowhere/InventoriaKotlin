@@ -6,9 +6,9 @@ import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.InventoryCollectionWithCount
 import com.inventoria.app.data.repository.CollectionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -16,6 +16,19 @@ import javax.inject.Inject
 class CollectionsViewModel @Inject constructor(
     private val collectionRepository: CollectionRepository
 ) : ViewModel() {
+
+    init {
+        startPeriodicCleanup()
+    }
+
+    private fun startPeriodicCleanup() {
+        viewModelScope.launch {
+            while (isActive) {
+                collectionRepository.purgeOldDeletedCollections(System.currentTimeMillis() - 86_400_000)
+                delay(60_000)
+            }
+        }
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -76,11 +89,9 @@ class CollectionsViewModel @Inject constructor(
         viewModelScope.launch {
             val idsToDelete = _selectedCollectionIds.value
             _selectedCollectionIds.value = emptySet()
-            // Each delete's local removal is instant, but it also awaits a Firebase network
-            // round-trip (see ErrorLog.md #27). A sequential forEach would gate every
-            // subsequent item's instant local delete behind the previous item's network call,
-            // making a multi-select delete look stalled/laggy -- run them concurrently instead.
-            idsToDelete.map { id -> async { collectionRepository.deleteCollection(id) } }.awaitAll()
+            // Soft-delete is a single local UPDATE per id with no network dependency (sync rides
+            // the normal dirty-flow push independently), so a plain sequential loop is fine here.
+            idsToDelete.forEach { collectionRepository.deleteCollection(it) }
         }
     }
 

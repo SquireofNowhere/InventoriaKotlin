@@ -21,6 +21,7 @@ data class InventoryCollection(
     @get:PropertyName("preferredContainerId") @set:PropertyName("preferredContainerId") var preferredContainerId: Long? = null,
     @get:PropertyName("createdAt") @set:PropertyName("createdAt") var createdAt: Long = System.currentTimeMillis(),
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 )
 
@@ -37,6 +38,7 @@ data class InventoryCollectionItem(
     @get:PropertyName("sortOrder") @set:PropertyName("sortOrder") var sortOrder: Int = 0,
     @get:PropertyName("addedAt") @set:PropertyName("addedAt") var addedAt: Long = System.currentTimeMillis(),
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 )
 

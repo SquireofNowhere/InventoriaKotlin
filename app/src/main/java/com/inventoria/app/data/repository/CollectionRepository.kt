@@ -14,8 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class CollectionRepository @Inject constructor(
     private val collectionDao: CollectionDao,
-    private val inventoryDao: InventoryDao,
-    private val firebaseSyncRepository: FirebaseSyncRepository
+    private val inventoryDao: InventoryDao
 ) {
     fun getAllCollections(): Flow<List<InventoryCollection>> = collectionDao.getAllCollections()
     
@@ -42,13 +41,10 @@ class CollectionRepository @Inject constructor(
     }
 
     suspend fun deleteCollection(collectionId: Long) = withContext(Dispatchers.IO) {
-        collectionDao.getCollectionById(collectionId)?.let {
-            collectionDao.deleteCollection(it)
-        }
-        // Collection deletes weren't pushed to Firebase at all before this, so a deleted
-        // collection would simply reappear the next time the "collections" node synced --
-        // see ErrorLog.md #27.
-        firebaseSyncRepository.deleteCollectionRemote(collectionId)
+        // Soft-delete (isDeleted+isDirty), same pattern as Item/Task -- rides the normal
+        // dirty-flow sync automatically and correctly propagates to every device, including
+        // ones with their own stale local copy of this collection. See ErrorLog.md #33.
+        collectionDao.softDeleteCollection(collectionId, System.currentTimeMillis())
     }
 
     suspend fun addItemToCollection(collectionId: Long, itemId: Long, requiredQuantity: Int = 1, notes: String? = null) = withContext(Dispatchers.IO) {
@@ -56,7 +52,7 @@ class CollectionRepository @Inject constructor(
     }
 
     suspend fun removeItemFromCollection(collectionId: Long, itemId: Long) = withContext(Dispatchers.IO) {
-        collectionDao.removeItemFromCollection(collectionId, itemId)
+        collectionDao.removeItemFromCollection(collectionId, itemId, System.currentTimeMillis())
     }
 
     suspend fun packCollectionIntoContainer(collectionId: Long, containerId: Long): PackResult = withContext(Dispatchers.IO) {
@@ -116,6 +112,11 @@ class CollectionRepository @Inject constructor(
         } catch (e: Exception) {
             PackResult.Error(e.message ?: "Unknown error during equipping")
         }
+    }
+
+    suspend fun purgeOldDeletedCollections(threshold: Long) = withContext(Dispatchers.IO) {
+        collectionDao.purgeOldDeletedCollections(threshold)
+        collectionDao.purgeOldDeletedCollectionItems(threshold)
     }
 
     suspend fun unequipCollection(collectionId: Long, repack: Boolean = false): PackResult = withContext(Dispatchers.IO) {

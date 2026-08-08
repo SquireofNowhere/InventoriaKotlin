@@ -13,7 +13,9 @@ import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.data.repository.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -36,6 +38,16 @@ class InventoryListViewModel @Inject constructor(
 
     init {
         observeItems()
+        startPeriodicCleanup()
+    }
+
+    private fun startPeriodicCleanup() {
+        viewModelScope.launch {
+            while (isActive) {
+                repository.purgeOldDeletedLinks(System.currentTimeMillis() - 86_400_000)
+                delay(60_000)
+            }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

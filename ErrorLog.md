@@ -510,5 +510,30 @@ A completely different race from #30/#32's pull-side one. `TaskTimerService.star
 ### 🛠️ Final Fix
 `pushCollectionsToFirebase`/`pushLinksToFirebase` now also filter out anything currently in `pendingCollectionDeletes`/`pendingLinkDeletes` before building the Firebase update, so a stale read from any push path (the reactive dirty-flow push or the periodic full sync) can no longer re-upload a collection/link that's mid-delete. Item/task deletes were never at risk here since they're soft-deletes (the row stays present locally with `isDeleted=true`, so even a stale full push just correctly re-affirms that tombstone state rather than resurrecting anything).
 
+**Follow-up (superseded by #33):** even after this fix, testing kept turning up more resurrected duplicates with *no delete in progress at all*. Traced to a second physical device (the user's phone, also synced to the same account) that still had its own local copy of the duplicate collections from before any of these fixes existed — its own periodic sync doesn't know or care what the tablet just deleted, so it kept re-uploading its own stale local rows regardless of any in-memory guard on the tablet. That's a structural limitation of a guard that only lives in one device's process memory, not a bug in the guard itself — see #33 for the real fix.
+
+---
+
+## 🐞 33. The Real Fix: Deletes Needed Tombstones, Not Guards
+**Status:** ✅ Resolved
+
+### 📝 Problem
+User: "take note of this syncing issue and how better to make sure it stops happening... we want perfect syncing." After #27 → #29 → #30/#32, each fix closed one specific race but the underlying design — hard-deleting collections/links locally, then trying to also tell Firebase about it via a special-cased side-effecting call — kept producing a new race, because *any* device with its own independent local copy of the row could undo the deletion by simply existing and syncing normally. Confirmed live: the user's phone (a second physical device, `SM-A226B`, also signed into the same account) still had its own local copy of the duplicate collections and kept them alive in Firebase indefinitely, completely unaffected by anything running on the tablet.
+
+### 🔍 Root Cause
+`InventoryItem` and `Task` never had this problem because they delete via soft-delete (`isDeleted = 1, isDirty = 1` on the existing row) — the deletion *is* synced data, riding the same "isDirty incremental merge" push every other edit uses. Any device, no matter how stale its local copy, converges to the correct state the next time it syncs, because the tombstone itself is what's being merged (last-write-wins on `updatedAt`, same as any other field). `InventoryCollection`, `InventoryCollectionItem`, and `ItemLink` never got this treatment — they used hard `@Delete`/`DELETE` queries, so there was no synced representation of "this was deleted" at all, only an out-of-band `removeValue()` call that only the deleting device knew to make, and only once.
+
+### 🛠️ Final Fix
+Converted all three entities to the same soft-delete pattern Item/Task already used correctly:
+- Added `isDeleted: Boolean = false` to `InventoryCollection`, `InventoryCollectionItem`, `ItemLink`.
+- `CollectionDao.deleteCollection`/`removeItemFromCollection` and `ItemLinkDao.removeLink` are now `UPDATE ... SET isDeleted = 1, isDirty = 1` instead of `@Delete`/`DELETE`.
+- Every UI- and business-logic-facing query (`getAllCollections`, `getCollectionsWithCounts`, `getItemsForCollection`, `getAllLinksFlow`, `getLinksForItemFlow`, etc.) now filters `isDeleted = 0`. Room's `@Relation`/`@Junction` (used by `getCollectionWithItems`/`getCollectionReadiness`) can't filter the junction table declaratively, so that one's filtered in Kotlin after the query returns instead.
+- Sync's own full-table pushes need the *unfiltered* view (tombstones included, or they'd never reach Firebase) — added `getAllCollectionsForSyncList()`/`getAllCollectionItemsForSyncList()`/`getAllLinksForSyncList()` for that, used only by `FirebaseSyncRepository.triggerFullSync()`.
+- Removed the entire `pendingCollectionDeletes`/`pendingLinkDeletes` guard system and `deleteCollectionRemote`/`deleteLinkRemote` from `FirebaseSyncRepository` — not needed anymore, since deletion is no longer a special side-effecting call racing against reads, just a normal write that converges like every other field.
+- Added `purgeOldDeletedCollections`/`purgeOldDeletedCollectionItems`/`purgeOldDeletedLinks` (24h retention) so tombstones eventually get cleaned up, matching `Task.purgeOldDeletedTasks`'s existing pattern; wired into periodic cleanup loops in `CollectionsViewModel` and `InventoryListViewModel`, mirroring `TaskTrackerViewModel.startPeriodicCleanup()`.
+- Room DB bumped to version 8 (new `isDeleted` columns), relies on the existing `fallbackToDestructiveMigration()`.
+
+This closes the entire chain of collection/link duplication and resurrection bugs (#26 through #32) at the architectural root rather than patching each new race as it was discovered.
+
 ---
 *Last Updated: 2026-08-08*

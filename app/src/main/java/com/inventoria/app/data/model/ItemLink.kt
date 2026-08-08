@@ -9,5 +9,6 @@ data class ItemLink(
     @get:PropertyName("followerId") @set:PropertyName("followerId") var followerId: Long = 0L,
     @get:PropertyName("leaderId") @set:PropertyName("leaderId") var leaderId: Long = 0L,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 )

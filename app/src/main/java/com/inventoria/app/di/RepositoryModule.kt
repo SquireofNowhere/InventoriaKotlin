@@ -71,10 +71,9 @@ class RepositoryModule {
     @Singleton
     fun provideCollectionRepository(
         collectionDao: CollectionDao,
-        inventoryDao: InventoryDao,
-        firebaseSyncRepository: FirebaseSyncRepository
+        inventoryDao: InventoryDao
     ): CollectionRepository {
-        return CollectionRepository(collectionDao, inventoryDao, firebaseSyncRepository)
+        return CollectionRepository(collectionDao, inventoryDao)
     }
 
     @Provides

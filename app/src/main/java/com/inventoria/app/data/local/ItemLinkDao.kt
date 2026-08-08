@@ -20,15 +20,22 @@ interface ItemLinkDao {
         links.forEach { markLinkClean(it.followerId, it.leaderId) }
     }
 
-    @Query("SELECT * FROM ItemLink")
+    @Query("SELECT * FROM ItemLink WHERE isDeleted = 0")
     fun getAllLinksFlow(): Flow<List<ItemLink>>
 
-    @Query("SELECT * FROM ItemLink")
+    @Query("SELECT * FROM ItemLink WHERE isDeleted = 0")
     suspend fun getAllLinksList(): List<ItemLink>
 
-    @Query("SELECT * FROM ItemLink WHERE followerId = :itemId OR leaderId = :itemId")
+    // Unfiltered -- sync must push tombstones (isDeleted=1 rows) too, or a removed link never
+    // reaches other devices/Firebase at all. See ErrorLog.md #33.
+    @Query("SELECT * FROM ItemLink")
+    suspend fun getAllLinksForSyncList(): List<ItemLink>
+
+    @Query("SELECT * FROM ItemLink WHERE (followerId = :itemId OR leaderId = :itemId) AND isDeleted = 0")
     fun getLinksForItemFlow(itemId: Long): Flow<List<ItemLink>>
 
+    // Unfiltered by design: used for sync merge-decision (comparing updatedAt against the
+    // incoming cloud row), which needs the raw row -- tombstoned or not.
     @Query("SELECT * FROM ItemLink WHERE followerId = :followerId AND leaderId = :leaderId LIMIT 1")
     suspend fun getLink(followerId: Long, leaderId: Long): ItemLink?
 
@@ -38,12 +45,15 @@ interface ItemLinkDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLinks(links: List<ItemLink>)
 
-    @Query("DELETE FROM ItemLink WHERE followerId = :followerId AND leaderId = :leaderId")
-    suspend fun removeLink(followerId: Long, leaderId: Long)
+    @Query("UPDATE ItemLink SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE followerId = :followerId AND leaderId = :leaderId")
+    suspend fun removeLink(followerId: Long, leaderId: Long, timestamp: Long)
 
-    @Query("DELETE FROM ItemLink WHERE followerId = :itemId OR leaderId = :itemId")
-    suspend fun removeLinksForItem(itemId: Long)
+    @Query("UPDATE ItemLink SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE (followerId = :itemId OR leaderId = :itemId) AND isDeleted = 0")
+    suspend fun removeLinksForItem(itemId: Long, timestamp: Long)
 
     @Query("DELETE FROM ItemLink")
     suspend fun deleteAllLinks()
+
+    @Query("DELETE FROM ItemLink WHERE isDeleted = 1 AND updatedAt < :threshold")
+    suspend fun purgeOldDeletedLinks(threshold: Long)
 }
