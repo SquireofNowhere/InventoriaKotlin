@@ -57,14 +57,19 @@ fun InventoriaApp() {
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val showNavigation = screens.any { it.route == currentDestination?.route?.split("?")?.first() }
+    val currentBaseRoute = currentDestination?.route?.split("?")?.first()
+    // item_location_map is a distinct route from the Map tab (see the drill-down composable
+    // below) so it doesn't share save/restore state with it, but it should still look and act
+    // like a top-level screen -- nav bar visible, Map shown as the selected tab.
+    val showNavigation = screens.any { it.route == currentBaseRoute } || currentBaseRoute == "item_location_map"
 
     Row(Modifier.fillMaxSize()) {
         if (isWideScreen && showNavigation) {
             NavigationRail {
                 screens.forEach { screen ->
-                    val selected = currentDestination?.hierarchy?.any { 
-                        it.route?.split("?")?.first() == screen.route 
+                    val selected = currentDestination?.hierarchy?.any {
+                        val base = it.route?.split("?")?.first()
+                        base == screen.route || (base == "item_location_map" && screen == Screen.Map)
                     } == true
                     NavigationRailItem(
                         icon = { Icon(screen.icon, contentDescription = null) },
@@ -97,8 +102,9 @@ fun InventoriaApp() {
                 if (!isWideScreen && showNavigation) {
                     NavigationBar {
                         screens.forEach { screen ->
-                            val selected = currentDestination?.hierarchy?.any { 
-                                it.route?.split("?")?.first() == screen.route 
+                            val selected = currentDestination?.hierarchy?.any {
+                                val base = it.route?.split("?")?.first()
+                                base == screen.route || (base == "item_location_map" && screen == Screen.Map)
                             } == true
                             NavigationBarItem(
                                 icon = { Icon(screen.icon, contentDescription = null) },
