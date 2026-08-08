@@ -58,18 +58,16 @@ fun InventoriaApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val currentBaseRoute = currentDestination?.route?.split("?")?.first()
-    // item_location_map is a distinct route from the Map tab (see the drill-down composable
-    // below) so it doesn't share save/restore state with it, but it should still look and act
-    // like a top-level screen -- nav bar visible, Map shown as the selected tab.
-    val showNavigation = screens.any { it.route == currentBaseRoute } || currentBaseRoute == "item_location_map"
+    // item_location_map (the item-detail "view this location" drill-down) intentionally has no
+    // nav bar -- it has its own back button and shouldn't be reachable via tab taps at all.
+    val showNavigation = screens.any { it.route == currentBaseRoute }
 
     Row(Modifier.fillMaxSize()) {
         if (isWideScreen && showNavigation) {
             NavigationRail {
                 screens.forEach { screen ->
                     val selected = currentDestination?.hierarchy?.any {
-                        val base = it.route?.split("?")?.first()
-                        base == screen.route || (base == "item_location_map" && screen == Screen.Map)
+                        it.route?.split("?")?.first() == screen.route
                     } == true
                     NavigationRailItem(
                         icon = { Icon(screen.icon, contentDescription = null) },
@@ -83,17 +81,16 @@ fun InventoriaApp() {
                         },
                         selected = selected,
                         onClick = {
-                            // No saveState/restoreState: this app drills several levels deep
-                            // (e.g. Dashboard -> item -> its location on the map) before a tab
-                            // switch, and restoreState was found to reassert a stale saved back
-                            // stack moments after a correct navigation had already happened --
-                            // landing back on whatever drill-down was last visited regardless of
-                            // which tab was actually tapped. Always navigating fresh trades away
-                            // "remember scroll position when returning to a tab" for tab taps
-                            // reliably going where they're tapped.
+                            // saveState/restoreState remembers each tab's scroll position etc.
+                            // This is safe now that item_location_map (the one screen that used
+                            // to cause tab-switch confusion) is a separate, non-tab-switchable
+                            // route with its own back button -- see its composable() below.
                             navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id)
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
+                                restoreState = true
                             }
                         }
                     )
@@ -108,8 +105,7 @@ fun InventoriaApp() {
                     NavigationBar {
                         screens.forEach { screen ->
                             val selected = currentDestination?.hierarchy?.any {
-                                val base = it.route?.split("?")?.first()
-                                base == screen.route || (base == "item_location_map" && screen == Screen.Map)
+                                it.route?.split("?")?.first() == screen.route
                             } == true
                             NavigationBarItem(
                                 icon = { Icon(screen.icon, contentDescription = null) },
@@ -125,8 +121,11 @@ fun InventoriaApp() {
                                 alwaysShowLabel = alwaysShowLabels,
                                 onClick = {
                                     navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id)
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
                                         launchSingleTop = true
+                                        restoreState = true
                                     }
                                 }
                             )
@@ -235,10 +234,9 @@ fun InventoriaApp() {
             // Same screen/ViewModel as the Map tab above, but a distinct route: this is reached
             // as a drill-down from Item Detail ("view this item's location"), not from the
             // bottom nav. Sharing Screen.Map.route here caused the bottom nav's save/restore
-            // state logic to conflate the two -- tapping Inventory after viewing an item's
-            // location on the map would land back on Map, since both paths resolved to the same
-            // destination ID and the framework couldn't tell which "visit" was more recent for
-            // which purpose.
+            // state logic to conflate the two. Kept as a separate route with its own back
+            // button (no bottom nav here) rather than a tab-switchable destination, so drilling
+            // in here never interacts with the tab save/restore mechanism at all.
             composable(
                 route = "item_location_map?lat={lat}&lon={lon}",
                 arguments = listOf(
@@ -253,7 +251,8 @@ fun InventoriaApp() {
                 InventoryMapScreen(
                     viewModel = viewModel,
                     initialLocation = initialLocation,
-                    onItemClick = { id -> navController.navigate("item_detail/$id") }
+                    onItemClick = { id -> navController.navigate("item_detail/$id") },
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
 

@@ -5,6 +5,7 @@ import android.graphics.drawable.Drawable
 import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,12 +35,13 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
-@OptIn(ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryMapScreen(
     onItemClick: (Long) -> Unit,
     initialLocation: Pair<Double, Double>? = null,
-    viewModel: InventoryListViewModel
+    viewModel: InventoryListViewModel,
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -126,6 +128,18 @@ fun InventoryMapScreen(
     }
 
     Scaffold(
+        topBar = {
+            if (onNavigateBack != null) {
+                TopAppBar(
+                    title = { Text("Item Location") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
