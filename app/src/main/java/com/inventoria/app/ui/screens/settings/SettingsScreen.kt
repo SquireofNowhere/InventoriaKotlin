@@ -607,9 +607,9 @@ fun AccountSection(
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 ) {
-                    Icon(Icons.Default.Person, contentDescription = null)
+                    Icon(Icons.Default.LinkOff, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Switch back to local account")
+                    Text("Clear External Sync")
                 }
             }
         }
