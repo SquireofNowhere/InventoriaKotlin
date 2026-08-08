@@ -1,5 +1,6 @@
 package com.inventoria.app.ui.main
 
+import android.util.Log
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -58,6 +59,12 @@ fun InventoriaApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val currentBaseRoute = currentDestination?.route?.split("?")?.first()
+
+    // TEMP DIAGNOSTIC: dump the full back stack every time the current destination changes.
+    LaunchedEffect(currentDestination?.route) {
+        val stack = navController.currentBackStack.value.joinToString(" -> ") { it.destination.route ?: "?" }
+        Log.e("NAVDIAG", "current=${currentDestination?.route}  stack=[$stack]")
+    }
     // item_location_map is a distinct route from the Map tab (see the drill-down composable
     // below) so it doesn't share save/restore state with it, but it should still look and act
     // like a top-level screen -- nav bar visible, Map shown as the selected tab.
