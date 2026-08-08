@@ -1,6 +1,5 @@
 package com.inventoria.app.ui.main
 
-import android.util.Log
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -59,12 +58,6 @@ fun InventoriaApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val currentBaseRoute = currentDestination?.route?.split("?")?.first()
-
-    // TEMP DIAGNOSTIC: dump the full back stack every time the current destination changes.
-    LaunchedEffect(currentDestination?.route) {
-        val stack = navController.currentBackStack.value.joinToString(" -> ") { it.destination.route ?: "?" }
-        Log.e("NAVDIAG", "current=${currentDestination?.route}  stack=[$stack]")
-    }
     // item_location_map is a distinct route from the Map tab (see the drill-down composable
     // below) so it doesn't share save/restore state with it, but it should still look and act
     // like a top-level screen -- nav bar visible, Map shown as the selected tab.
@@ -90,12 +83,17 @@ fun InventoriaApp() {
                         },
                         selected = selected,
                         onClick = {
+                            // No saveState/restoreState: this app drills several levels deep
+                            // (e.g. Dashboard -> item -> its location on the map) before a tab
+                            // switch, and restoreState was found to reassert a stale saved back
+                            // stack moments after a correct navigation had already happened --
+                            // landing back on whatever drill-down was last visited regardless of
+                            // which tab was actually tapped. Always navigating fresh trades away
+                            // "remember scroll position when returning to a tab" for tab taps
+                            // reliably going where they're tapped.
                             navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
+                                popUpTo(navController.graph.findStartDestination().id)
                                 launchSingleTop = true
-                                restoreState = true
                             }
                         }
                     )
@@ -127,11 +125,8 @@ fun InventoriaApp() {
                                 alwaysShowLabel = alwaysShowLabels,
                                 onClick = {
                                     navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
+                                        popUpTo(navController.graph.findStartDestination().id)
                                         launchSingleTop = true
-                                        restoreState = true
                                     }
                                 }
                             )
