@@ -486,13 +486,19 @@ fun AccountSection(
                     )
                 }
 
-                if (sharedWithUsers.isNotEmpty()) {
+                Text(
+                    "Connected to your database (${sharedWithUsers.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                if (sharedWithUsers.isEmpty()) {
                     Text(
-                        "Connected to your database (${sharedWithUsers.size})",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 8.dp)
+                        "No one has joined using your invite code yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         sharedWithUsers.keys.forEach { joinerUid ->
                             Row(
