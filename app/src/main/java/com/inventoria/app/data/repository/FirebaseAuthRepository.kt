@@ -71,15 +71,14 @@ class FirebaseAuthRepository @Inject constructor(
     suspend fun generateInviteCode(): String {
         val userId = getCurrentUserId() ?: throw IllegalStateException("User not logged in")
 
-        // TEMP DIAGNOSTIC: dump exactly what the SDK believes its own auth state is,
-        // and force a fresh ID token fetch, right before the write that's been failing.
-        val currentUser = firebaseAuth.currentUser
-        Log.e(TAG, "DIAG generateInviteCode: uid=$userId currentUser.uid=${currentUser?.uid} isAnonymous=${currentUser?.isAnonymous}")
+        // A freshly-created anonymous session's ID token can briefly lag behind Firebase's
+        // backend token validation (observed directly: writes right after a fresh sign-in got
+        // denied with a token that "looked" valid locally, and a forced refresh fixed it).
+        // Force a refresh before this call so the token is definitely current.
         try {
-            val tokenResult = currentUser?.getIdToken(true)?.await()
-            Log.e(TAG, "DIAG forced token refresh OK: tokenLen=${tokenResult?.token?.length} claims=${tokenResult?.claims}")
+            firebaseAuth.currentUser?.getIdToken(true)?.await()
         } catch (e: Exception) {
-            Log.e(TAG, "DIAG forced token refresh FAILED", e)
+            Log.w(TAG, "Token refresh before generateInviteCode failed, proceeding anyway", e)
         }
 
         // Generate a 6-character alphanumeric code
