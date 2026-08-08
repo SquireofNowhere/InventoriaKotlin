@@ -25,7 +25,8 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Session-Based Tracking**: Group related tasks into sessions for better organization.
 *   **Productivity Gamification**:
     *   **Task Kinds**: Assign "Kinds" (Graphite, Lavender, Peacock, etc.) which represent different productivity levels and categories (Personal, Social, Neutral).
-    *   **Scoring**: Each task kind has a productivity value that contributes to your daily score.
+    *   **Momentum Scoring**: A session's points are `kind's productivity value × session length in minutes × momentum multiplier`, frozen the moment the segment finishes so historical totals don't drift if the formula is tuned later. The multiplier compounds with a streak of consecutive same-kind completed sessions (10%/session for productive kinds, 15%/session for draining ones — a steeper escape rate — capped at 2.5x), and resets whenever a different kind is completed. See [TECHNICAL_AUDIT.md](TECHNICAL_AUDIT.md#13-momentum-based-scoring--interruption-tracking) for the full mechanism.
+*   **Interruption Tracking (Inner Tasks)**: Pausing a task can start a linked "inner task" (e.g. pausing "Coding" to get water starts "Get Water") that tracks the interruption's own time, auto-stopped the moment you resume the original — no manual stop/start bookkeeping. Starts immediately (with a live timer) rather than waiting on a name; a one-time popup explains the feature the first time you pause, and it's a toggle in Settings after that. Off by default, interruptions don't break an existing momentum streak — opt an individual interruption in via a toggle on its popup or its session card if you want it to count.
 *   **Active Monitoring**: 
     *   **Foreground Service**: Keep timers running accurately even when the app is in the background.
     *   **Live Editing**: Instant saving of task names and notes during active sessions.
@@ -63,7 +64,6 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 
 ## 🚀 Upcoming Features (TODO)
 *   **Productivity Pie Chart**: Add a circular visualization to the daily productivity card in the Tasks screen. This chart should outline the full 24 hours of the day and visually represent how time was spent across different task kinds.
-*   **Inner Tasks (Pause Interruptions)**: When pausing an active task, show a popup offering to start a nested "inner task" for the interruption itself (e.g. pausing "Coding" to get water starts an inner "Get Water" task). The inner task tracks its own time independently; resuming the original paused task automatically stops the inner task, so short interruptions get captured as their own segment without any manual stop/start bookkeeping.
 
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)

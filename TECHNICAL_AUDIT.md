@@ -74,5 +74,17 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 - **Current state**: Rules now grant access to accounts listed in an owner's `sharedWith`, gated so only a genuinely valid invite code can self-register there. `SettingsScreen` also enforces local/Google/external-sync as mutually exclusive states and shows a live "Connected Devices" list with revoke, both previously missing.
 - **Known gap**: the rules fix only covers Realtime Database. Firebase Storage (item images) uses a separate rules language with no access to RTDB data, so a joined account still can't see the owner's images without a further fix (e.g. syncing `sharedWith` into Auth custom claims via a Cloud Function).
 
+### 13. Momentum-Based Scoring & Interruption Tracking
+- **Status**: ✅ Implemented
+- **Background**: `Task.score` was previously a computed property (`kind.productivityValue`) — a flat value regardless of how long a task actually ran, so a 5-minute Peacock session scored identically to a 3-hour one.
+- **Scoring model**: `score` is now a stored, frozen `Int` column: `kind.productivityValue × segment-duration-in-minutes × momentum multiplier`, rounded. The multiplier is `min(2.5, (1 + rate)^streak)`, where `rate` is 0.15/session for kinds with a negative `productivityValue` (a steeper "escape" rate for draining kinds) or 0.10 for positive ones, and `streak` is the count of consecutive same-`TaskKind` completed sessions immediately preceding this one (`TaskRepository.getStreakCountForKind`, backed by `TaskDao.getRecentCompletedTasks` — fully-stopped sessions only, `isSessionActive = 0`, deduped to one entry per `groupId`, capped at a 20-session lookback).
+- **Per-segment freezing, not per-session**: because pause/resume can split one session into several `Task` rows sharing a `groupId`, each segment gets its own frozen score the moment *it* individually finishes (`TaskRepository.pauseSegment()` on pause, `stopTaskAndSession()` on final stop) — not just the session's last segment. This is also what makes item 14 below correct.
+- **Interruption tracking (Inner Tasks)**: pausing a task can start a linked "inner task" (`Task.interruptedGroupId` points at the paused session's `groupId`) that starts running immediately and is auto-stopped when the original session resumes (`TaskTrackerViewModel.pauseResumeTask`/`stopTask`, via shared `resumeSession()`/`findActiveInterruptionFor()` helpers). `Task.countsForStreak` (default `false`) excludes interruptions from the streak lookback unless explicitly opted in, so an involuntary break doesn't cost an existing streak.
+- **Manual time edits**: editing a completed segment's start/end time (`TaskRepository.updateSegmentTime`) recomputes `score` the same way, since it's duration-dependent and would otherwise go stale — see [ErrorLog.md #25](ErrorLog.md).
+
+### 14. Active-Session Metrics Gap (Resolved)
+- **Status**: ✅ Resolved — see [ErrorLog.md #24](ErrorLog.md)
+- All score/breakdown `StateFlow`s in `TaskTrackerViewModel` (today/lifetime, personal/social/total) previously derived only from `_completedSessions` (sessions where every row has `isSessionActive = false`), so an already-finished, already-paused segment of a still-in-progress session didn't count toward metrics until the whole session was eventually stopped. `allFinishedTasks` now combines `_completedSessions` with the finished (`isRunning = false`) segments still sitting inside `_activeSessions`. `ProductivityStatsScreen` had an independent copy of the same bug (its own `completedSessions`-only derivation) and was fixed the same way.
+
 ---
-*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, section 12 added)*
+*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, sections 12-14 added)*

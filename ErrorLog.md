@@ -378,4 +378,32 @@ Diagnosed by temporarily logging the SDK's auth state and forcing an ID token re
 `FirebaseAuthRepository.getOrCreateUserId()` — the single point every other operation (image uploads, `syncOnAppOpen()`, invite code generation) gets its UID from — now forces `getIdToken(true)` once, right after a fresh `signInAnonymously()` succeeds, before returning. Fixes it at the source instead of needing the same guard at every call site.
 
 ---
+
+## 🐞 24. Paused Segments of an Active Session Excluded From Metrics
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Pausing a task mid-session (e.g. a lunch break) didn't count that already-worked time toward Today's Productivity or lifetime totals — the numbers only updated once the *whole session* was eventually stopped, sometimes hours or days later. Confirmed live during momentum-scoring testing: pausing a ~17-minute Coding segment jumped Today's Productivity from 17 to 54 pts *before* the session was ever stopped, proving the fix; it would previously have stayed at 17 until Stop was pressed.
+
+### 🔍 Root Cause
+Every score/breakdown `StateFlow` in `TaskTrackerViewModel` (`personalScoreToday`, `totalScoreLifetime`, `scoreBreakdownToday`, etc.) derived only from `_completedSessions` — the set of groups where *every* row has `isSessionActive = false`. A session that's paused but not finally stopped still has `isSessionActive = true` on its rows (only `stopTaskAndSession` flips that, not pausing), so its already-finished segments were invisible to every metric, even though the same segments were already visible in the UI (inside the active session card's expandable "Previous segments" list). `ProductivityStatsScreen` had an entirely separate, independent copy of the same bug (`completedSessions.flatten()` as its own `allTasks` source).
+
+### 🛠️ Final Fix
+Added `TaskTrackerViewModel.allFinishedTasks`, combining `_completedSessions.flatten()` with the finished (`isRunning = false`) segments still sitting inside `_activeSessions` (`active.flatMap { it.segments }`). All score/breakdown `StateFlow`s now derive from this instead. `ProductivityStatsScreen` was switched to collect the same exposed `allFinishedTasks` instead of its own buggy derivation.
+
+---
+
+## 🐞 25. Score Went Stale After Manually Editing a Segment's Time
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Editing a completed segment's start/end time from the Task Detail dialog changed its duration but left its `score` untouched — found by cross-checking a segment's stored `score` against what the momentum formula predicted for its duration during testing (#13 in TECHNICAL_AUDIT.md) and finding a mismatch traceable to an earlier time edit.
+
+### 🔍 Root Cause
+`TaskTrackerViewModel.updateSegmentTime()` called `repository.updateTask(task.copy(startTime = start, endTime = end, duration = end - start))` directly — recalculating `duration` but never touching `score`, which is duration-dependent under the new momentum scoring model (previously harmless, since the old flat `score` was duration-independent and this gap didn't exist).
+
+### 🛠️ Final Fix
+Added `TaskRepository.updateSegmentTime(task, start, end)`, which recomputes `score` via the same `computeFrozenScore()` used by pause/stop, using the current streak state (there's no way to reconstruct exactly what the streak looked like at the segment's original completion time, so this is the same best-effort the initial freeze already relies on). `TaskTrackerViewModel.updateSegmentTime()` now calls this instead of building the update inline.
+
+---
 *Last Updated: 2026-08-08*
