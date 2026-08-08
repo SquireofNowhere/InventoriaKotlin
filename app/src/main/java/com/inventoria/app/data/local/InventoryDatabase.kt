@@ -17,7 +17,7 @@ import com.inventoria.app.data.model.Task
         InventoryCollectionItem::class,
         ItemLink::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

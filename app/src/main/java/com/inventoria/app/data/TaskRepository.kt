@@ -12,6 +12,8 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 @Singleton
 class TaskRepository @Inject constructor(
@@ -54,7 +56,9 @@ class TaskRepository @Inject constructor(
                 old.savedToCalendarAt != new.savedToCalendarAt ||
                 old.isNameCustom != new.isNameCustom ||
                 old.isKindCustom != new.isKindCustom ||
-                old.isDeleted != new.isDeleted
+                old.isDeleted != new.isDeleted ||
+                old.countsForStreak != new.countsForStreak ||
+                old.score != new.score
     }
 
     fun getVisibleTasks(): Flow<List<Task>> = taskDao.getVisibleTasks()
@@ -115,9 +119,48 @@ class TaskRepository @Inject constructor(
         taskDao.endSession(groupId, timestamp)
     }
 
-    suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long) {
+    suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, kind: TaskKind) {
+        val score = computeFrozenScore(kind, duration)
         val timestamp = getNextTimestamp()
-        taskDao.stopTaskAndSession(taskId, groupId, endTime, duration, timestamp)
+        taskDao.stopTaskAndSession(taskId, groupId, endTime, duration, score, timestamp)
+    }
+
+    /** Pausing produces a completed-but-not-final segment; it gets its own frozen score
+     * immediately (so it counts toward metrics right away) rather than waiting for the whole
+     * session to eventually stop. */
+    suspend fun pauseSegment(task: Task, endTime: Long) {
+        val duration = endTime - task.startTime
+        val score = computeFrozenScore(task.kind, duration)
+        updateTask(task.copy(isRunning = false, isPaused = true, endTime = endTime, duration = duration, score = score))
+    }
+
+    private suspend fun computeFrozenScore(kind: TaskKind, durationMs: Long): Int {
+        val streak = getStreakCountForKind(kind)
+        val multiplier = momentumMultiplier(streak, kind)
+        val minutes = durationMs / 60000.0
+        return (kind.productivityValue * minutes * multiplier).roundToInt()
+    }
+
+    /** Counts consecutive same-kind sessions immediately preceding "now" among fully-stopped
+     * sessions, most recent first. Interruptions are excluded unless explicitly opted in via
+     * Task.countsForStreak -- an involuntary break shouldn't cost an existing streak. */
+    private suspend fun getStreakCountForKind(kind: TaskKind): Int {
+        val recentSessionKinds = taskDao.getRecentCompletedTasks(limit = 100)
+            .filter { it.interruptedGroupId == null || it.countsForStreak }
+            .distinctBy { it.groupId }
+            .take(20)
+            .map { it.kind }
+        var streak = 0
+        for (k in recentSessionKinds) {
+            if (k == kind) streak++ else break
+        }
+        return streak
+    }
+
+    private fun momentumMultiplier(streakCount: Int, kind: TaskKind): Double {
+        val rate = if (kind.productivityValue < 0) 0.15 else 0.10
+        val cap = 2.5
+        return minOf(cap, (1 + rate).pow(streakCount.toDouble()))
     }
 
     suspend fun softDeleteTask(id: String) {

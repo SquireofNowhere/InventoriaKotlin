@@ -58,8 +58,14 @@ interface TaskDao {
     @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun softDeleteTasksByGroupId(groupId: String, timestamp: Long)
 
-    @Query("UPDATE Task SET isRunning = 0, endTime = :endTime, duration = :duration, updatedAt = :timestamp, isDirty = 1 WHERE id = :taskId")
-    suspend fun completeTask(taskId: String, endTime: Long, duration: Long, timestamp: Long)
+    @Query("UPDATE Task SET isRunning = 0, endTime = :endTime, duration = :duration, score = :score, updatedAt = :timestamp, isDirty = 1 WHERE id = :taskId")
+    suspend fun completeTask(taskId: String, endTime: Long, duration: Long, score: Int, timestamp: Long)
+
+    // Fully-stopped sessions only (isSessionActive = 0) -- used for streak lookback. Segments
+    // still belonging to an in-progress (paused-but-not-stopped) session don't count toward
+    // OTHER sessions' momentum yet, since they might still be resumed/interrupted further.
+    @Query("SELECT * FROM Task WHERE isSessionActive = 0 AND isDeleted = 0 ORDER BY endTime DESC LIMIT :limit")
+    suspend fun getRecentCompletedTasks(limit: Int): List<Task>
 
     @Query("UPDATE Task SET isSessionActive = 0, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun endSession(groupId: String, timestamp: Long)
@@ -83,8 +89,8 @@ interface TaskDao {
     }
 
     @Transaction
-    suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, timestamp: Long) {
-        completeTask(taskId, endTime, duration, timestamp)
+    suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, score: Int, timestamp: Long) {
+        completeTask(taskId, endTime, duration, score, timestamp)
         endSession(groupId, timestamp)
     }
 

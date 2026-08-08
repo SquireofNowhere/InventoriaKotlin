@@ -30,8 +30,10 @@ fun ProductivityStatsScreen(
     onNavigateBack: () -> Unit,
     viewModel: TaskTrackerViewModel
 ) {
-    val completedSessions by viewModel.completedSessions.collectAsState()
-    val allTasks = remember(completedSessions) { completedSessions.flatten() }
+    // Includes already-finished (paused) segments of still-active sessions too, not just fully
+    // stopped ones -- otherwise a session paused mid-way (e.g. lunch break) silently excluded its
+    // already-worked portion from stats until the whole session eventually stopped.
+    val allTasks by viewModel.allFinishedTasks.collectAsState()
     
     val personalScore by viewModel.personalScoreLifetime.collectAsState()
     val socialScore by viewModel.socialScoreLifetime.collectAsState()

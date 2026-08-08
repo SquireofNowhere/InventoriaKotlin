@@ -232,7 +232,8 @@ fun TaskTrackerScreen(
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
                             onAutocompleteSelect = { n, g -> viewModel.updateSessionNameAndGroup(session.groupId, n, g) },
                             onUpdateKind = { viewModel.updateSessionKind(session.groupId, it) },
-                            onSessionClick = { selectedSessionGroupId = session.groupId }
+                            onSessionClick = { selectedSessionGroupId = session.groupId },
+                            onToggleStreak = { task, enabled -> viewModel.setInnerTaskCountsForStreak(task, enabled) }
                         )
                     }
                 }
@@ -334,6 +335,7 @@ fun TaskTrackerScreen(
         var interruptionName by remember(innerTask.id) {
             mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(innerTask.name, androidx.compose.ui.text.TextRange(0, innerTask.name.length)))
         }
+        var countsForStreak by remember(innerTask.id) { mutableStateOf(innerTask.countsForStreak) }
         val innerTaskFocusRequester = remember { FocusRequester() }
         val innerTaskKeyboardController = LocalSoftwareKeyboardController.current
         LaunchedEffect(innerTask.id) {
@@ -359,10 +361,22 @@ fun TaskTrackerScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().focusRequester(innerTaskFocusRequester)
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Count as a streak break",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(checked = countsForStreak, onCheckedChange = { countsForStreak = it })
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text) }) {
+                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak) }) {
                     Text("Save")
                 }
             }
@@ -641,7 +655,7 @@ fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
 }
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Pair<String, String>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Pair<String, String>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -682,7 +696,21 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: Li
                             Icon(Icons.Default.Stop, null, tint = MaterialTheme.colorScheme.error) 
                         }
                     }
-                } 
+                }
+            }
+            if (refTask.interruptedGroupId != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Count as a streak break", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    Switch(
+                        checked = refTask.countsForStreak,
+                        onCheckedChange = { onToggleStreak(refTask, it) },
+                        modifier = Modifier.scale(0.7f)
+                    )
+                }
             }
             AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.fillMaxWidth().padding(start = 32.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

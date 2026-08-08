@@ -100,50 +100,59 @@ class TaskTrackerViewModel @Inject constructor(
 
     private val originalTaskStates = mutableMapOf<String, Pair<String, TaskKind>>()
 
-    val personalScoreToday: StateFlow<Int> = _completedSessions.map { sessions ->
-        sessions.flatten()
+    // Every segment that has actually finished (isRunning = false), whether its parent session
+    // is still active (paused, might resume later) or fully stopped. Metrics previously only
+    // read from _completedSessions (fully-stopped sessions only), so an already-worked, already-
+    // paused segment of a still-in-progress session silently didn't count toward today's/lifetime
+    // totals until the whole session was eventually stopped -- sometimes hours or days later.
+    val allFinishedTasks: StateFlow<List<Task>> = combine(_activeSessions, _completedSessions) { active, completed ->
+        completed.flatten() + active.flatMap { it.segments }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val personalScoreToday: StateFlow<Int> = allFinishedTasks.map { tasks ->
+        tasks
             .filter { it.startTime >= getTodayStart() && it.kind.category.name == "PERSONAL" }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val socialScoreToday: StateFlow<Int> = _completedSessions.map { sessions ->
-        sessions.flatten()
+    val socialScoreToday: StateFlow<Int> = allFinishedTasks.map { tasks ->
+        tasks
             .filter { it.startTime >= getTodayStart() && it.kind.category.name == "SOCIAL" }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val totalScoreToday: StateFlow<Int> = _completedSessions.map { sessions ->
-        sessions.flatten().filter { it.startTime >= getTodayStart() }.sumOf { it.score }
+    val totalScoreToday: StateFlow<Int> = allFinishedTasks.map { tasks ->
+        tasks.filter { it.startTime >= getTodayStart() }.sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val personalScoreLifetime: StateFlow<Int> = _completedSessions.map { sessions ->
-        sessions.flatten()
+    val personalScoreLifetime: StateFlow<Int> = allFinishedTasks.map { tasks ->
+        tasks
             .filter { it.kind.category.name == "PERSONAL" }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val socialScoreLifetime: StateFlow<Int> = _completedSessions.map { sessions ->
-        sessions.flatten()
+    val socialScoreLifetime: StateFlow<Int> = allFinishedTasks.map { tasks ->
+        tasks
             .filter { it.kind.category.name == "SOCIAL" }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val totalScoreLifetime: StateFlow<Int> = _completedSessions.map { sessions ->
-        sessions.flatten().sumOf { it.score }
+    val totalScoreLifetime: StateFlow<Int> = allFinishedTasks.map { tasks ->
+        tasks.sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = _completedSessions.map { sessions ->
-        sessions.flatten()
+    val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = allFinishedTasks.map { tasks ->
+        tasks
             .filter { it.startTime >= getTodayStart() }
             .groupBy { it.kind }
-            .map { (kind, tasks) -> kind to tasks.size }
+            .map { (kind, kindTasks) -> kind to kindTasks.size }
             .sortedByDescending { it.second }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val scoreBreakdownLifetime: StateFlow<List<Pair<TaskKind, Int>>> = _completedSessions.map { sessions ->
-        sessions.flatten()
+    val scoreBreakdownLifetime: StateFlow<List<Pair<TaskKind, Int>>> = allFinishedTasks.map { tasks ->
+        tasks
             .groupBy { it.kind }
-            .map { (kind, tasks) -> kind to tasks.size }
+            .map { (kind, kindTasks) -> kind to kindTasks.size }
             .sortedByDescending { it.second }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -282,8 +291,7 @@ class TaskTrackerViewModel @Inject constructor(
             session.activeSegment?.let { ui ->
                 // PAUSING
                 val now = System.currentTimeMillis()
-                val updatedTask = ui.task.copy(isRunning = false, isPaused = true, endTime = now, duration = now - ui.task.startTime)
-                repository.updateTask(updatedTask)
+                repository.pauseSegment(ui.task, now)
 
                 if (!hasSeenInnerTaskPrompt.value) {
                     _pendingInnerTaskPrompt.value = session.groupId
@@ -294,7 +302,7 @@ class TaskTrackerViewModel @Inject constructor(
                 // RESUMING: auto-stop whatever inner task is tracking this session's interruption
                 findActiveInterruptionFor(session.groupId)?.let { interrupting ->
                     val now = System.currentTimeMillis()
-                    repository.stopTaskAndSession(interrupting.task.id, interrupting.task.groupId, now, now - interrupting.task.startTime)
+                    repository.stopTaskAndSession(interrupting.task.id, interrupting.task.groupId, now, now - interrupting.task.startTime, interrupting.task.kind)
                 }
                 resumeSession(session)
             }
@@ -341,16 +349,26 @@ class TaskTrackerViewModel @Inject constructor(
         return task
     }
 
-    fun renameInnerTask(task: Task, name: String) {
+    fun renameInnerTask(task: Task, name: String, countsForStreak: Boolean) {
         _pendingInnerTaskRename.value = null
-        if (name.isBlank() || name == task.name) return
+        val finalName = name.ifBlank { task.name }
+        if (finalName == task.name && countsForStreak == task.countsForStreak) return
         viewModelScope.launch {
-            repository.updateTask(task.copy(name = name, isNameCustom = true))
+            repository.updateTask(task.copy(name = finalName, isNameCustom = finalName != task.name, countsForStreak = countsForStreak))
         }
     }
 
     fun dismissInnerTaskRenameDialog() {
         _pendingInnerTaskRename.value = null
+    }
+
+    /** Lets the user change their mind about whether a still-running (or already-renamed)
+     * interruption should count toward streaks, from its session card, not just the initial dialog. */
+    fun setInnerTaskCountsForStreak(task: Task, countsForStreak: Boolean) {
+        if (countsForStreak == task.countsForStreak) return
+        viewModelScope.launch {
+            repository.updateTask(task.copy(countsForStreak = countsForStreak))
+        }
     }
 
     fun stopTask(session: TaskSessionUI) {
@@ -359,7 +377,7 @@ class TaskTrackerViewModel @Inject constructor(
             val now = System.currentTimeMillis()
             val interruptedGroupId = session.activeSegment?.task?.interruptedGroupId
             session.activeSegment?.let { ui ->
-                repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime)
+                repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime, ui.task.kind)
             } ?: run { repository.endSession(session.groupId) }
             _isLoading.value = false
 

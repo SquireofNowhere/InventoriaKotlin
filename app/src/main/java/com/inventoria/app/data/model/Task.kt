@@ -26,11 +26,18 @@ data class Task(
     // Set when this task is an "inner task" tracking an interruption -- the groupId of the
     // session that was paused to start it. Resuming that session auto-stops this one.
     @get:PropertyName("interruptedGroupId") @set:PropertyName("interruptedGroupId") var interruptedGroupId: String? = null,
+    // Only meaningful when interruptedGroupId != null. Interruptions are excluded from streak
+    // calculation by default (an involuntary "Get Water" break shouldn't cost a Peacock streak);
+    // explicitly opting an interruption in lets it break/participate in streaks like a normal
+    // session would.
+    @get:PropertyName("countsForStreak") @set:PropertyName("countsForStreak") var countsForStreak: Boolean = false,
+    // Frozen at session-stop time (see TaskRepository.stopTaskAndSession) -- productivityValue
+    // times total session minutes times the momentum multiplier from the current same-kind
+    // streak, rounded. Not recomputed afterward so historical totals don't drift if the rate
+    // formula is later tuned.
+    @get:PropertyName("score") @set:PropertyName("score") var score: Int = 0,
     @get:Exclude @set:Exclude var isDirty: Boolean = false
-) {
-    val score: Int
-        get() = kind.productivityValue
-}
+)
 
 enum class TaskCategory {
     NEUTRAL, PERSONAL, SOCIAL
