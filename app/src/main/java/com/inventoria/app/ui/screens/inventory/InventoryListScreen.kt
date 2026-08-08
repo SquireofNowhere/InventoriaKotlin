@@ -68,7 +68,15 @@ fun InventoryListScreen(
     var showSortMenu by remember { mutableStateOf(false) }
 
     val isSelectionMode = uiState.selectedItemIds.isNotEmpty()
-    
+    // "Add Items" was reached from CollectionDetailScreen with a specific collection to add to --
+    // tapping a row toggles membership instead of opening item detail. This was previously wired
+    // up as far as the ViewModel (setCollectionId/toggleItemInCollection) but never actually
+    // triggered or given a tap affordance here, so the whole flow silently did nothing.
+    val isCollectionPickerMode = fromCollectionId != 0L
+    LaunchedEffect(fromCollectionId) {
+        viewModel.setCollectionId(fromCollectionId.takeIf { it != 0L })
+    }
+
     // Drag and Drop State
     val lazyListState = rememberLazyListState()
     var draggedItemId by remember { mutableStateOf<Long?>(null) }
@@ -374,16 +382,19 @@ fun InventoryListScreen(
                                     isExpanded = item.id in uiState.expandedItemIds,
                                     isMatched = uiState.matchedItemIds.contains(item.id),
                                     isFiltering = uiState.isFiltering,
-                                    isSelected = item.id in uiState.selectedItemIds,
+                                    isSelected = if (isCollectionPickerMode) item.id in uiState.collectionItemIds else item.id in uiState.selectedItemIds,
                                     isDragged = draggedItemId == item.id && isDraggingActive,
                                     isHovered = isHovered && isDraggingActive,
                                     isLinked = item.id in uiState.linkedItemIds,
                                     dragAction = if (isHovered) dragAction else if (isDraggingActive && dragAction == DragAction.REMOVE) DragAction.REMOVE else DragAction.NONE,
                                     showContextMenu = contextMenuItemId == item.id,
                                     onDismissContextMenu = { contextMenuItemId = null },
-                                    onClick = { 
-                                        if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                        else onItemClick(item.id)
+                                    onClick = {
+                                        when {
+                                            isCollectionPickerMode -> viewModel.toggleItemInCollection(item.id, fromCollectionId)
+                                            isSelectionMode -> viewModel.toggleSelection(item.id)
+                                            else -> onItemClick(item.id)
+                                        }
                                     },
                                     onLongClick = { contextMenuItemId = item.id },
                                     onDragStart = { offset -> onDragStart(item.id, offset) },
@@ -418,7 +429,7 @@ fun InventoryListScreen(
                                     val isHovered = hoverItemId == item.id
                                     InventoryItemRow(
                                         item = item,
-                                        isSelected = item.id in uiState.selectedItemIds,
+                                        isSelected = if (isCollectionPickerMode) item.id in uiState.collectionItemIds else item.id in uiState.selectedItemIds,
                                         isMatched = uiState.matchedItemIds.contains(item.id),
                                         isFiltering = uiState.isFiltering,
                                         isDragged = draggedItemId == item.id && isDraggingActive,
@@ -427,9 +438,12 @@ fun InventoryListScreen(
                                         dragAction = if (isHovered) dragAction else if (isDraggingActive && dragAction == DragAction.REMOVE) DragAction.REMOVE else DragAction.NONE,
                                         showContextMenu = contextMenuItemId == item.id,
                                         onDismissContextMenu = { contextMenuItemId = null },
-                                        onClick = { 
-                                            if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                            else onItemClick(item.id)
+                                        onClick = {
+                                            when {
+                                                isCollectionPickerMode -> viewModel.toggleItemInCollection(item.id, fromCollectionId)
+                                                isSelectionMode -> viewModel.toggleSelection(item.id)
+                                                else -> onItemClick(item.id)
+                                            }
                                         },
                                         onLongClick = { contextMenuItemId = item.id },
                                         onDragStart = { offset -> onDragStart(item.id, offset) },
