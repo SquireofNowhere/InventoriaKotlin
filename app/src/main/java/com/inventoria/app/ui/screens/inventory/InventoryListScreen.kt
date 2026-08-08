@@ -251,11 +251,6 @@ fun InventoryListScreen(
                         }
                     },
                     actions = {
-                        if (isCollectionPickerMode) {
-                            IconButton(onClick = confirmCollectionSelection) {
-                                Icon(Icons.Default.Check, contentDescription = "Confirm Selection")
-                            }
-                        }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Default.Sort, contentDescription = "Sort")
@@ -310,7 +305,13 @@ fun InventoryListScreen(
             }
         },
         floatingActionButton = {
-            if (fromCollectionId == 0L && !isSelectionMode) {
+            if (isCollectionPickerMode) {
+                ExtendedFloatingActionButton(
+                    onClick = confirmCollectionSelection,
+                    icon = { Icon(Icons.Default.Check, contentDescription = null) },
+                    text = { Text("Save") }
+                )
+            } else if (fromCollectionId == 0L && !isSelectionMode) {
                 FloatingActionButton(onClick = onAddItem) {
                     Icon(Icons.Default.Add, contentDescription = "Add Item")
                 }
