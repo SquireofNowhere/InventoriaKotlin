@@ -483,4 +483,18 @@ Added `pendingCollectionDeletes`/`pendingLinkDeletes` (`ConcurrentHashMap.newKey
 **Follow-up (still #30):** the first version of this fix removed the id from the pending set the instant `removeValue()`'s own `Task` resolved. Retested live with a real batch delete (all 19 duplicates): they all vanished, then **all** came back about a second later — worse than the original partial-resurrection symptom, because the guard window was too short. `removeValue()` completing doesn't guarantee every listener echo of the pre-delete state has already been delivered; a stale `onDataChange` can land slightly after. This is the exact same straggler-event problem the pre-existing `delay(1000)` before decrementing `syncIgnoreCount` (elsewhere in this file) already guards against. Applied the same pattern here: hold each id/key in the pending set for `delay(2000)` after the removal settles, instead of clearing it immediately.
 
 ---
+
+## 🐞 31. Collection Detail Didn't Refresh After Saving From Add Items
+**Status:** ✅ Resolved
+
+### 📝 Problem
+After confirming picks in the new Add Items save flow, the collection detail screen still showed the old item list — only leaving and re-entering the screen showed the change.
+
+### 🔍 Root Cause
+Exactly the risk flagged (but never actually hit until now) in [TECHNICAL_AUDIT.md #6](TECHNICAL_AUDIT.md): `CollectionDetailViewModel.observeItems()` read `collectionRepository.getItemsForCollection(id)` with `.first()` *inside* a `combine()` lambda instead of as one of the combined flows. A `.first()` call takes a one-time snapshot at the moment the surrounding `combine` block happens to run — it does not itself trigger re-runs when the flow it reads from changes. Since none of the *other* flows being combined (`_collectionId`, all items, all links, expanded ids) change when a collection's items are added/removed, the block simply never re-ran after a save. Leaving and re-entering worked only because it recreates the ViewModel, forcing a fresh read from scratch.
+
+### 🛠️ Final Fix
+`observeItems()` now subscribes to `getItemsForCollection(id)` as its own live flow via `_collectionId.filterNotNull().flatMapLatest { ... }` and includes it as a 5th flow in the `combine()` call, so the block correctly re-runs whenever the collection's items actually change — matching the pattern already used correctly by `collectionWithItems` and `readiness` elsewhere in the same class.
+
+---
 *Last Updated: 2026-08-08*

@@ -34,9 +34,9 @@ A fully functional and animated `SyncStatusIndicator` component exists, and `Inv
 
 ## 🏛️ Anti-Patterns & Decompilation Artifacts
 
-### 6. Reactive Deadlocks in Collection Detail
-In `CollectionDetailViewModel.observeItems()`, the code calls `.first()` (a suspend function) inside a `combine()` flow transform.
-- **Risk**: This creates hidden coroutines that can cause deadlocks or stale reads. Since collection readiness is already computed via a separate dedicated flow, this manual lookup is redundant and dangerous.
+### 6. Reactive Deadlocks in Collection Detail (Resolved)
+- **Status**: ✅ Resolved — see [ErrorLog.md #31](ErrorLog.md)
+- `CollectionDetailViewModel.observeItems()` called `.first()` (a suspend function) inside a `combine()` flow transform to read the collection's items — a one-time snapshot that only re-ran when one of the *other* combined flows emitted, not when the collection's own items changed. This predicted risk ("stale reads") materialized concretely: saving from the Add Items picker didn't refresh the collection detail screen until leaving and re-entering (which recreates the ViewModel). Fixed by subscribing to `getItemsForCollection(id)` as its own live flow via `flatMapLatest`, matching the pattern already used by `collectionWithItems`/`readiness` in the same class.
 
 ### 7. Package Name Mismatch in Tests
 The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package name is `com.example.inventoria_kotlin`.

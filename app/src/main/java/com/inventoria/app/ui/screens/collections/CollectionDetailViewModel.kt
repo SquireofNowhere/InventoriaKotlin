@@ -52,17 +52,26 @@ class CollectionDetailViewModel @Inject constructor(
     }
 
     private fun observeItems() {
+        // getItemsForCollection(id) must be subscribed to as its own live flow (via flatMapLatest)
+        // rather than snapshotted with .first() inside the combine lambda below -- a one-time
+        // .first() read never re-runs when the collection's items themselves change, only when
+        // one of the *other* combined flows happens to emit, so adding/removing items wouldn't
+        // show up here until something unrelated (e.g. leaving and re-entering the screen,
+        // which recreates the ViewModel) forced a fresh read. See TECHNICAL_AUDIT.md #6.
+        val collectionItemsFlow = _collectionId.filterNotNull().flatMapLatest { id ->
+            collectionRepository.getItemsForCollection(id)
+        }
+
         combine(
             _collectionId.filterNotNull(),
             inventoryRepository.getAllItems(),
             inventoryRepository.getAllLinksFlow(),
-            settingsRepository.getExpandedItemIds()
-        ) { id, allItems, allLinks, expandedIdsStrings ->
+            settingsRepository.getExpandedItemIds(),
+            collectionItemsFlow
+        ) { id, allItems, allLinks, expandedIdsStrings, collectionItems ->
             val expandedItemIds = expandedIdsStrings.mapNotNull { it.toLongOrNull() }.toSet()
-            
-            val collectionItems = collectionRepository.getItemsForCollection(id).first()
             val collectionItemIds = collectionItems.map { it.itemId }.toSet()
-            
+
             val resolvedItems = inventoryRepository.resolveLocations(allItems, allLinks)
             val filteredItems = resolvedItems.filter { it.id in collectionItemIds }
 
