@@ -316,7 +316,7 @@ fun TaskTrackerScreen(
         AlertDialog(
             onDismissRequest = { viewModel.respondToInnerTaskPrompt(enable = false, pausedGroupId = groupId) },
             title = { Text("Track Interruptions?") },
-            text = { Text("When pausing a task, another inner task will start running to make sure you keep track of exactly what interrupted you when you resume.") },
+            text = { Text("When pausing a task, another inner task will start running to make sure you keep track of exactly what interrupted you when you resume. You can change this later in Settings.") },
             confirmButton = {
                 TextButton(onClick = { viewModel.respondToInnerTaskPrompt(enable = true, pausedGroupId = groupId) }) {
                     Text("Enable")
