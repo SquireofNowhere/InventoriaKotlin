@@ -27,8 +27,8 @@ android {
         applicationId = "com.inventoria.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.27"
+        versionCode = 9
+        versionName = "1.28"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

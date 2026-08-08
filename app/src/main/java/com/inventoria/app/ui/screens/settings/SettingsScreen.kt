@@ -246,6 +246,60 @@ fun CurrencySettings(
     }
 }
 
+/**
+ * manualSyncId always wins over whatever's actually signed in (see FirebaseAuthRepository.
+ * getOrCreateUserId()), so "signed in as X" and "synced to Y" can silently disagree. This makes
+ * the one actually-active sync target unambiguous instead of showing them as two separate facts.
+ */
+@Composable
+fun SyncStatusBanner(authState: AuthState, manualSyncId: String?) {
+    val (icon, title, subtitle, containerColor, contentColor) = when {
+        manualSyncId != null -> {
+            val signedInNote = (authState as? AuthState.Authenticated)?.user?.email?.let { " — not $it" } ?: ""
+            SyncStatusVisuals(
+                Icons.Default.Warning,
+                "Synced to an External Account",
+                "This device reads/writes someone else's database$signedInNote. Clear it below to go back to your own.",
+                MaterialTheme.colorScheme.errorContainer,
+                MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+        authState is AuthState.Authenticated -> SyncStatusVisuals(
+            Icons.Default.CloudDone,
+            "Synced to Your Google Account",
+            "${authState.user.email} — syncs across all your own signed-in devices.",
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        else -> SyncStatusVisuals(
+            Icons.Default.PhoneAndroid,
+            "Local Account",
+            "Not signed in — data stays on this device only, unless you sign in or use an invite code.",
+            MaterialTheme.colorScheme.surfaceVariant,
+            MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    Surface(color = containerColor, contentColor = contentColor, shape = MaterialTheme.shapes.small) {
+        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+private data class SyncStatusVisuals(
+    val icon: ImageVector,
+    val title: String,
+    val subtitle: String,
+    val containerColor: androidx.compose.ui.graphics.Color,
+    val contentColor: androidx.compose.ui.graphics.Color
+)
+
 @Composable
 fun AccountSection(
     authState: AuthState,
@@ -316,6 +370,8 @@ fun AccountSection(
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SyncStatusBanner(authState = authState, manualSyncId = manualSyncId)
+
             when (authState) {
                 is AuthState.Authenticated -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -473,8 +529,6 @@ fun AccountSection(
                 supportingText = {
                     if (inviteCodeError != null) {
                         Text(inviteCodeError, color = MaterialTheme.colorScheme.error)
-                    } else if (manualSyncId != null) {
-                        Text("Currently synced with external database", color = MaterialTheme.colorScheme.primary)
                     } else {
                         Text("Paste an invite code to access another user's database")
                     }
