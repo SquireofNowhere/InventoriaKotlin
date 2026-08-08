@@ -331,7 +331,16 @@ fun TaskTrackerScreen(
     }
 
     pendingInnerTaskRename?.let { innerTask ->
-        var interruptionName by remember(innerTask.id) { mutableStateOf(innerTask.name) }
+        var interruptionName by remember(innerTask.id) {
+            mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(innerTask.name, androidx.compose.ui.text.TextRange(0, innerTask.name.length)))
+        }
+        val innerTaskFocusRequester = remember { FocusRequester() }
+        val innerTaskKeyboardController = LocalSoftwareKeyboardController.current
+        LaunchedEffect(innerTask.id) {
+            delay(100)
+            innerTaskFocusRequester.requestFocus()
+            innerTaskKeyboardController?.show()
+        }
         AlertDialog(
             onDismissRequest = { viewModel.dismissInnerTaskRenameDialog() },
             title = { Text("What's interrupting you?") },
@@ -348,12 +357,12 @@ fun TaskTrackerScreen(
                         onValueChange = { interruptionName = it },
                         label = { Text("e.g. Get Water") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().focusRequester(innerTaskFocusRequester)
                     )
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName) }) {
+                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text) }) {
                     Text("Save")
                 }
             }
