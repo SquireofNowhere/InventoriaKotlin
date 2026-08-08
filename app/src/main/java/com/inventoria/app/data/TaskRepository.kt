@@ -87,6 +87,16 @@ class TaskRepository @Inject constructor(
         }
     }
 
+    /** Manually editing a completed segment's time changes its duration, so its frozen score
+     * (which is duration-dependent) would otherwise go stale -- recompute it the same way it
+     * was originally frozen. Uses the current streak state, since there's no way to know exactly
+     * what the streak looked like at the original completion time. */
+    suspend fun updateSegmentTime(task: Task, start: Long, end: Long) {
+        val duration = end - start
+        val score = computeFrozenScore(task.kind, duration)
+        updateTask(task.copy(startTime = start, endTime = end, duration = duration, score = score))
+    }
+
     suspend fun updateSessionName(groupId: String, newName: String) {
         val existingGroupId = taskDao.getGroupIdByName(newName)
         if (existingGroupId != null && existingGroupId != groupId) {

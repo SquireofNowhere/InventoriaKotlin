@@ -452,7 +452,7 @@ class TaskTrackerViewModel @Inject constructor(
 
     fun updateSegmentTime(task: Task, start: Long, end: Long) {
         if (task.id.startsWith("cal_")) return
-        viewModelScope.launch { repository.updateTask(task.copy(startTime = start, endTime = end, duration = end - start)) }
+        viewModelScope.launch { repository.updateSegmentTime(task, start, end) }
     }
 
     fun setSegmentCalendarStatus(task: Task, isSaved: Boolean) {
