@@ -259,7 +259,7 @@ fun SyncStatusBanner(authState: AuthState, manualSyncId: String?) {
             SyncStatusVisuals(
                 Icons.Default.Warning,
                 "Synced to an External Account",
-                "This device reads/writes UID $manualSyncId$signedInNote. Clear it below to go back to your own.",
+                "This device reads/writes someone else's database$signedInNote. Clear it below to go back to your own.",
                 MaterialTheme.colorScheme.errorContainer,
                 MaterialTheme.colorScheme.onErrorContainer
             )
@@ -280,25 +280,41 @@ fun SyncStatusBanner(authState: AuthState, manualSyncId: String?) {
         )
     }
 
-    val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
-
     Surface(color = containerColor, contentColor = contentColor, shape = MaterialTheme.shapes.small) {
-        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall)
-            }
-            if (manualSyncId != null) {
-                IconButton(onClick = {
-                    clipboardManager.setText(AnnotatedString(manualSyncId))
-                    Toast.makeText(context, "UID copied", Toast.LENGTH_SHORT).show()
-                }) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy UID", tint = contentColor)
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            if (manualSyncId != null) {
+                Spacer(Modifier.height(8.dp))
+                MaskedIdRow(label = "Connected to", id = manualSyncId, color = contentColor)
+            }
+        }
+    }
+}
+
+/** Shows an account/device UID masked by default, with a toggle to reveal it -- IDs shouldn't sit in plaintext on screen by default. */
+@Composable
+fun MaskedIdRow(label: String, id: String, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    var revealed by remember(id) { mutableStateOf(false) }
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "$label: ${if (revealed) id else "•".repeat(minOf(id.length, 24))}",
+            style = MaterialTheme.typography.bodySmall,
+            color = color,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = { revealed = !revealed }, modifier = Modifier.size(28.dp)) {
+            Icon(
+                if (revealed) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                contentDescription = if (revealed) "Hide ID" else "Show ID",
+                tint = color
+            )
         }
     }
 }
@@ -382,6 +398,10 @@ fun AccountSection(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SyncStatusBanner(authState = authState, manualSyncId = manualSyncId)
+
+            if (currentUserId != null) {
+                MaskedIdRow(label = "This device's ID", id = currentUserId)
+            }
 
             when (authState) {
                 is AuthState.Authenticated -> {
