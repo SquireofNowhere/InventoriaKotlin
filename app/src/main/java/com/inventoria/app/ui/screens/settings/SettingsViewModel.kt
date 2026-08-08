@@ -41,6 +41,9 @@ class SettingsViewModel @Inject constructor(
     val manualSyncId: StateFlow<String?> = settingsRepository.manualSyncId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val innerTaskEnabled: StateFlow<Boolean> = settingsRepository.isInnerTaskEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _generatedInviteCode = MutableStateFlow<String?>(null)
     val generatedInviteCode: StateFlow<String?> = _generatedInviteCode.asStateFlow()
 
@@ -139,6 +142,14 @@ class SettingsViewModel @Inject constructor(
     fun toggleShowValue(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.toggleShowValue(enabled)
+        }
+    }
+
+    fun toggleInnerTask(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setInnerTaskEnabled(enabled)
+            // Toggling it directly here counts as having seen the explanation.
+            settingsRepository.setInnerTaskPromptShown(true)
         }
     }
 

@@ -23,6 +23,9 @@ data class Task(
     @get:PropertyName("isKindCustom") @set:PropertyName("isKindCustom") var isKindCustom: Boolean = false,
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    // Set when this task is an "inner task" tracking an interruption -- the groupId of the
+    // session that was paused to start it. Resuming that session auto-stops this one.
+    @get:PropertyName("interruptedGroupId") @set:PropertyName("interruptedGroupId") var interruptedGroupId: String? = null,
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 ) {
     val score: Int

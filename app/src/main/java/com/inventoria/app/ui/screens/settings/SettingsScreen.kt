@@ -48,6 +48,7 @@ fun SettingsScreen(
     val generatedInviteCode by viewModel.generatedInviteCode.collectAsState()
     val inviteCodeError by viewModel.inviteCodeError.collectAsState()
     val sharedWithUsers by viewModel.sharedWithUsers.collectAsState()
+    val innerTaskEnabled by viewModel.innerTaskEnabled.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -111,6 +112,15 @@ fun SettingsScreen(
                 icon = Icons.Default.AccountBalanceWallet,
                 checked = showValueOnDashboard,
                 onCheckedChange = { viewModel.toggleShowValue(it) }
+            )
+
+            SettingsCategoryHeader("Tasks")
+            SettingsToggleRow(
+                title = "Track Interruptions (Inner Tasks)",
+                subtitle = "When pausing a task, start a linked inner task so you know exactly what interrupted you when you resume",
+                icon = Icons.Default.NotificationImportant,
+                checked = innerTaskEnabled,
+                onCheckedChange = { viewModel.toggleInnerTask(it) }
             )
 
             SettingsCategoryHeader("Notifications")

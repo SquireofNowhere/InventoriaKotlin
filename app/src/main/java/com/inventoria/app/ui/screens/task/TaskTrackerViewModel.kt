@@ -59,6 +59,24 @@ class TaskTrackerViewModel @Inject constructor(
     val isFlowModeEnabled: StateFlow<Boolean> = settingsRepository.isFlowModeEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // Eagerly, not WhileSubscribed: pauseResumeTask() reads these .value directly and they must
+    // always be current even if no composable happens to be collecting them at that moment (see
+    // the Flow Mode carry-over saga for why a subscriber-gated policy silently breaks this).
+    val isInnerTaskEnabled: StateFlow<Boolean> = settingsRepository.isInnerTaskEnabled()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val hasSeenInnerTaskPrompt: StateFlow<Boolean> = settingsRepository.hasSeenInnerTaskPrompt()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // groupId of the session that was just paused, awaiting a response to the first-time
+    // "enable interruption tracking?" explanation dialog.
+    private val _pendingInnerTaskPrompt = MutableStateFlow<String?>(null)
+    val pendingInnerTaskPrompt: StateFlow<String?> = _pendingInnerTaskPrompt.asStateFlow()
+
+    // groupId of the session that was just paused, awaiting a name for the inner task tracking
+    // what's interrupting it (shown once the feature is already known/enabled).
+    private val _pendingInnerTaskName = MutableStateFlow<String?>(null)
+    val pendingInnerTaskName: StateFlow<String?> = _pendingInnerTaskName.asStateFlow()
+
     private val _isAutoStartPending = MutableStateFlow(false)
     val isAutoStartPending: StateFlow<Boolean> = _isAutoStartPending.asStateFlow()
 
@@ -261,15 +279,66 @@ class TaskTrackerViewModel @Inject constructor(
     fun pauseResumeTask(session: TaskSessionUI) {
         viewModelScope.launch {
             session.activeSegment?.let { ui ->
+                // PAUSING
                 val now = System.currentTimeMillis()
                 val updatedTask = ui.task.copy(isRunning = false, isPaused = true, endTime = now, duration = now - ui.task.startTime)
                 repository.updateTask(updatedTask)
+
+                if (!hasSeenInnerTaskPrompt.value) {
+                    _pendingInnerTaskPrompt.value = session.groupId
+                } else if (isInnerTaskEnabled.value) {
+                    _pendingInnerTaskName.value = session.groupId
+                }
             } ?: run {
+                // RESUMING: auto-stop whatever inner task is tracking this session's interruption
+                _activeSessions.value
+                    .mapNotNull { it.activeSegment }
+                    .find { it.task.interruptedGroupId == session.groupId }
+                    ?.let { interrupting ->
+                        val now = System.currentTimeMillis()
+                        repository.stopTaskAndSession(interrupting.task.id, interrupting.task.groupId, now, now - interrupting.task.startTime)
+                    }
+
                 val first = session.segments.firstOrNull() ?: return@launch
                 val newTask = Task(id = UUID.randomUUID().toString(), groupId = session.groupId, name = first.name, kind = first.kind, isRunning = true, startTime = System.currentTimeMillis())
                 repository.insertTask(newTask)
             }
         }
+    }
+
+    /** User answered the first-time "enable interruption tracking?" prompt. */
+    fun respondToInnerTaskPrompt(enable: Boolean, pausedGroupId: String) {
+        viewModelScope.launch {
+            settingsRepository.setInnerTaskPromptShown(true)
+            _pendingInnerTaskPrompt.value = null
+            if (enable) {
+                settingsRepository.setInnerTaskEnabled(true)
+                _pendingInnerTaskName.value = pausedGroupId
+            }
+        }
+    }
+
+    fun startInnerTask(interruptedGroupId: String, name: String) {
+        _pendingInnerTaskName.value = null
+        viewModelScope.launch {
+            val task = Task(
+                id = UUID.randomUUID().toString(),
+                groupId = UUID.randomUUID().toString(),
+                name = name.ifBlank { "Interruption" },
+                isRunning = true,
+                startTime = System.currentTimeMillis(),
+                interruptedGroupId = interruptedGroupId
+            )
+            repository.insertTask(task)
+            val intent = Intent(context, TaskTimerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
+            else { context.startService(intent) }
+            syncRepository.triggerFullSync()
+        }
+    }
+
+    fun dismissInnerTaskDialog() {
+        _pendingInnerTaskName.value = null
     }
 
     fun stopTask(session: TaskSessionUI) {

@@ -92,6 +92,8 @@ fun TaskTrackerScreen(
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val isFlowModeEnabled by viewModel.isFlowModeEnabled.collectAsState()
     val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
+    val pendingInnerTaskPrompt by viewModel.pendingInnerTaskPrompt.collectAsState()
+    val pendingInnerTaskName by viewModel.pendingInnerTaskName.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
 
     val totalScore by viewModel.totalScoreToday.collectAsState()
@@ -307,6 +309,51 @@ fun TaskTrackerScreen(
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null }
+        )
+    }
+
+    pendingInnerTaskPrompt?.let { groupId ->
+        AlertDialog(
+            onDismissRequest = { viewModel.respondToInnerTaskPrompt(enable = false, pausedGroupId = groupId) },
+            title = { Text("Track Interruptions?") },
+            text = { Text("When pausing a task, another inner task will start running to make sure you keep track of exactly what interrupted you when you resume.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.respondToInnerTaskPrompt(enable = true, pausedGroupId = groupId) }) {
+                    Text("Enable")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.respondToInnerTaskPrompt(enable = false, pausedGroupId = groupId) }) {
+                    Text("Not Now")
+                }
+            }
+        )
+    }
+
+    pendingInnerTaskName?.let { groupId ->
+        var interruptionName by remember(groupId) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissInnerTaskDialog() },
+            title = { Text("What's interrupting you?") },
+            text = {
+                OutlinedTextField(
+                    value = interruptionName,
+                    onValueChange = { interruptionName = it },
+                    label = { Text("e.g. Get Water") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.startInnerTask(groupId, interruptionName) }) {
+                    Text("Start")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissInnerTaskDialog() }) {
+                    Text("Skip")
+                }
+            }
         )
     }
 }
