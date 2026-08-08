@@ -47,6 +47,14 @@ class SettingsViewModel @Inject constructor(
     private val _inviteCodeError = MutableStateFlow<String?>(null)
     val inviteCodeError: StateFlow<String?> = _inviteCodeError.asStateFlow()
 
+    // Map of {joinerUid -> inviteCode} for accounts currently synced to *my* database.
+    val sharedWithUsers: StateFlow<Map<String, String>> = authRepository.authStateFlow
+        .flatMapLatest { user ->
+            val uid = user?.uid
+            if (uid != null) authRepository.getSharedWithFlow(uid) else flowOf(emptyMap())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     init {
         checkCurrentUser()
         loadExistingInviteCode()
@@ -151,6 +159,12 @@ class SettingsViewModel @Inject constructor(
     fun setManualSyncId(syncId: String?) {
         viewModelScope.launch {
             settingsRepository.saveManualSyncId(syncId)
+        }
+    }
+
+    fun revokeSharedAccess(joinerUid: String) {
+        viewModelScope.launch {
+            authRepository.revokeSharedAccess(joinerUid)
         }
     }
 

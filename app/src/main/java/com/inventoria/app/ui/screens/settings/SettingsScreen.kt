@@ -47,6 +47,7 @@ fun SettingsScreen(
     val manualSyncId by viewModel.manualSyncId.collectAsState()
     val generatedInviteCode by viewModel.generatedInviteCode.collectAsState()
     val inviteCodeError by viewModel.inviteCodeError.collectAsState()
+    val sharedWithUsers by viewModel.sharedWithUsers.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -129,8 +130,9 @@ fun SettingsScreen(
                 currentUserId = viewModel.getCurrentUserId(),
                 generatedInviteCode = generatedInviteCode,
                 inviteCodeError = inviteCodeError,
+                sharedWithUsers = sharedWithUsers,
                 onUsernameChange = { viewModel.updateCustomUsername(it) },
-                onSignInClick = { 
+                onSignInClick = {
                     launcher.launch(viewModel.getGoogleSignInIntent())
                 },
                 onSignOutClick = { viewModel.signOut() },
@@ -138,7 +140,8 @@ fun SettingsScreen(
                 onGenerateInviteCode = { viewModel.createInviteCode() },
                 onUseInviteCode = { viewModel.useInviteCode(it) },
                 onClearSync = { viewModel.setManualSyncId(null) },
-                onClearError = { viewModel.clearInviteCodeError() }
+                onClearError = { viewModel.clearInviteCodeError() },
+                onRevokeAccess = { viewModel.revokeSharedAccess(it) }
             )
 
             SettingsCategoryHeader("About")
@@ -251,6 +254,7 @@ fun AccountSection(
     currentUserId: String?,
     generatedInviteCode: String?,
     inviteCodeError: String?,
+    sharedWithUsers: Map<String, String>,
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
@@ -258,7 +262,8 @@ fun AccountSection(
     onGenerateInviteCode: () -> Unit,
     onUseInviteCode: (String) -> Unit,
     onClearSync: () -> Unit,
-    onClearError: () -> Unit
+    onClearError: () -> Unit,
+    onRevokeAccess: (String) -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -423,6 +428,33 @@ fun AccountSection(
                         },
                         supportingText = { Text("Give this code to others to let them sync to your data") }
                     )
+                }
+
+                if (sharedWithUsers.isNotEmpty()) {
+                    Text(
+                        "Connected to your database (${sharedWithUsers.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        sharedWithUsers.keys.forEach { joinerUid ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    joinerUid.take(10) + "…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = { onRevokeAccess(joinerUid) }) {
+                                    Text("Revoke", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

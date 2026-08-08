@@ -6,7 +6,10 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -113,6 +116,41 @@ class FirebaseAuthRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update sharedWith. Check Firebase rules.", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Live map of {joinerUid -> inviteCode} for accounts currently synced to [ownerUid]'s
+     * database via [linkToUser]. Never propagates onCancelled as an exception -- a permission
+     * error here must not crash the whole app (see FirebaseSyncRepository's setupNodeSync for
+     * why that matters), so it just logs and reports an empty map instead.
+     */
+    fun getSharedWithFlow(ownerUid: String): Flow<Map<String, String>> = callbackFlow {
+        val ref = firebaseDatabase.getReference("users").child(ownerUid).child("sharedWith")
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val shared = snapshot.children.associate { child ->
+                    child.key.orEmpty() to (child.getValue(String::class.java) ?: "")
+                }
+                trySend(shared)
+            }
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(TAG, "Failed to read sharedWith for $ownerUid: ${error.message}")
+                trySend(emptyMap())
+            }
+        }
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+
+    suspend fun revokeSharedAccess(joinerUid: String): Result<Unit> {
+        val ownerUid = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            firebaseDatabase.getReference("users").child(ownerUid).child("sharedWith").child(joinerUid).removeValue().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to revoke access for $joinerUid", e)
             Result.failure(e)
         }
     }
