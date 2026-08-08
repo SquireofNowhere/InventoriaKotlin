@@ -348,11 +348,6 @@ fun TaskTrackerScreen(
                 TextButton(onClick = { viewModel.startInnerTask(groupId, interruptionName) }) {
                     Text("Start")
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.dismissInnerTaskDialog() }) {
-                    Text("Skip")
-                }
             }
         )
     }
