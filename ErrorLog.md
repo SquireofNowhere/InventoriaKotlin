@@ -497,4 +497,18 @@ Exactly the risk flagged (but never actually hit until now) in [TECHNICAL_AUDIT.
 `observeItems()` now subscribes to `getItemsForCollection(id)` as its own live flow via `_collectionId.filterNotNull().flatMapLatest { ... }` and includes it as a 5th flow in the `combine()` call, so the block correctly re-runs whenever the collection's items actually change — matching the pattern already used correctly by `collectionWithItems` and `readiness` elsewhere in the same class.
 
 ---
+
+## 🐞 32. Mass Delete Still Partially Resurrected — A Second, Different Race
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Asked to go test collections again. Live on-device: 15 duplicate "test things" selected and deleted, deliberately keeping one real collection unselected. Only 4 of the 15 were actually gone afterward — 11 came back, stable (not still churning) after several seconds' wait.
+
+### 🔍 Root Cause
+A completely different race from #30/#32's pull-side one. `TaskTimerService.startSyncLoop()` calls `FirebaseSyncRepository.triggerFullSync()` every 30 seconds *while any task is actively running* (and one had been running throughout this whole testing session) — this reads `collectionDao.getAllCollectionsList()`/`itemLinkDao.getAllLinksList()` (every row currently in the local table, not just dirty ones) and pushes all of it to Firebase via `updateChildren`. If that read happens a moment before a concurrent `deleteCollectionRemote`/`deleteLinkRemote` call's local delete removes the row, the periodic sync faithfully re-uploads the row to Firebase — actively re-creating the exact node the delete was trying to remove, independent of and unprotected by the `pendingCollectionDeletes`/`pendingLinkDeletes` guard from #30, since that guard was only ever checked on the *pull* (reinsert) side, never on any *push* path.
+
+### 🛠️ Final Fix
+`pushCollectionsToFirebase`/`pushLinksToFirebase` now also filter out anything currently in `pendingCollectionDeletes`/`pendingLinkDeletes` before building the Firebase update, so a stale read from any push path (the reactive dirty-flow push or the periodic full sync) can no longer re-upload a collection/link that's mid-delete. Item/task deletes were never at risk here since they're soft-deletes (the row stays present locally with `isDeleted=true`, so even a stale full push just correctly re-affirms that tombstone state rather than resurrecting anything).
+
+---
 *Last Updated: 2026-08-08*

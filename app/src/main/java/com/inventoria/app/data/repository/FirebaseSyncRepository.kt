@@ -225,11 +225,18 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushLinksToFirebase(ref: DatabaseReference, links: List<ItemLink>) {
-        if (links.isEmpty()) return
+        // Both the reactive dirty-flow push and TaskTimerService's periodic triggerFullSync()
+        // (every 30s while a task is running) push whatever the local table currently holds.
+        // If either reads a link a moment before deleteLinkRemote's local delete removes it,
+        // it would faithfully re-upload the link to Firebase, undoing the delete outright --
+        // a different race than the pull-side one pendingLinkDeletes was originally added for
+        // (see ErrorLog.md #30/#32). Filtering here closes it at the source.
+        val toPush = links.filterNot { "${it.followerId}_${it.leaderId}" in pendingLinkDeletes }
+        if (toPush.isEmpty()) return
         try {
-            val updates = links.associate { "${it.followerId}_${it.leaderId}" to it }
+            val updates = toPush.associate { "${it.followerId}_${it.leaderId}" to it }
             ref.updateChildren(updates).await()
-            itemLinkDao.markLinksClean(links)
+            itemLinkDao.markLinksClean(toPush)
         } catch (e: Exception) {
             Log.e(TAG, "Push links failed", e)
         }
@@ -293,11 +300,16 @@ class FirebaseSyncRepository @Inject constructor(
     }
 
     private suspend fun pushCollectionsToFirebase(ref: DatabaseReference, collections: List<InventoryCollection>) {
-        if (collections.isEmpty()) return
+        // See pushLinksToFirebase for why: TaskTimerService's periodic triggerFullSync() (every
+        // 30s while a task is running) reads and re-pushes every local collection regardless of
+        // an in-flight delete, so a stale read caught a moment before deleteCollectionRemote's
+        // local delete would re-upload the collection to Firebase and undo the delete.
+        val toPush = collections.filterNot { it.id in pendingCollectionDeletes }
+        if (toPush.isEmpty()) return
         try {
-            val updates = collections.associate { it.id.toString() to it }
+            val updates = toPush.associate { it.id.toString() to it }
             ref.updateChildren(updates).await()
-            collectionDao.markCollectionsClean(collections.map { it.id })
+            collectionDao.markCollectionsClean(toPush.map { it.id })
         } catch (e: Exception) {
             Log.e(TAG, "Push collections failed", e)
         }
