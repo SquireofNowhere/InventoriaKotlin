@@ -8,6 +8,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,10 +27,19 @@ class FirebaseSyncRepository @Inject constructor(
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
-    
+
     private val syncIgnoreCount = AtomicInteger(0)
     private var userRef: DatabaseReference? = null
     private var syncJobs = mutableListOf<Job>()
+
+    // Deletes with no isDirty tombstone (collections, links) go local-delete-then-remove-remote.
+    // The live Firebase listener fires on every individual removal as it lands server-side, each
+    // time delivering a snapshot that still contains sibling rows whose own removal hasn't landed
+    // yet -- with the local row already gone, the pull logic reads that as "new data, insert it"
+    // and resurrects it. Tracking in-flight deletes here lets pull skip them until the removal
+    // actually completes. See ErrorLog.md #30.
+    private val pendingCollectionDeletes = ConcurrentHashMap.newKeySet<Long>()
+    private val pendingLinkDeletes = ConcurrentHashMap.newKeySet<String>()
 
     fun isSyncing(): Boolean = syncIgnoreCount.get() > 0
 
@@ -231,6 +241,7 @@ class FirebaseSyncRepository @Inject constructor(
             val cloudLinks = snapshot.children.mapNotNull { it.getValue(ItemLink::class.java) }
             
             cloudLinks.forEach { cloudLink ->
+                if ("${cloudLink.followerId}_${cloudLink.leaderId}" in pendingLinkDeletes) return@forEach
                 val localLink = itemLinkDao.getLink(cloudLink.followerId, cloudLink.leaderId)
                 if (localLink == null || cloudLink.updatedAt > localLink.updatedAt) {
                     itemLinkDao.insertLink(cloudLink)
@@ -308,6 +319,7 @@ class FirebaseSyncRepository @Inject constructor(
                     child.ref.removeValue()
                     return@forEach
                 }
+                if (key in pendingCollectionDeletes) return@forEach
                 // Trust the Firebase key as the authoritative id rather than the payload's own
                 // `id` field, so key and row can never disagree.
                 val cloudColl = child.getValue(InventoryCollection::class.java)?.copy(id = key) ?: return@forEach
@@ -330,11 +342,14 @@ class FirebaseSyncRepository @Inject constructor(
         // Fire-and-forget on repositoryScope rather than suspending: callers delete the local
         // row first and want that to feel instant (both in the UI list and before navigating
         // away from a detail screen), and shouldn't be gated on a Firebase round-trip to do so.
+        pendingCollectionDeletes.add(collectionId)
         repositoryScope.launch {
             try {
                 userRef?.child("collections")?.child(collectionId.toString())?.removeValue()?.await()
             } catch (e: Exception) {
                 Log.e(TAG, "Delete collection remote failed", e)
+            } finally {
+                pendingCollectionDeletes.remove(collectionId)
             }
         }
     }
@@ -343,11 +358,15 @@ class FirebaseSyncRepository @Inject constructor(
         // Same fire-and-forget pattern as deleteCollectionRemote -- ItemLink has no isDirty
         // tombstone (it's a hard @Delete with a composite key, unlike Item/Task's soft-delete
         // flag), so unlinking never had anything to push to Firebase at all before this.
+        val key = "${followerId}_${leaderId}"
+        pendingLinkDeletes.add(key)
         repositoryScope.launch {
             try {
-                userRef?.child("item_links")?.child("${followerId}_${leaderId}")?.removeValue()?.await()
+                userRef?.child("item_links")?.child(key)?.removeValue()?.await()
             } catch (e: Exception) {
                 Log.e(TAG, "Delete link remote failed", e)
+            } finally {
+                pendingLinkDeletes.remove(key)
             }
         }
     }

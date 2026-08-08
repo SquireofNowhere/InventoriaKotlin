@@ -467,4 +467,18 @@ Follow-up to #27/#28: asked whether items and tasks had the same "delete doesn't
 Added `FirebaseSyncRepository.deleteLinkRemote(followerId, leaderId)` (same fire-and-forget-on-repositoryScope pattern as `deleteCollectionRemote`, keyed the same way the existing link push already does: `"${followerId}_${leaderId}"`), called from `InventoryRepository.removeLink` right after the local delete.
 
 ---
+
+## 🐞 30. Multi-Select Delete Only Ever Deleted One Collection
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Asked to test multi-select delete with all 19 duplicate "test things" collections (leftover from #27) selected. Confirmed via direct DB inspection: after confirming "Delete 19 Collections?", exactly 18 remained — only one was actually gone. Repeated the exact same test on the remaining 18: again exactly one deleted, 17 remained. No crash, no exception anywhere in logcat — the deletes were silently being undone, not failing.
+
+### 🔍 Root Cause
+A race between local delete and Firebase's **live** listener. `FirebaseSyncRepository` uses `addValueEventListener` on the whole `collections` node, which fires on *every* write to *any* child — including the app's own writes, and including each of the N `deleteCollectionRemote()` calls' own `removeValue()` as it individually lands server-side. Each such event delivers a full snapshot of the *current* server state, which — while N-1 of the N deletes are still in flight — still contains most of the collections being deleted. Since the local row for each is already gone (local delete happens first and is fast), `pullCollectionsFromFirebase` reads that as "local doesn't have this, must be new" and reinserts it — undoing the delete that was already in progress. With many concurrent deletes, this fires repeatedly; only whichever collection's own removal happens to be the last thing to settle survives.
+
+### 🛠️ Final Fix
+Added `pendingCollectionDeletes`/`pendingLinkDeletes` (`ConcurrentHashMap.newKeySet()`) to `FirebaseSyncRepository`: `deleteCollectionRemote`/`deleteLinkRemote` register the id/key before starting the Firebase removal and unregister it once the removal settles (success or failure). `pullCollectionsFromFirebase`/`pullLinksFromFirebase` skip reinserting anything currently in these sets, closing the race window. This is the same class of bug as #27 (a pull racing ahead of an in-flight local-first mutation) but on the delete side rather than the create side.
+
+---
 *Last Updated: 2026-08-08*
