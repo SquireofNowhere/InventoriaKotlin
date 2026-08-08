@@ -68,5 +68,11 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
     - **Merge vs Overwrite**: Pushes now use `ref.updateChildren(updates)` rather than `ref.setValue()`. This ensures the app only merges its specific local modifications into the cloud, leaving other concurrent edits untouched. Upon a successful push, the items are marked clean (`isDirty = 0`) via the DAOs.
     - **Pull Logic**: When pulling remote data down to the device, the records are inserted with the default `isDirty = false` state, preventing infinite sync loops.
 
+### 12. Collaborative Sync (Invite Codes) Security Model
+- **Status**: ✅ Implemented (was previously non-functional end-to-end — see [ErrorLog.md #21](ErrorLog.md))
+- **Background**: The invite-code UI, `manualSyncId` redirect, and `sharedWith` registration were all fully built client-side, but the Firebase Realtime Database security rules never granted any cross-account access — every join silently failed at the registration-write step, not just at read time.
+- **Current state**: Rules now grant access to accounts listed in an owner's `sharedWith`, gated so only a genuinely valid invite code can self-register there. `SettingsScreen` also enforces local/Google/external-sync as mutually exclusive states and shows a live "Connected Devices" list with revoke, both previously missing.
+- **Known gap**: the rules fix only covers Realtime Database. Firebase Storage (item images) uses a separate rules language with no access to RTDB data, so a joined account still can't see the owner's images without a further fix (e.g. syncing `sharedWith` into Auth custom claims via a Cloud Function).
+
 ---
-*Audit Conducted: 2026-03-25*
+*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, section 12 added)*

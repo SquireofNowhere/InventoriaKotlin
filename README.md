@@ -51,7 +51,9 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Incremental Merging**: Only locally-changed (dirty) records are pushed, so simultaneous device usage doesn't overwrite concurrent remote edits. See [TECHNICAL_AUDIT.md](TECHNICAL_AUDIT.md#11-the-isdirty-incremental-merge-pattern) for the full mechanism.
 *   **Conflict Resolution**: High-precision timestamping (`updatedAt`) handles offline edits and ensures the latest version prevails.
 *   **Google Authentication**: Securely sign in and back up your data to the cloud.
-*   **Collaborative Syncing (Invite Codes)**: Generate an invite code to let another account read and write to your database, or paste one to sync with someone else's — useful for shared households/inventories. Manage or disconnect this from Settings.
+*   **Collaborative Syncing (Invite Codes)**: Generate an invite code to let another account read and write to your database, or paste one to sync with someone else's — useful for shared households/inventories.
+    *   **Local / Google / External-Sync are mutually exclusive states**: you can't be signed into Google and connected to someone else's database at the same time — each path is blocked in the UI with an explanation of which state to clear first, and Settings shows a single always-accurate status banner (with the actual UID involved, masked by default with a reveal toggle) instead of scattered, potentially-contradictory indicators.
+    *   **Connected Devices list**: Settings shows every account currently synced to *your* database (read from `sharedWith`), each with a Revoke button — previously this was invisible even though the data existed.
 *   **Soft Deletion**: All data is soft-deleted first, allowing for recovery or cleanup during sync.
 
 ### ⚙️ Customization & Localization
@@ -94,3 +96,5 @@ To force the app to start a new database manually:
    - Navigate to **Storage** and delete the folder corresponding to your UID.
 4. **Restart Fresh:**
    - Open the app again and sign in. A new, empty database will be initialized.
+
+**Warning for local (anonymous) accounts**: unlike a Google account, a local account has no external credential to recover with. Clearing local app data (or reinstalling) permanently orphans that identity and everything under it — there is no password, email, or recovery flow, by design of Firebase Anonymous Authentication. If you're on a local account and want to survive a data wipe, sign in with Google first.

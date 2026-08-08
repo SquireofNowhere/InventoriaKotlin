@@ -272,4 +272,110 @@ In running sessions, when a user changes the type (TaskKind) of the currently ru
 - **UI State Verification**: Verify that the `TaskKindDropdownMenu` in `ActiveSessionCard` is correctly passing the intent to update the *running* task specifically.
 
 ---
-*Last Updated: 2026-08-07*
+
+## 🐞 19. Realtime Listener Errors Crashed the Whole App
+**Status:** ✅ Resolved
+
+### 📝 Problem
+The app would crash a few seconds after launch — long enough to show the dashboard, then die — whenever a Firebase Realtime Database listener hit any error (most commonly Permission Denied from a bad sync target, see #21).
+
+### 🔍 Root Cause
+`FirebaseSyncRepository.setupNodeSync()`'s `callbackFlow` closed with the exception on `onCancelled` (`close(error.toException())`), and the `firebaseFlow.collect { ... }` coroutine consuming it had no `try/catch` — unlike every other sync path in the same file, which does catch. The exception propagated uncaught to `InventoriaApplication`'s global handler, which logs "CRITICAL CRASH" and calls `System.exit(1)`.
+
+### 🛠️ Final Fix
+Wrapped the collect in `try/catch`, surfacing listener failures via `SyncStatus.Error` instead of letting them crash the process. Also hardened `setupSettingsSync`'s username listener the same way — it had no `finally` at all before this.
+
+---
+
+## 🐞 20. Flow Mode's Auto-Start Hung Forever After Any Sync Error
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Once a permission error occurred anywhere in the sync path, Flow Mode's "start the next task automatically" behavior stopped working for the rest of the app's lifetime — it would just hang indefinitely after stopping a task.
+
+### 🔍 Root Cause
+All 5 `pull*FromFirebase` functions increment `syncIgnoreCount` and decrement it in a `finally { delay(1000); syncIgnoreCount.decrementAndGet() }`. `syncOnAppOpen()` runs all 5 in parallel inside one `coroutineScope { ... awaitAll() }` — if any one fails, `coroutineScope` cancels its siblings. A sibling already suspended inside that `delay(1000)` gets cancelled immediately and never reaches the decrement, leaking the counter upward permanently. `TaskTrackerViewModel.stopTask()`'s Flow Mode logic explicitly does `while (syncRepository.isSyncing()) delay(100)` before starting the next task — once the counter leaks above zero, that loop never exits.
+
+### 🛠️ Final Fix
+Wrapped each `delay(1000); syncIgnoreCount.decrementAndGet()` (and the equivalent path in the username listener) in `withContext(NonCancellable) { ... }`, so the decrement always runs even when the enclosing scope is cancelled.
+
+---
+
+## 🐞 21. Invite Code / Collaborative Sync Never Actually Worked
+**Status:** ✅ Resolved (requires the Firebase Console rules change below to be deployed)
+
+### 📝 Problem
+The whole invite-code feature (generate a code, have another account join your database) was fully built client-side — but not one part of it ever actually granted cross-account access. Anyone who "joined" via a code just got silently stuck with permission-denied errors on everything.
+
+### 🔍 Root Cause
+The deployed Firebase Realtime Database security rules were:
+```json
+{ "rules": { "users": { "$uid": {
+  ".read": "$uid === auth.uid",
+  ".write": "$uid === auth.uid"
+} } } }
+```
+This only ever granted access to the literal owner. `FirebaseAuthRepository.linkToUser()` writes `users/{ownerUid}/sharedWith/{joinerUid}` to register a join — but that write itself requires `auth.uid === ownerUid`, which a joiner never satisfies, so it was **always** silently denied. Confirmed directly: after one device set `manualSyncId` to another account, that account's own "Connected to your database" list stayed at zero — proof the registration write never landed, not just that reads were blocked. The `invites` node (mapping a code to its owner) had **no rule at all**, meaning even generating a code failed by default-deny.
+
+### 🛠️ Final Fix
+Updated the rules (in the Firebase Console — not part of this repo) to:
+```json
+{
+  "rules": {
+    "invites": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.val() === auth.uid)"
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid || (auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists())",
+        ".write": "$uid === auth.uid || (auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists())",
+        "sharedWith": {
+          "$joinerUid": {
+            ".write": "$uid === auth.uid || ($joinerUid === auth.uid && root.child('invites').child(newData.val()).val() === $uid)"
+          }
+        }
+      }
+    }
+  }
+}
+```
+Owners keep full self-access; anyone listed in `sharedWith` gets access to the owner's whole subtree; a joiner can self-register into `sharedWith` only with a code that genuinely maps back to that owner. **Known gap**: this only fixes Realtime Database — Firebase Storage (images) uses a separate rules language that can't reference RTDB data, so a joiner still can't see the owner's images without a further fix (likely a Cloud Function syncing `sharedWith` into Auth custom claims).
+
+---
+
+## 🐞 22. OutOfMemoryError on Low-RAM Devices from a Bloated Local Sync Cache
+**Status:** ✅ Resolved (per-device; root cause fixed by #21)
+
+### 📝 Problem
+On a Galaxy A22 (much less heap than the tablet used for most testing), the app crashed on launch with an `OutOfMemoryError`, before the UI ever settled.
+
+### 🔍 Root Cause
+```
+Caused by: java.lang.OutOfMemoryError: Failed to allocate a 56 byte allocation...
+  at com.google.firebase.database.core.Repo.restoreWrites(Repo.java:273)
+  at com.google.firebase.database.core.Repo.deferredInitialization(Repo.java:228)
+```
+Because of #21, every write to the bad sync target failed and got retried by Firebase's local offline-persistence layer, which queues unacknowledged writes. That queue grew unbounded on disk since nothing ever succeeded to clear it. On startup, Firebase restores that queue into memory — on a device with a much smaller heap limit, the already-bloated queue blew the heap before the app could finish initializing.
+
+### 🛠️ Final Fix
+`adb shell pm clear com.inventoria.app` (or uninstall/reinstall) to wipe the bloated local cache. This is a symptom, not the cause — without #21's rules fix, a device could accumulate the same bloat again from any other invalid sync target.
+
+---
+
+## 🐞 23. Fresh Anonymous Account Couldn't Write Its Own Data
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Right after `pm clear` created a brand-new anonymous account, writes to that account's *own* data (e.g. generating an invite code) failed with Permission Denied — even though the Firebase Rules Simulator confirmed the exact same write should be allowed for that UID.
+
+### 🔍 Root Cause
+Diagnosed by temporarily logging the SDK's auth state and forcing an ID token refresh right before the failing write. The UID and auth state were already correct locally; the forced refresh succeeded and returned a valid token, and the write succeeded immediately after. Ruled out first: rules logic (Simulator said allowed), Firebase App Check (unenforced on this project), device clock skew (verified in sync with host machine). Conclusion: a freshly-issued anonymous session's ID token can briefly lag behind Firebase's backend recognizing it as valid — a narrow propagation-consistency window most visible right after a brand-new account is created.
+
+### 🛠️ Final Fix
+`FirebaseAuthRepository.getOrCreateUserId()` — the single point every other operation (image uploads, `syncOnAppOpen()`, invite code generation) gets its UID from — now forces `getIdToken(true)` once, right after a fresh `signInAnonymously()` succeeds, before returning. Fixes it at the source instead of needing the same guard at every call site.
+
+---
+*Last Updated: 2026-08-08*
