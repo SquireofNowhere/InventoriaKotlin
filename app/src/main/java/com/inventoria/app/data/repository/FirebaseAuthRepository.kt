@@ -70,6 +70,18 @@ class FirebaseAuthRepository @Inject constructor(
 
     suspend fun generateInviteCode(): String {
         val userId = getCurrentUserId() ?: throw IllegalStateException("User not logged in")
+
+        // TEMP DIAGNOSTIC: dump exactly what the SDK believes its own auth state is,
+        // and force a fresh ID token fetch, right before the write that's been failing.
+        val currentUser = firebaseAuth.currentUser
+        Log.e(TAG, "DIAG generateInviteCode: uid=$userId currentUser.uid=${currentUser?.uid} isAnonymous=${currentUser?.isAnonymous}")
+        try {
+            val tokenResult = currentUser?.getIdToken(true)?.await()
+            Log.e(TAG, "DIAG forced token refresh OK: tokenLen=${tokenResult?.token?.length} claims=${tokenResult?.claims}")
+        } catch (e: Exception) {
+            Log.e(TAG, "DIAG forced token refresh FAILED", e)
+        }
+
         // Generate a 6-character alphanumeric code
         val chars = ('A'..'Z') + ('0'..'9')
         val code = (1..6).map { chars.random() }.joinToString("")
