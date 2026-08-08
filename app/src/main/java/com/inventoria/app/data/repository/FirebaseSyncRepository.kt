@@ -295,9 +295,22 @@ class FirebaseSyncRepository @Inject constructor(
     private suspend fun pullCollectionsFromFirebase(snapshot: DataSnapshot) {
         try {
             syncIgnoreCount.incrementAndGet()
-            val cloudColls = snapshot.children.mapNotNull { it.getValue(InventoryCollection::class.java) }
-            
-            cloudColls.forEach { cloudColl ->
+
+            snapshot.children.forEach { child ->
+                val key = child.key?.toLongOrNull() ?: return@forEach
+                if (key == 0L) {
+                    // Pre-autoGenerate builds always wrote new collections as id=0, so this key
+                    // holds stale, unaddressable data: since 0 is Room's "generate a new id"
+                    // sentinel, re-inserting it here would create a brand new local+cloud row
+                    // every single time this listener fires (it fired on its own writes too),
+                    // which is exactly what produced runaway duplicate "collections" -- see
+                    // ErrorLog.md #27. Removing it is a one-time self-heal.
+                    child.ref.removeValue()
+                    return@forEach
+                }
+                // Trust the Firebase key as the authoritative id rather than the payload's own
+                // `id` field, so key and row can never disagree.
+                val cloudColl = child.getValue(InventoryCollection::class.java)?.copy(id = key) ?: return@forEach
                 val localColl = collectionDao.getCollectionById(cloudColl.id)
                 if (localColl == null || cloudColl.updatedAt > localColl.updatedAt) {
                     collectionDao.insertCollection(cloudColl)
@@ -310,6 +323,14 @@ class FirebaseSyncRepository @Inject constructor(
                 delay(1000)
                 syncIgnoreCount.decrementAndGet()
             }
+        }
+    }
+
+    suspend fun deleteCollectionRemote(collectionId: Long) {
+        try {
+            userRef?.child("collections")?.child(collectionId.toString())?.removeValue()?.await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Delete collection remote failed", e)
         }
     }
 

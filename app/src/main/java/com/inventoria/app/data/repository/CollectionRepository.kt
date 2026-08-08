@@ -14,7 +14,8 @@ import javax.inject.Singleton
 @Singleton
 class CollectionRepository @Inject constructor(
     private val collectionDao: CollectionDao,
-    private val inventoryDao: InventoryDao
+    private val inventoryDao: InventoryDao,
+    private val firebaseSyncRepository: FirebaseSyncRepository
 ) {
     fun getAllCollections(): Flow<List<InventoryCollection>> = collectionDao.getAllCollections()
     
@@ -44,6 +45,10 @@ class CollectionRepository @Inject constructor(
         collectionDao.getCollectionById(collectionId)?.let {
             collectionDao.deleteCollection(it)
         }
+        // Collection deletes weren't pushed to Firebase at all before this, so a deleted
+        // collection would simply reappear the next time the "collections" node synced --
+        // see ErrorLog.md #27.
+        firebaseSyncRepository.deleteCollectionRemote(collectionId)
     }
 
     suspend fun addItemToCollection(collectionId: Long, itemId: Long, requiredQuantity: Int = 1, notes: String? = null) = withContext(Dispatchers.IO) {

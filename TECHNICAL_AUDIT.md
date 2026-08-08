@@ -89,6 +89,12 @@ The instrumented test in `ExampleInstrumentedTest.kt` asserts that the package n
 ### 15. Collections All Shared Primary Key 0 (Resolved)
 - **Status**: ✅ Resolved — see [ErrorLog.md #26](ErrorLog.md)
 - `InventoryCollection.id` was a bare `@PrimaryKey` with no `autoGenerate = true`, and `AddEditCollectionViewModel` inserted new collections with `id = 0`. Every collection ever created collided on the same primary key, and the entire "Add Items" flow treats `id != 0L` as its collection-picker-mode sentinel, so it silently never activated. Fixed by making the primary key auto-generate.
+- Fixing that surfaced a follow-on bug (runaway duplicate collections on every sync) — see #16 below.
+
+### 16. Deletes Never Sync to Firebase (Items, Tasks, Links, and — until now — Collections)
+- **Status**: ⚠️ Partially resolved (collections only) — see [ErrorLog.md #27](ErrorLog.md)
+- **The gap**: None of the DAO-level delete methods (`InventoryDao.deleteItem`, `TaskDao`'s deletes, `ItemLinkDao`'s deletes) push a corresponding removal to Firebase — the sync engine's "isDirty incremental merge" pattern (#11 above) only ever pushes upserts, never tombstones. A device deleting something locally will have it silently reappear the next time that node's Firebase listener fires and pulls the still-present remote copy back down.
+- **Collections fixed as a side effect**: `CollectionRepository.deleteCollection` now also calls `FirebaseSyncRepository.deleteCollectionRemote()`, added specifically to make cleanup of the #15/#27 duplicate-collections bug actually stick. Items, tasks, and item links still have the same underlying gap and would need the equivalent treatment.
 
 ---
-*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, sections 12-14 added, section 15 added)*
+*Audit Conducted: 2026-08-08 (sections 1-11 from 2026-03-25, sections 12-14 added, sections 15-16 added)*

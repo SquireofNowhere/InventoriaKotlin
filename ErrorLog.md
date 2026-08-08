@@ -420,4 +420,21 @@ Added `TaskRepository.updateSegmentTime(task, start, end)`, which recomputes `sc
 Added `autoGenerate = true` to `InventoryCollection`'s `@PrimaryKey` (`Collection.kt`) so Room assigns real, unique, non-zero ids going forward. Bumped `InventoryDatabase` to version 7 (relies on the existing `fallbackToDestructiveMigration()`, same as prior schema bumps this session — local data resets, cloud data unaffected).
 
 ---
+
+## 🐞 27. Collections Kept Duplicating on Every Sync
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Right after the #26 fix (autoGenerate primary keys), creating a collection resulted in it appearing 5 times in the Collections list. Confirmed live by pulling the Room DB directly: 5 rows, all named "test things", with real but distinct auto-generated ids (4-8).
+
+### 🔍 Root Cause
+Firebase collection sync uses a **persistent live listener** (`addValueEventListener`) on the whole `collections` node — it fires on *every* write to *any* child, including the app's own writes. Before #26, every collection was pushed to Firebase under key `"0"` (since local id was always 0), so one stale legacy node (`collections/0`, payload `id: 0`) was sitting in the cloud. After #26 made `id = 0` mean "please auto-generate" locally, `pullCollectionsFromFirebase` kept handing that same id-0 payload to `collectionDao.insertCollection()` — and because Room can't REPLACE-match an autoGenerate id of 0 against anything, **every pull inserted a brand new row** with a fresh id, which was then pushed back to Firebase under *that* key, which retriggered the live listener, which pulled again (the original `collections/0` node was never removed) — an unbounded feedback loop, only interrupted by the burst of initial post-migration sync events settling down (5 rows by the time it was checked; would very likely have resumed on the next full resync, e.g. next app restart).
+
+A second, compounding gap: collection deletion (`CollectionRepository.deleteCollection`) never pushed a deletion to Firebase at all — it only removed the local row. That meant even deleting the duplicates by hand would not have stuck; the next `collections` sync would have pulled the same (now non-zero, "legitimate"-looking) duplicate nodes straight back down.
+
+### 🛠️ Final Fix
+- `FirebaseSyncRepository.pullCollectionsFromFirebase` now derives each collection's id from the Firebase **key** (not the payload), and treats key `"0"` as unaddressable legacy data: it removes that node from Firebase once instead of ever inserting from it, which stops the loop at its source.
+- Added `FirebaseSyncRepository.deleteCollectionRemote(id)` and wired it into `CollectionRepository.deleteCollection`, so deleting a collection now actually removes it from Firebase instead of only the local row. (Item/task/link deletion still don't push to Firebase either — same gap, out of scope here; see [TECHNICAL_AUDIT.md #16](TECHNICAL_AUDIT.md).)
+
+---
 *Last Updated: 2026-08-08*
