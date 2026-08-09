@@ -66,6 +66,18 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Custom Fields**: Add arbitrary key-value metadata to any inventory item.
 *   **Modern Material 3 UI**: Clean, responsive interface with Dark Mode support and dynamic theming.
 
+## 🚀 Upcoming Features (TODO)
+*   **Interruption Task Grouping Choice**: Let the user choose how interruption ("Inner") tasks are grouped when displayed — e.g. nested under the task they paused, grouped by kind, or shown ungrouped — similar to the existing grouping-choice pattern used for inventory (`GroupOption`).
+*   **Interruption Task Hierarchy**: `Task.interruptedGroupId` already lets an interruption chain (an inner task can itself be paused and interrupted), but there's no dedicated hierarchy display — it should show as a proper nested chain rather than a flat list of sessions.
+*   **Flow Mode Stop Button Exception**: In Flow Mode, `ActiveSessionCard` always shows "Stop & Continue" instead of the plain Stop button whenever `isFlowModeEnabled` is true (`TaskTrackerScreen.kt`), with no check against `interruptedGroupId`. When the active task is an interruption (Inner Task), it should keep the regular Stop button instead of "Stop & Continue".
+*   **Todo Tasks**: Add real to-do list items distinct from tracked tasks/sessions.
+    *   **Start Button**: Each todo has a "Start" button that kicks off an actual tracked task from it.
+    *   **Completion Check-In**: Prompt the user on a todo to confirm whether it's complete or still ongoing.
+*   **Revisit Daily Productivity Pie Chart**: The 24-hour pie chart (`ProductivityPieChart`) hasn't been reconsidered since it first shipped — worth another pass/review.
+*   **Task History Display Toggle**: Add a toggle on the Task History screen to switch between the current session-grouped view and a flat list of individual tasks by their start/end time.
+*   **Scoring Nerf for Timed Tasks**: Momentum scoring (`productivityValue × segment-minutes × momentum multiplier`, see [TECHNICAL_AUDIT.md #13](TECHNICAL_AUDIT.md#13-momentum-based-scoring--interruption-tracking)) inflates too fast for long-running sessions — e.g. ~1200 points from a single Peacock session with only 60% of the day elapsed (`3 productivity × ~400 minutes`). Timed/tracked tasks should score off a heavily-dampened function of duration (something like `duration * 0.0002` instead of a near-1:1 minutes multiplier) so raw session length stops dominating the score. Tasks should only get their full, natural `kind.productivityValue` if they're **Todo Tasks** (see above) rather than time-tracked sessions.
+*   **Local Data Migration Prompt on Sign-In**: When a user signs into Google while they have local-only (anonymous-account) inventory and tasks, prompt them to migrate that local data up into their new Firebase-synced account instead of silently orphaning it.
+
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
 - **Database**: Room (Local), Firebase Realtime Database (Cloud Sync)
