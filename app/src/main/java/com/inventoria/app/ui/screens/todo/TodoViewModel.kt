@@ -29,9 +29,10 @@ import javax.inject.Inject
  * though it can't be visually nested under a parent that isn't here. [childProgress] is
  * (completed, total) direct children, computed globally regardless of scope, so a parent shows
  * accurate progress even if some children are filed under a different day. [effectiveState] is
- * what should actually be displayed/clicked: [todo]'s own stored state, EXCEPT when it has a
- * genuine mix of complete/incomplete direct children, which displays as IN_PROGRESS regardless of
- * what's actually stored -- a live-computed override, never written back to the todo itself. */
+ * what should actually be displayed/clicked: [todo]'s own stored state, EXCEPT when it isn't
+ * already COMPLETE and has at least one COMPLETE direct child, which displays as IN_PROGRESS
+ * regardless of what's actually stored -- a live-computed override, never written back to the
+ * todo itself. */
 data class TodoTreeEntry(
     val todo: Todo,
     val depth: Int,
@@ -83,6 +84,21 @@ class TodoViewModel @Inject constructor(
     private val _pendingEditTodo = MutableStateFlow<Todo?>(null)
     val pendingEditTodo: StateFlow<Todo?> = _pendingEditTodo.asStateFlow()
 
+    // Tap-to-select: a selected todo highlights on screen and becomes the default parent for any
+    // new todo created via the FAB. Tapping the already-selected todo opens it for editing
+    // instead (see TodoScreen's row click handling); tapping anything else (a different todo,
+    // background space) re-targets or clears this.
+    private val _selectedTodoId = MutableStateFlow<String?>(null)
+    val selectedTodoId: StateFlow<String?> = _selectedTodoId.asStateFlow()
+
+    fun selectTodo(id: String) {
+        _selectedTodoId.value = id
+    }
+
+    fun clearSelection() {
+        _selectedTodoId.value = null
+    }
+
     init {
         startPeriodicCleanup()
     }
@@ -107,6 +123,15 @@ class TodoViewModel @Inject constructor(
     fun dismissDialog() {
         _isAddingNew.value = false
         _pendingEditTodo.value = null
+    }
+
+    /** The edit dialog's "Create Sub-Todo" button: close the edit dialog and open Add, pre-parented
+     * to [parent] -- reuses the same selectedTodoId the FAB already reads for its own prefill, so
+     * there's only one "what parent should a new todo default to" channel. */
+    fun startAddingSubTodoOf(parent: Todo) {
+        selectTodo(parent.id)
+        _pendingEditTodo.value = null
+        _isAddingNew.value = true
     }
 
     fun addTodo(title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?) {
@@ -177,6 +202,13 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch { todoRepository.updateTodo(child.copy(parentTodoId = newParentId)) }
     }
 
+    /** Drag-and-drop detach: dropping a todo on anything that isn't another todo row (a day
+     * header, the "No Deadline" label, blank space) removes its parent entirely. */
+    fun clearParent(child: Todo) {
+        if (child.parentTodoId == null) return
+        viewModelScope.launch { todoRepository.updateTodo(child.copy(parentTodoId = null)) }
+    }
+
     /** Every id that would become a cycle if picked as [todoId]'s parent -- itself, plus every
      * descendant (direct or transitive), since a descendant becoming an ancestor loops the tree. */
     fun invalidParentIds(todoId: String, all: List<Todo>): Set<String> {
@@ -212,10 +244,10 @@ class TodoViewModel @Inject constructor(
         fun visit(todo: Todo, depth: Int) {
             val parentName = todo.parentTodoId?.let { allTodosById[it]?.title }
             val progress = childCounts[todo.id]
-            // A genuine mix (not all-complete, not all-incomplete) among direct children reads
-            // as "in progress" regardless of this todo's own stored state -- purely a display
-            // computation, never written back.
-            val effectiveState = if (progress != null && progress.first in 1 until progress.second) {
+            // Any completed direct child reads as "in progress" (unless this todo is already
+            // COMPLETE itself, which is never downgraded) -- purely a display computation, never
+            // written back. Covers both a genuine partial mix and the "only child, now done" case.
+            val effectiveState = if (todo.state != TodoState.COMPLETE && progress != null && progress.first >= 1) {
                 TodoState.IN_PROGRESS
             } else {
                 todo.state
