@@ -1,8 +1,10 @@
 package com.inventoria.app.ui.screens.task
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -12,10 +14,33 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.Task
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/** A calendar day's worth of history entries, most recent day first, each entry's own type
+ * left generic since flat view buckets individual [Task]s while grouped view buckets whole
+ * sessions ([List]<[Task]>). */
+private data class DayBucket<T>(val dayStart: Long, val items: List<T>)
+
+private fun <T> bucketByDay(items: List<T>, dayStartOf: (T) -> Long): List<DayBucket<T>> =
+    items.groupBy(dayStartOf)
+        .toList()
+        .sortedByDescending { it.first }
+        .map { (day, group) -> DayBucket(day, group) }
+
+private fun formatTimeOfDay(timestamp: Long): String =
+    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,7 +55,7 @@ fun TaskHistoryScreen(
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
     val context = LocalContext.current
-    
+
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
 
@@ -44,6 +69,22 @@ fun TaskHistoryScreen(
         selectedTaskId?.let { id ->
             completedSessions.flatten().find { it.id == id }
         }
+    }
+
+    // The day-by-day breakdown (used for every day header's total/mini-timeline) is always
+    // computed from individual segments, even in grouped view -- a session's own segments can
+    // span multiple days, so only the flat, per-segment data can say what actually happened
+    // on any single given day.
+    val flatDayBuckets = remember(flatCompletedTasks) {
+        bucketByDay(flatCompletedTasks) { getStartOfDay(it.startTime) }
+    }
+    val dayStats = remember(flatDayBuckets) {
+        flatDayBuckets.associate { it.dayStart to it.items }
+    }
+    // A multi-day session is bucketed under the day of its most recent segment -- it's rendered
+    // as one card either way, so it has to live under a single day header.
+    val sessionDayBuckets = remember(completedSessions) {
+        bucketByDay(completedSessions.filter { it.isNotEmpty() }) { session -> getStartOfDay(session.first().startTime) }
     }
 
     Scaffold(
@@ -88,57 +129,23 @@ fun TaskHistoryScreen(
             }
         }
     ) { padding ->
-        val isEmpty = if (isFlatView) flatCompletedTasks.isEmpty() else completedSessions.isEmpty()
+        val isEmpty = if (isFlatView) flatDayBuckets.isEmpty() else sessionDayBuckets.isEmpty()
         if (isEmpty) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("No tasks recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else if (isFlatView) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(flatCompletedTasks, key = { it.id }) { task ->
-                    SingleTaskItemCard(
-                        task = task,
-                        isSelected = task.id in selectedTaskIds,
-                        onClick = {
-                            if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
-                            else selectedTaskId = task.id
-                        },
-                        onLongClick = { viewModel.toggleTaskSelection(task.id) },
-                        onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
-                        onDelete = { viewModel.deleteSegment(task) },
-                        onAddToCalendar = { addToGoogleCalendar(context, task) }
-                    )
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(completedSessions) { session ->
-                    if (session.size > 1) {
-                        CompletedSessionCard(
-                            segments = session,
-                            currentTime = currentTime,
-                            selectedTaskIds = selectedTaskIds,
-                            onClick = { selectedSessionGroupId = session.first().groupId },
-                            onDelete = { viewModel.deleteSession(session.first().groupId) },
-                            onSegmentClick = {
-                                if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
-                                else selectedTaskId = it.id
-                            },
-                            onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
-                            onSegmentDelete = { viewModel.deleteSegment(it) },
-                            onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
-                        )
-                    } else {
-                        val task = session.first()
-                        SingleTaskItemCard(
+                flatDayBuckets.forEach { day ->
+                    item(key = "day_${day.dayStart}") {
+                        DayTimelineHeader(day.dayStart, day.items)
+                    }
+                    items(day.items, key = { it.id }) { task ->
+                        TimelineTaskRow(
                             task = task,
                             isSelected = task.id in selectedTaskIds,
                             onClick = {
@@ -151,6 +158,52 @@ fun TaskHistoryScreen(
                             onAddToCalendar = { addToGoogleCalendar(context, task) }
                         )
                     }
+                    item(key = "spacer_${day.dayStart}") { Spacer(Modifier.height(8.dp)) }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                sessionDayBuckets.forEach { day ->
+                    item(key = "day_${day.dayStart}") {
+                        DayTimelineHeader(day.dayStart, dayStats[day.dayStart] ?: emptyList())
+                    }
+                    items(day.items, key = { it.first().groupId }) { session ->
+                        if (session.size > 1) {
+                            CompletedSessionCard(
+                                segments = session,
+                                currentTime = currentTime,
+                                selectedTaskIds = selectedTaskIds,
+                                onClick = { selectedSessionGroupId = session.first().groupId },
+                                onDelete = { viewModel.deleteSession(session.first().groupId) },
+                                onSegmentClick = {
+                                    if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
+                                    else selectedTaskId = it.id
+                                },
+                                onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
+                                onSegmentDelete = { viewModel.deleteSegment(it) },
+                                onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
+                            )
+                        } else {
+                            val task = session.first()
+                            TimelineTaskRow(
+                                task = task,
+                                isSelected = task.id in selectedTaskIds,
+                                onClick = {
+                                    if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
+                                    else selectedTaskId = task.id
+                                },
+                                onLongClick = { viewModel.toggleTaskSelection(task.id) },
+                                onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
+                                onDelete = { viewModel.deleteSegment(task) },
+                                onAddToCalendar = { addToGoogleCalendar(context, task) }
+                            )
+                        }
+                    }
+                    item(key = "spacer_${day.dayStart}") { Spacer(Modifier.height(8.dp)) }
                 }
             }
         }
@@ -178,6 +231,104 @@ fun TaskHistoryScreen(
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null }
+        )
+    }
+}
+
+/** Day section header: which day it was, its actual date, how much got tracked, and a mini
+ * 24-hour timeline bar showing roughly when in the day things happened -- the "day tracker on
+ * a calendar" look, condensed into one row per day. */
+@Composable
+private fun DayTimelineHeader(dayStart: Long, tasksThatDay: List<Task>) {
+    val totalDuration = tasksThatDay.sumOf { it.duration }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column {
+                Text(
+                    text = getDayLabel(dayStart),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = formatSimpleDate(dayStart),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (totalDuration > 0) {
+                Text(
+                    text = "${formatDetailedDuration(totalDuration)} tracked",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        DayMiniTimeline(dayStart, tasksThatDay)
+    }
+}
+
+/** A thin bar spanning midnight-to-midnight, with a colored segment (in the task's Kind color)
+ * for each task positioned and sized proportionally to when it happened during the day. */
+@Composable
+private fun DayMiniTimeline(dayStart: Long, tasksThatDay: List<Task>) {
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .clip(RoundedCornerShape(4.dp))
+    ) {
+        drawRect(color = trackColor, size = size)
+        val dayMillis = 86_400_000f
+        tasksThatDay.forEach { task ->
+            val startOffset = (task.startTime - dayStart).toFloat().coerceIn(0f, dayMillis)
+            val endOffset = (startOffset + task.duration.toFloat()).coerceIn(0f, dayMillis)
+            val left = (startOffset / dayMillis) * size.width
+            val segmentWidth = ((endOffset - startOffset) / dayMillis * size.width).coerceAtLeast(3f)
+            drawRect(
+                color = Color(task.kind.colorValue),
+                topLeft = Offset(left, 0f),
+                size = Size(segmentWidth, size.height)
+            )
+        }
+    }
+}
+
+/** One history row with a clock-time gutter on the left (like a calendar day view) leading into
+ * the existing task card, so a flat/day-grouped list reads as a timeline rather than a bare feed. */
+@Composable
+private fun TimelineTaskRow(
+    task: Task,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleCalendar: () -> Unit,
+    onDelete: () -> Unit,
+    onAddToCalendar: () -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = formatTimeOfDay(task.startTime),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(40.dp)
+        )
+        SingleTaskItemCard(
+            task = task,
+            isSelected = isSelected,
+            modifier = Modifier.weight(1f),
+            onClick = onClick,
+            onLongClick = onLongClick,
+            onToggleCalendar = onToggleCalendar,
+            onDelete = onDelete,
+            onAddToCalendar = onAddToCalendar
         )
     }
 }

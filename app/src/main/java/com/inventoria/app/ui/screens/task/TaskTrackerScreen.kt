@@ -487,6 +487,7 @@ fun ScoreMiniItem(label: String, score: Int, color: Color) {
 fun SingleTaskItemCard(
     task: Task,
     isSelected: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleCalendar: () -> Unit,
@@ -500,7 +501,7 @@ fun SingleTaskItemCard(
     val backgroundColor by animateColorAsState(if (isSelected) MaterialTheme.colorScheme.primaryContainer else taskColor.copy(alpha = 0.1f))
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = MaterialTheme.shapes.medium,
