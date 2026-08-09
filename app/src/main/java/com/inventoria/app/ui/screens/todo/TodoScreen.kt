@@ -339,6 +339,18 @@ private fun TodoRow(
     val isOverdue = todo.state != TodoState.COMPLETE && todo.deadline != null && todo.deadline!! < todayStart
     val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
     var iconRootTopLeft by remember { mutableStateOf(Offset.Zero) }
+    // pointerInput(todo.id) below only re-executes its block when todo.id itself changes -- since
+    // it doesn't change mid-drag, the block (and whatever it captures) stays frozen at whichever
+    // recomposition first set it up. onDragStart/onDragDelta happen to still work despite that
+    // (their bodies only write to stable remember-backed state), but onDragEnd reads plain local
+    // vals (hoverTodoId/isRemoveZone, recomputed fresh each recomposition, not remember-backed) in
+    // the caller, and a frozen reference to that lambda saw them as they were before any drag
+    // started -- silently resolving every drop as "nothing hovered." rememberUpdatedState keeps
+    // the callback actually invoked always pointing at the latest lambda, matching the exact
+    // pattern InventoryListScreen's own (working) drag-and-drop already relies on.
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragDelta by rememberUpdatedState(onDragDelta)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
 
     Card(
         modifier = Modifier
@@ -381,10 +393,10 @@ private fun TodoRow(
                             // gate a drag behind a hold-still timer -- movement past touch slop
                             // starts the drag immediately.
                             detectDragGestures(
-                                onDragStart = { localOffset -> onDragStart(iconRootTopLeft, localOffset) },
-                                onDrag = { change, dragAmount -> change.consume(); onDragDelta(dragAmount) },
-                                onDragEnd = onDragEnd,
-                                onDragCancel = onDragEnd
+                                onDragStart = { localOffset -> currentOnDragStart(iconRootTopLeft, localOffset) },
+                                onDrag = { change, dragAmount -> change.consume(); currentOnDragDelta(dragAmount) },
+                                onDragEnd = { currentOnDragEnd() },
+                                onDragCancel = { currentOnDragEnd() }
                             )
                         }
                 )
