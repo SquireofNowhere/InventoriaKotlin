@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TodoState
 import java.util.*
 
 class Converters {
@@ -66,6 +67,18 @@ class Converters {
             InventoryCollectionType.valueOf(value)
         } catch (e: IllegalArgumentException) {
             InventoryCollectionType.OTHER
+        }
+    }
+
+    @TypeConverter
+    fun fromTodoState(state: TodoState): String = state.name
+
+    @TypeConverter
+    fun toTodoState(value: String): TodoState {
+        return try {
+            TodoState.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            TodoState.INCOMPLETE
         }
     }
 }

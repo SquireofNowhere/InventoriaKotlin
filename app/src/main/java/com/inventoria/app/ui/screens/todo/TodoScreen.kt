@@ -24,10 +24,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
@@ -99,7 +101,7 @@ fun TodoScreen(
                         TodoRow(
                             entry = entry,
                             todayStart = todayStart,
-                            onToggleCompleted = { viewModel.setCompleted(entry.todo, !entry.todo.isCompleted) },
+                            onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
                             onClick = { viewModel.startEditingTodo(entry.todo) },
                             onDelete = { viewModel.deleteTodo(entry.todo) },
                             onStart = { viewModel.startTaskFromTodo(entry.todo) }
@@ -119,7 +121,7 @@ fun TodoScreen(
                         TodoRow(
                             entry = entry,
                             todayStart = todayStart,
-                            onToggleCompleted = { viewModel.setCompleted(entry.todo, !entry.todo.isCompleted) },
+                            onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
                             onClick = { viewModel.startEditingTodo(entry.todo) },
                             onDelete = { viewModel.deleteTodo(entry.todo) },
                             onStart = { viewModel.startTaskFromTodo(entry.todo) }
@@ -203,7 +205,7 @@ private fun TodoRow(
     onStart: () -> Unit
 ) {
     val todo = entry.todo
-    val isOverdue = !todo.isCompleted && todo.deadline != null && todo.deadline!! < todayStart
+    val isOverdue = todo.state != TodoState.COMPLETE && todo.deadline != null && todo.deadline!! < todayStart
     val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
 
     Card(
@@ -219,7 +221,14 @@ private fun TodoRow(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = todo.isCompleted, onCheckedChange = { onToggleCompleted() })
+                TriStateCheckbox(
+                    state = when (entry.effectiveState) {
+                        TodoState.COMPLETE -> ToggleableState.On
+                        TodoState.IN_PROGRESS -> ToggleableState.Indeterminate
+                        TodoState.INCOMPLETE -> ToggleableState.Off
+                    },
+                    onClick = onToggleCompleted
+                )
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -229,8 +238,8 @@ private fun TodoRow(
                     Text(
                         text = todo.title,
                         style = MaterialTheme.typography.bodyLarge,
-                        textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else null,
-                        color = if (todo.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                        textDecoration = if (entry.effectiveState == TodoState.COMPLETE) TextDecoration.LineThrough else null,
+                        color = if (entry.effectiveState == TodoState.INCOMPLETE) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (isOverdue) {
                         Text(
@@ -248,7 +257,7 @@ private fun TodoRow(
                         )
                     }
                 }
-                if (!todo.isCompleted) {
+                if (todo.state != TodoState.COMPLETE) {
                     if (todo.activeSessionGroupId == null) {
                         IconButton(onClick = onStart) {
                             Icon(Icons.Default.PlayArrow, contentDescription = "Start Tracking", tint = MaterialTheme.colorScheme.primary)

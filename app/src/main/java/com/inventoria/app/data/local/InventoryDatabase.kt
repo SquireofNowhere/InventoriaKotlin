@@ -19,7 +19,7 @@ import com.inventoria.app.data.model.Todo
         ItemLink::class,
         Todo::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

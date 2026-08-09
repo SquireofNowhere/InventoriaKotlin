@@ -10,6 +10,7 @@ import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.ui.screens.task.TaskTimerService
 import com.inventoria.app.util.getStartOfDay
@@ -27,12 +28,16 @@ import javax.inject.Inject
  * part of the current scoped list -- the child still needs its "sub-todo of" breadcrumb even
  * though it can't be visually nested under a parent that isn't here. [childProgress] is
  * (completed, total) direct children, computed globally regardless of scope, so a parent shows
- * accurate progress even if some children are filed under a different day. */
+ * accurate progress even if some children are filed under a different day. [effectiveState] is
+ * what should actually be displayed/clicked: [todo]'s own stored state, EXCEPT when it has a
+ * genuine mix of complete/incomplete direct children, which displays as IN_PROGRESS regardless of
+ * what's actually stored -- a live-computed override, never written back to the todo itself. */
 data class TodoTreeEntry(
     val todo: Todo,
     val depth: Int,
     val parentName: String?,
-    val childProgress: Pair<Int, Int>?
+    val childProgress: Pair<Int, Int>?,
+    val effectiveState: TodoState
 )
 
 /** One day's worth of dated todos. [visibleTodos] is what actually gets rendered under this
@@ -124,8 +129,13 @@ class TodoViewModel @Inject constructor(
         _pendingEditTodo.value = null
     }
 
-    fun setCompleted(todo: Todo, completed: Boolean) {
-        viewModelScope.launch { todoRepository.setCompleted(todo.id, completed) }
+    /** Tapping a todo's checkbox: COMPLETE -> INCOMPLETE, anything else (INCOMPLETE or a
+     * currently-displayed IN_PROGRESS, whether stored or live-derived from mixed children) ->
+     * COMPLETE. See TodoRepository.setStateWithCascade for what happens to descendants. */
+    fun toggleComplete(todo: Todo) {
+        viewModelScope.launch {
+            todoRepository.setStateWithCascade(todo.id, complete = todo.state != TodoState.COMPLETE)
+        }
     }
 
     /** Kicks off a real tracked session from this todo -- same shape as
@@ -175,7 +185,7 @@ class TodoViewModel @Inject constructor(
     private fun computeChildCounts(all: List<Todo>): Map<String, Pair<Int, Int>> =
         all.filter { it.parentTodoId != null }
             .groupBy { it.parentTodoId!! }
-            .mapValues { (_, children) -> children.count { it.isCompleted } to children.size }
+            .mapValues { (_, children) -> children.count { it.state == TodoState.COMPLETE } to children.size }
 
     /** DFS pre-order over [scoped], grouping strictly within it (a child only nests under its
      * parent when both share this scope, e.g. the same day section) -- copies
@@ -192,7 +202,16 @@ class TodoViewModel @Inject constructor(
 
         fun visit(todo: Todo, depth: Int) {
             val parentName = todo.parentTodoId?.let { allTodosById[it]?.title }
-            result.add(TodoTreeEntry(todo, depth, parentName, childCounts[todo.id]))
+            val progress = childCounts[todo.id]
+            // A genuine mix (not all-complete, not all-incomplete) among direct children reads
+            // as "in progress" regardless of this todo's own stored state -- purely a display
+            // computation, never written back.
+            val effectiveState = if (progress != null && progress.first in 1 until progress.second) {
+                TodoState.IN_PROGRESS
+            } else {
+                todo.state
+            }
+            result.add(TodoTreeEntry(todo, depth, parentName, progress, effectiveState))
             childrenByParentId[todo.id]?.forEach { child -> visit(child, depth + 1) }
         }
 
@@ -212,7 +231,7 @@ class TodoViewModel @Inject constructor(
         while (current != null) {
             val deadline = current.deadline
             if (deadline != null) {
-                return if (!current.isCompleted && deadline < todayStart) todayStart else deadline
+                return if (current.state != TodoState.COMPLETE && deadline < todayStart) todayStart else deadline
             }
             current = current.parentTodoId?.let { byId[it] }
         }
@@ -242,7 +261,7 @@ class TodoViewModel @Inject constructor(
                     dayStart = todayStart,
                     visibleTodos = buildTodoTree(todaySectionTodos, byId, childCounts),
                     totalDueCount = todayOwnTodos.size,
-                    completedDueCount = todayOwnTodos.count { it.isCompleted }
+                    completedDueCount = todayOwnTodos.count { it.state == TodoState.COMPLETE }
                 )
             )
         }
@@ -251,7 +270,7 @@ class TodoViewModel @Inject constructor(
         bySectionDay.keys.filter { it > todayStart }.sorted().forEach { day ->
             val sectionTodos = bySectionDay[day]!!
             val ownForDay = ownDueByDeadline[day] ?: emptyList()
-            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.isCompleted }))
+            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.state == TodoState.COMPLETE }))
         }
 
         // Past days, most recent first -- overdue-and-incomplete todos (and any deadline-less
@@ -260,7 +279,7 @@ class TodoViewModel @Inject constructor(
         bySectionDay.keys.filter { it < todayStart }.sortedDescending().forEach { day ->
             val sectionTodos = bySectionDay[day]!!
             val ownForDay = ownDueByDeadline[day] ?: emptyList()
-            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.isCompleted }))
+            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.state == TodoState.COMPLETE }))
         }
 
         return sections

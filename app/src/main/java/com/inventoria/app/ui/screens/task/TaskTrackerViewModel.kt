@@ -14,6 +14,7 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.CalendarRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -110,7 +111,7 @@ class TaskTrackerViewModel @Inject constructor(
         val todo = _pendingTodoCompletionCheckIn.value ?: return
         _pendingTodoCompletionCheckIn.value = null
         if (complete) {
-            viewModelScope.launch { todoRepository.setCompleted(todo.id, true) }
+            viewModelScope.launch { todoRepository.setStateWithCascade(todo.id, true) }
         }
     }
 
@@ -169,10 +170,10 @@ class TaskTrackerViewModel @Inject constructor(
             .filter { it.startTime >= todayStart && it.kind.category == category }
             .sumOf { it.score }
         val todoPoints = todoList
-            .filter { it.isCompleted && (it.completedAt ?: 0L) >= todayStart && it.kind.category == category }
+            .filter { it.state == TodoState.COMPLETE && (it.completedAt ?: 0L) >= todayStart && it.kind.category == category }
             .sumOf { it.kind.productivityValue }
         val overduePenalty = todoList
-            .filter { !it.isCompleted && it.deadline != null && it.deadline!! < todayStart && it.kind.category == category }
+            .filter { it.state != TodoState.COMPLETE && it.deadline != null && it.deadline!! < todayStart && it.kind.category == category }
             .sumOf { minOf(((todayStart - it.deadline!!) / 86_400_000L).toInt(), 5) }
         return dampen(rawTracked) + todoPoints - overduePenalty
     }
@@ -213,7 +214,7 @@ class TaskTrackerViewModel @Inject constructor(
     val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = combine(allFinishedTasks, todos) { tasks, todoList ->
         val todayStart = getTodayStart()
         val taskKinds = tasks.filter { it.startTime >= todayStart }.map { it.kind }
-        val todoKinds = todoList.filter { it.isCompleted && (it.completedAt ?: 0L) >= todayStart }.map { it.kind }
+        val todoKinds = todoList.filter { it.state == TodoState.COMPLETE && (it.completedAt ?: 0L) >= todayStart }.map { it.kind }
         (taskKinds + todoKinds)
             .groupBy { it }
             .map { (kind, occurrences) -> kind to occurrences.size }

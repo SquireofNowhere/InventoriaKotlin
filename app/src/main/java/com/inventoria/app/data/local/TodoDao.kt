@@ -27,9 +27,6 @@ interface TodoDao {
     @Query("SELECT * FROM Todo WHERE id = :id LIMIT 1")
     suspend fun getTodoById(id: String): Todo?
 
-    @Query("SELECT * FROM Todo WHERE isDeleted = 0 AND isCompleted = 1 AND completedAt >= :dayStart AND completedAt < :dayEnd")
-    suspend fun getCompletedInRange(dayStart: Long, dayEnd: Long): List<Todo>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTodo(todo: Todo)
 

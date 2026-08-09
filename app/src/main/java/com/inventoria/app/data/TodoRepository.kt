@@ -2,6 +2,7 @@ package com.inventoria.app.data
 
 import com.inventoria.app.data.local.TodoDao
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -43,9 +44,6 @@ class TodoRepository @Inject constructor(
 
     suspend fun getTodoById(id: String): Todo? = todoDao.getTodoById(id)
 
-    suspend fun getCompletedInRange(dayStart: Long, dayEnd: Long): List<Todo> =
-        todoDao.getCompletedInRange(dayStart, dayEnd)
-
     suspend fun insertTodo(todo: Todo) {
         val timestamp = getNextTimestamp(todo.updatedAt)
         todoDao.insertTodo(todo.copy(updatedAt = timestamp, isDirty = true))
@@ -57,17 +55,43 @@ class TodoRepository @Inject constructor(
         todoDao.updateTodo(todo.copy(updatedAt = timestamp, isDirty = true))
     }
 
-    suspend fun setCompleted(id: String, completed: Boolean) {
+    private suspend fun setState(id: String, state: TodoState) {
         val existing = todoDao.getTodoById(id) ?: return
         val timestamp = getNextTimestamp(existing.updatedAt)
         todoDao.updateTodo(
             existing.copy(
-                isCompleted = completed,
-                completedAt = if (completed) System.currentTimeMillis() else null,
+                state = state,
+                completedAt = if (state == TodoState.COMPLETE) System.currentTimeMillis() else null,
                 updatedAt = timestamp,
                 isDirty = true
             )
         )
+    }
+
+    /** Sets [id] directly to COMPLETE or INCOMPLETE (never IN_PROGRESS -- that's reserved for the
+     * cascade below and for a parent's own live-derived "mixed children" display), then walks its
+     * whole descendant subtree: completing cascades every currently-INCOMPLETE descendant to
+     * IN_PROGRESS (a signal they're implied-covered, not individually verified); un-completing
+     * reverts every currently-IN_PROGRESS descendant back to INCOMPLETE. A descendant already at
+     * the cascade's target state, or one the user completed/progressed themselves and so sits
+     * outside the cascade's `from` state, is left untouched either way -- the walk still recurses
+     * through it to reach anything further down. */
+    suspend fun setStateWithCascade(id: String, complete: Boolean) {
+        setState(id, if (complete) TodoState.COMPLETE else TodoState.INCOMPLETE)
+        val cascadeFrom = if (complete) TodoState.INCOMPLETE else TodoState.IN_PROGRESS
+        val cascadeTo = if (complete) TodoState.IN_PROGRESS else TodoState.INCOMPLETE
+
+        val all = todoDao.getAllTodosList()
+        val childrenByParentId = all.groupBy { it.parentTodoId }
+        suspend fun visit(parentId: String) {
+            childrenByParentId[parentId]?.forEach { child ->
+                if (child.state == cascadeFrom) {
+                    setState(child.id, cascadeTo)
+                }
+                visit(child.id)
+            }
+        }
+        visit(id)
     }
 
     suspend fun setActiveSessionGroupId(id: String, groupId: String?) {
