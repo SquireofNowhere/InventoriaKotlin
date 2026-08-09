@@ -314,6 +314,22 @@ class TaskTrackerViewModel @Inject constructor(
             .mapNotNull { it.activeSegment }
             .find { it.task.interruptedGroupId == groupId }
 
+    /** Stops whatever is currently, actively interrupting [groupId] -- and, recursively,
+     * whatever is interrupting THAT -- deepest first. Used when stopping a session outright
+     * (rather than resuming it) so a chain of interruptions doesn't get left dangling with
+     * nothing left to eventually return to. */
+    private suspend fun stopActiveInterruptionChain(groupId: String, now: Long) {
+        val interrupting = findActiveInterruptionFor(groupId) ?: return
+        stopActiveInterruptionChain(interrupting.task.groupId, now)
+        repository.stopTaskAndSession(
+            interrupting.task.id,
+            interrupting.task.groupId,
+            now,
+            now - interrupting.task.startTime,
+            interrupting.task.kind
+        )
+    }
+
     private suspend fun resumeSession(session: TaskSessionUI) {
         val first = session.segments.firstOrNull() ?: return
         // interruptedGroupId/countsForStreak must carry over from the session's own segments, or
@@ -396,7 +412,17 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             val now = System.currentTimeMillis()
-            val interruptedGroupId = session.activeSegment?.task?.interruptedGroupId
+            // A session being stopped might itself be paused right now because IT has an active
+            // interruption on top of it (e.g. stopping "Interruption 1" while "Interruption 2" is
+            // still running on top of it) -- activeSegment is null in that case, so read
+            // interruptedGroupId from the session's own segments instead of assuming it's running.
+            val interruptedGroupId = (session.activeSegment?.task ?: session.segments.firstOrNull())?.interruptedGroupId
+
+            // Cascade: stop whatever is actively interrupting this session first (recursively,
+            // in case that interruption has its own interruption on top of it), since it has
+            // nothing left to "return to" once this session is gone.
+            stopActiveInterruptionChain(session.groupId, now)
+
             session.activeSegment?.let { ui ->
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime, ui.task.kind)
             } ?: run { repository.endSession(session.groupId) }
