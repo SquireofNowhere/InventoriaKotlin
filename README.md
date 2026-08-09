@@ -31,6 +31,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
     *   **Foreground Service**: Keep timers running accurately even when the app is in the background.
     *   **Live Editing**: Instant saving of task names and notes during active sessions.
 *   **Productivity Dashboard**: Visualize your productivity trends and task history.
+*   **24-Hour Pie Chart**: The daily productivity card shows a circular breakdown of today's tasks by kind, mapped onto their actual time-of-day position around the full 24-hour clock face.
 *   **Calendar Integration**: Sync tasks with the system calendar; identify "Inventoria" tasks via smart description tags.
 *   **Segmented Sessions**: Sessions spanning multiple calendar days show a per-day percentage breakdown (e.g., "0.4% of Today - 5.3% of 25 Feb"). Multi-segment sessions can be "Flattened" in the details dialog to merge all segments into one continuous block (irreversible).
 *   **Automatic Cleanup**: Tasks saved to the calendar are soft-deleted from the local database after 24 hours, keeping the UI clean while preserving the data in Google Calendar.
@@ -64,9 +65,6 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Flexible Currency**: Automatically detects local currency or allows manual override (USD, EUR, GBP, etc.).
 *   **Custom Fields**: Add arbitrary key-value metadata to any inventory item.
 *   **Modern Material 3 UI**: Clean, responsive interface with Dark Mode support and dynamic theming.
-
-## 🚀 Upcoming Features (TODO)
-*   **Productivity Pie Chart**: Add a circular visualization to the daily productivity card in the Tasks screen. This chart should outline the full 24 hours of the day and visually represent how time was spent across different task kinds.
 
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
