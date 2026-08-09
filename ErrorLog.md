@@ -536,4 +536,34 @@ Converted all three entities to the same soft-delete pattern Item/Task already u
 This closes the entire chain of collection/link duplication and resurrection bugs (#26 through #32) at the architectural root rather than patching each new race as it was discovered.
 
 ---
-*Last Updated: 2026-08-08*
+
+## 🐞 34. Stopping a Paused Interruption Left Its Own Sub-Interruption Running and Its Parent Paused
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Reported repro: start "Cooking", interrupt with "Interruption 1", interrupt *that* with "Interruption 2", then stop Interruption 1. Expected: Cooking resumes and Interruption 2 also stops. Actual: Cooking stayed paused and Interruption 2 kept running.
+
+### 🔍 Root Cause
+Two compounding gaps in `TaskTrackerViewModel.stopTask()`:
+1. It read the session-to-resume as `session.activeSegment?.task?.interruptedGroupId` — but the session being stopped (Interruption 1) had no `activeSegment`, since it was itself paused by Interruption 2 sitting on top of it. The lookup silently evaluated to `null`, skipping the "resume parent" step entirely.
+2. There was no logic at all to cascade-stop whatever was actively interrupting the session being stopped, so Interruption 2 was simply left running with nothing left to eventually return to.
+
+### 🛠️ Final Fix
+`interruptedGroupId` is now read from `session.activeSegment?.task ?: session.segments.firstOrNull()`, so it's found regardless of whether the session being stopped is currently running or already paused. Added `stopActiveInterruptionChain(groupId, now)`, called before the target session is stopped, which recursively stops whatever is interrupting it (deepest first) before it resumes its own parent. See #35 — the first version of this helper only checked *currently-running* segments, which turned out to be too narrow for the resume path.
+
+---
+
+## 🐞 35. Resuming a Task Directly Didn't Collapse a Multi-Level Interruption Chain On Top Of It
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Follow-up to #34, reported immediately after verifying it: start a task, interrupt it with Interruption 1, interrupt *that* with Interruption 2, then resume the original task directly (not by stopping an interruption). Expected the whole chain to collapse — both interruptions stop, the original task resumes. Instead only the original task resumed; both interruptions were left dangling.
+
+### 🔍 Root Cause
+`pauseResumeTask()`'s RESUMING branch used `findActiveInterruptionFor()`, which only matches a session with a currently **running** `activeSegment`. Interruption 1 was paused (because Interruption 2 was running on top of it), so it was invisible to that lookup — the search for "what's interrupting the task I'm resuming" came back empty, and neither interruption got stopped. This is the same category of gap as #34, one level further down the chain: the fix in #34 also relied on this same active-segment-only lookup (`findActiveInterruptionFor` inside `stopActiveInterruptionChain`), so it only ever worked when the *immediate* interrupter happened to be running — not when the chain was more than one level deep with an intermediate pause.
+
+### 🛠️ Final Fix
+Replaced the active-segment-only lookup with `findInterruptionSessionFor(groupId)`, which finds the session interrupting `groupId` by checking `activeSegment?.task ?: segments.firstOrNull()` — so it matches regardless of whether that interrupting session currently has a running segment or is itself paused by a further interruption. `stopActiveInterruptionChain` was generalized to walk sessions (not just active `RunningTaskUI`s) via this helper, so it now correctly collapses a chain of any depth in one pass. Reused from both `stopTask()` (#34) and `pauseResumeTask()`'s resume branch, so both entry points share one correct implementation instead of two divergent ones.
+
+---
+*Last Updated: 2026-08-09*
