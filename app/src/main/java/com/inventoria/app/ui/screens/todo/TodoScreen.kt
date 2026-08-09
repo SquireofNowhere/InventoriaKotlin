@@ -1,25 +1,53 @@
 package com.inventoria.app.ui.screens.todo
 
+import android.app.DatePickerDialog
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.input.ImeAction
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
+import com.inventoria.app.util.formatSimpleDate
+import com.inventoria.app.util.getDayLabel
+import com.inventoria.app.util.getStartOfDay
+import java.util.Calendar
+
+private fun showDatePicker(context: Context, initialTime: Long, onDateSelected: (Long) -> Unit) {
+    val calendar = Calendar.getInstance().apply { timeInMillis = initialTime }
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            val result = Calendar.getInstance().apply {
+                set(year, month, day, 0, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            onDateSelected(result.timeInMillis)
+        },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    ).show()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,9 +55,11 @@ fun TodoScreen(
     onNavigateBack: () -> Unit,
     viewModel: TodoViewModel
 ) {
-    val todos by viewModel.todos.collectAsState()
+    val todoSections by viewModel.todoSections.collectAsState()
+    val undatedTodos by viewModel.undatedTodos.collectAsState()
     val isAddingNew by viewModel.isAddingNew.collectAsState()
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
+    val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
 
     Scaffold(
         topBar = {
@@ -48,7 +78,7 @@ fun TodoScreen(
             }
         }
     ) { padding ->
-        if (todos.isEmpty()) {
+        if (todoSections.isEmpty() && undatedTodos.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("No todos yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -58,13 +88,38 @@ fun TodoScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(todos, key = { it.id }) { todo ->
-                    TodoRow(
-                        todo = todo,
-                        onToggleCompleted = { viewModel.setCompleted(todo, !todo.isCompleted) },
-                        onClick = { viewModel.startEditingTodo(todo) },
-                        onDelete = { viewModel.deleteTodo(todo) }
-                    )
+                todoSections.forEach { section ->
+                    item(key = "day_${section.dayStart}") {
+                        TodoDayHeader(section.dayStart, section.totalDueCount, section.completedDueCount)
+                    }
+                    items(section.visibleTodos, key = { it.id }) { todo ->
+                        TodoRow(
+                            todo = todo,
+                            todayStart = todayStart,
+                            onToggleCompleted = { viewModel.setCompleted(todo, !todo.isCompleted) },
+                            onClick = { viewModel.startEditingTodo(todo) },
+                            onDelete = { viewModel.deleteTodo(todo) }
+                        )
+                    }
+                }
+                if (undatedTodos.isNotEmpty()) {
+                    item(key = "no_deadline_header") {
+                        Text(
+                            text = "No Deadline",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        )
+                    }
+                    items(undatedTodos, key = { it.id }) { todo ->
+                        TodoRow(
+                            todo = todo,
+                            todayStart = todayStart,
+                            onToggleCompleted = { viewModel.setCompleted(todo, !todo.isCompleted) },
+                            onClick = { viewModel.startEditingTodo(todo) },
+                            onDelete = { viewModel.deleteTodo(todo) }
+                        )
+                    }
                 }
             }
         }
@@ -74,8 +129,9 @@ fun TodoScreen(
         TodoEditDialog(
             initialTitle = "",
             initialKind = TaskKind.GRAPHITE,
+            initialDeadline = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind -> viewModel.addTodo(title, kind) }
+            onSave = { title, kind, deadline -> viewModel.addTodo(title, kind, deadline) }
         )
     }
 
@@ -83,19 +139,61 @@ fun TodoScreen(
         TodoEditDialog(
             initialTitle = todo.title,
             initialKind = todo.kind,
+            initialDeadline = todo.deadline,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind -> viewModel.saveEditedTodo(todo, title, kind) }
+            onSave = { title, kind, deadline -> viewModel.saveEditedTodo(todo, title, kind, deadline) }
         )
+    }
+}
+
+/** Day section header: which day it was, its date, and (when this day actually had todos due
+ * on it, as opposed to only hosting carried-over overdue rows) an "X% Done" progress bar --
+ * same readiness-bar pattern used for Collections. */
+@Composable
+private fun TodoDayHeader(dayStart: Long, totalDue: Int, completedDue: Int) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column {
+                Text(getDayLabel(dayStart), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(formatSimpleDate(dayStart), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (totalDue > 0) {
+                val pct = (completedDue * 100) / totalDue
+                Text(
+                    text = "$pct% Done",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (totalDue > 0) {
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { completedDue.toFloat() / totalDue.toFloat() },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        }
     }
 }
 
 @Composable
 private fun TodoRow(
     todo: Todo,
+    todayStart: Long,
     onToggleCompleted: () -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val isOverdue = !todo.isCompleted && todo.deadline != null && todo.deadline < todayStart
+    val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium
@@ -117,6 +215,14 @@ private fun TodoRow(
                     textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else null,
                     color = if (todo.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                 )
+                if (isOverdue) {
+                    Text(
+                        text = "Overdue by $daysOverdue day${if (daysOverdue == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
@@ -129,11 +235,14 @@ private fun TodoRow(
 private fun TodoEditDialog(
     initialTitle: String,
     initialKind: TaskKind,
+    initialDeadline: Long?,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind) -> Unit
+    onSave: (String, TaskKind, Long?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var kind by remember { mutableStateOf(initialKind) }
+    var deadline by remember { mutableStateOf(initialDeadline) }
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -149,10 +258,32 @@ private fun TodoEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 TaskKindDropdownMenu(selectedKind = kind, onKindSelected = { kind = it })
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showDatePicker(context, deadline ?: System.currentTimeMillis()) { picked ->
+                                deadline = picked
+                            }
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(deadline?.let { formatSimpleDate(it) } ?: "No deadline")
+                    }
+                    if (deadline != null) {
+                        IconButton(onClick = { deadline = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear deadline", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, kind) }, enabled = title.isNotBlank()) {
+            TextButton(onClick = { onSave(title, kind, deadline) }, enabled = title.isNotBlank()) {
                 Text("Save")
             }
         },

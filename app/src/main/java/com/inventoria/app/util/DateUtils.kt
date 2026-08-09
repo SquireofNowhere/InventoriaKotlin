@@ -21,6 +21,10 @@ fun getStartOfDay(timestamp: Long): Long = Calendar.getInstance().apply {
     set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
 }.timeInMillis
 
+/** Originally written assuming timestamps are always in the past (Task History never shows
+ * anything but completed/historical data), so the "just show the weekday name" window only had a
+ * lower bound. Reused for future-dated Todo deadlines too now, so the window is symmetric: within
+ * 3 days either direction gets a bare weekday name, further out (past OR future) gets "dd MMM". */
 fun formatCardDate(timestamp: Long): String {
     val now = Calendar.getInstance()
     val target = Calendar.getInstance().apply { timeInMillis = timestamp }
@@ -31,7 +35,11 @@ fun formatCardDate(timestamp: Long): String {
         add(Calendar.DAY_OF_YEAR, -3)
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }.timeInMillis
-    return if (timestamp >= threeDaysAgo) {
+    val threeDaysAhead = Calendar.getInstance().apply {
+        add(Calendar.DAY_OF_YEAR, 3)
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    return if (timestamp in threeDaysAgo..threeDaysAhead) {
         SimpleDateFormat("EEEE", Locale.getDefault()).format(Date(timestamp))
     } else {
         SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(timestamp))
@@ -41,11 +49,18 @@ fun formatCardDate(timestamp: Long): String {
 fun getDayLabel(timestamp: Long): String {
     val dateInfo = formatCardDate(timestamp)
     if (dateInfo.isEmpty()) return "Today"
-    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
     val target = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
     val isYesterday = yesterday.get(Calendar.YEAR) == target.get(Calendar.YEAR) &&
         yesterday.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
-    return if (isYesterday) "Yesterday" else dateInfo
+    val isTomorrow = tomorrow.get(Calendar.YEAR) == target.get(Calendar.YEAR) &&
+        tomorrow.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
+    return when {
+        isYesterday -> "Yesterday"
+        isTomorrow -> "Tomorrow"
+        else -> dateInfo
+    }
 }
 
 fun formatSimpleDate(timestamp: Long): String {

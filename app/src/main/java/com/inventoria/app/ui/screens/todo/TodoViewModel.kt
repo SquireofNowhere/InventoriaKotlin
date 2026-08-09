@@ -5,11 +5,24 @@ import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.util.getStartOfDay
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.UUID
 import javax.inject.Inject
+
+/** One day's worth of dated todos. [visibleTodos] is what actually gets rendered under this
+ * section -- for "Today" that also includes currently-overdue todos pulled in from other days
+ * (carry-over, no cloning), while [totalDueCount]/[completedDueCount] stay keyed strictly to
+ * todos whose OWN deadline is this day, so a day's completion percentage doesn't get skewed by
+ * whatever happens to be visually parked under Today while overdue. */
+data class TodoDaySection(
+    val dayStart: Long,
+    val visibleTodos: List<Todo>,
+    val totalDueCount: Int,
+    val completedDueCount: Int
+)
 
 @HiltViewModel
 class TodoViewModel @Inject constructor(
@@ -17,6 +30,14 @@ class TodoViewModel @Inject constructor(
 ) : ViewModel() {
 
     val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val undatedTodos: StateFlow<List<Todo>> = todos
+        .map { list -> list.filter { it.deadline == null } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val todoSections: StateFlow<List<TodoDaySection>> = todos
+        .map { list -> buildTodoSections(list) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isAddingNew = MutableStateFlow(false)
@@ -51,20 +72,20 @@ class TodoViewModel @Inject constructor(
         _pendingEditTodo.value = null
     }
 
-    fun addTodo(title: String, kind: TaskKind) {
+    fun addTodo(title: String, kind: TaskKind, deadline: Long?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            todoRepository.insertTodo(Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind))
+            todoRepository.insertTodo(Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, deadline = deadline))
         }
         _isAddingNew.value = false
     }
 
-    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind) {
+    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, deadline: Long?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind))
+            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, deadline = deadline))
         }
         _pendingEditTodo.value = null
     }
@@ -75,5 +96,48 @@ class TodoViewModel @Inject constructor(
 
     fun deleteTodo(todo: Todo) {
         viewModelScope.launch { todoRepository.softDeleteTodo(todo.id) }
+    }
+
+    private fun buildTodoSections(all: List<Todo>): List<TodoDaySection> {
+        val todayStart = getStartOfDay(System.currentTimeMillis())
+        val dated = all.filter { it.deadline != null }
+        val byDeadline = dated.groupBy { it.deadline!! }
+        // Overdue = still incomplete past its own deadline -- carried over into Today's section
+        // (same row, no cloning) rather than left invisible under a day nobody's looking at.
+        val overdue = dated.filter { !it.isCompleted && it.deadline!! < todayStart }
+        val overdueIds = overdue.map { it.id }.toSet()
+
+        val sections = mutableListOf<TodoDaySection>()
+
+        val todayOwnTodos = byDeadline[todayStart] ?: emptyList()
+        if (todayOwnTodos.isNotEmpty() || overdue.isNotEmpty()) {
+            sections.add(
+                TodoDaySection(
+                    dayStart = todayStart,
+                    visibleTodos = todayOwnTodos + overdue,
+                    totalDueCount = todayOwnTodos.size,
+                    completedDueCount = todayOwnTodos.count { it.isCompleted }
+                )
+            )
+        }
+
+        // Upcoming days, soonest first.
+        byDeadline.keys.filter { it > todayStart }.sorted().forEach { day ->
+            val forDay = byDeadline[day]!!
+            sections.add(TodoDaySection(day, forDay, forDay.size, forDay.count { it.isCompleted }))
+        }
+
+        // Past days, most recent first -- only what's left after pulling overdue rows into Today
+        // (i.e. whatever already got completed) is actually shown as rows, but the percentage
+        // still reflects everything that was originally due that day.
+        byDeadline.keys.filter { it < todayStart }.sortedDescending().forEach { day ->
+            val forDay = byDeadline[day]!!
+            val visible = forDay.filter { it.id !in overdueIds }
+            if (visible.isNotEmpty()) {
+                sections.add(TodoDaySection(day, visible, forDay.size, forDay.count { it.isCompleted }))
+            }
+        }
+
+        return sections
     }
 }
