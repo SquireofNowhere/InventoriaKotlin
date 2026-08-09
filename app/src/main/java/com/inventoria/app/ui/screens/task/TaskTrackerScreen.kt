@@ -1043,10 +1043,38 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
 
     if (showSplitDialog) {
         val effectiveEnd = task.endTime ?: currentTime
-        var splitTime by remember { mutableStateOf((task.startTime + effectiveEnd) / 2) }
+        val totalSpan = (effectiveEnd - task.startTime).coerceAtLeast(1L)
+        // Defaults to ticking live off "how long has this been running so far" for an ongoing
+        // task -- currentTime already advances every second while task.isRunning (see the
+        // LaunchedEffect above). The instant the user edits any Hrs/Min/Sec field, it freezes to
+        // that manual value and stops following the clock, since typing "1 min 4 sec" means "I
+        // want exactly that split point," not "keep counting from wherever I paused you."
+        var useLiveOffset by remember { mutableStateOf(task.isRunning) }
+        var manualOffsetMs by remember { mutableStateOf(totalSpan / 2) }
+        val offsetMs = (if (useLiveOffset) currentTime - task.startTime else manualOffsetMs).coerceIn(0L, totalSpan)
         var splitName by remember { mutableStateOf(task.name) }
         var splitKind by remember { mutableStateOf(task.kind) }
-        val isValidSplit = splitTime > task.startTime && splitTime < effectiveEnd
+
+        fun setOffset(newOffsetMs: Long) {
+            useLiveOffset = false
+            manualOffsetMs = newOffsetMs.coerceIn(0L, totalSpan)
+        }
+
+        val hoursPart = TimeUnit.MILLISECONDS.toHours(offsetMs)
+        val minutesPart = TimeUnit.MILLISECONDS.toMinutes(offsetMs) % 60
+        val secondsPart = TimeUnit.MILLISECONDS.toSeconds(offsetMs) % 60
+        fun offsetWith(hours: Long = hoursPart, minutes: Long = minutesPart, seconds: Long = secondsPart) =
+            TimeUnit.HOURS.toMillis(hours) + TimeUnit.MINUTES.toMillis(minutes) + TimeUnit.SECONDS.toMillis(seconds)
+
+        val splitTime = task.startTime + offsetMs
+        // While still ticking live off "now" for a running task, offsetMs and totalSpan are
+        // (by construction) the same instant, so a strict offsetMs < totalSpan would never pass
+        // -- by the time Split is actually tapped, real "now" has moved past this displayed
+        // instant anyway, so only require some non-zero time has actually elapsed. Once frozen to
+        // a manual value (or the segment was already complete to begin with), the strict upper
+        // bound is what actually prevents a zero-length second half.
+        val isValidSplit = if (useLiveOffset) offsetMs > 0 else (offsetMs > 0 && offsetMs < totalSpan)
+        val splitFraction = (offsetMs.toFloat() / totalSpan.toFloat()).coerceIn(0f, 1f)
 
         AlertDialog(
             onDismissRequest = { showSplitDialog = false },
@@ -1054,12 +1082,38 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Cuts this segment in two at the chosen time. The first part keeps this name and category; the second part is a new segment in the same session.",
+                        text = "Cuts this segment in two, this far into it. The first part keeps this name and category; the second part is a new segment in the same session.",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    EditableDetailItem("Split at", formatDateTime(splitTime)) {
-                        showDateTimePicker(context, splitTime) { splitTime = it }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DurationPartField("Hrs", hoursPart.toString(), { setOffset(offsetWith(hours = it.toLongOrNull() ?: 0L)) }, Modifier.weight(1f))
+                        DurationPartField("Min", minutesPart.toString(), { setOffset(offsetWith(minutes = it.toLongOrNull() ?: 0L)) }, Modifier.weight(1f))
+                        DurationPartField("Sec", secondsPart.toString(), { setOffset(offsetWith(seconds = it.toLongOrNull() ?: 0L)) }, Modifier.weight(1f))
                     }
+                    Text(
+                        text = formatDetailedDuration(offsetMs) + " in" + if (useLiveOffset) " -- still counting, live" else "",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (useLiveOffset) Success else MaterialTheme.colorScheme.primary
+                    )
+
+                    // Split graphic: proportional bar showing where the cut falls across the
+                    // segment's full span, colored by each half's Kind.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    ) {
+                        Box(modifier = Modifier.weight(splitFraction.coerceAtLeast(0.001f)).fillMaxHeight().background(Color(task.kind.colorValue)))
+                        Box(modifier = Modifier.weight((1f - splitFraction).coerceAtLeast(0.001f)).fillMaxHeight().background(Color(splitKind.colorValue)))
+                    }
+                    Text(
+                        text = "At ${formatDateTime(splitTime)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
                     if (!isValidSplit) {
                         Text(
                             text = "Split time must be between the start and ${if (task.isRunning) "now" else "end"}.",
