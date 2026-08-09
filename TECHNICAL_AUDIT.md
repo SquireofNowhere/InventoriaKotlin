@@ -26,9 +26,10 @@ The `InventoryItem` model contains both a `tags: List<String>` field and a `cate
 The Room entity for `InventoryItem` includes fields for `barcode` and `sku`, and `InventoryDao.searchItems()` is programmed to search them.
 - **The Gap**: There is no UI for scanning barcodes, no input fields in `AddEditItemScreen`, and no display of these values in `ItemDetailScreen`. The data layer is fully prepared, but the UI is non-existent.
 
-### 5. SyncStatusIndicator (Orphaned Component)
-A fully functional and animated `SyncStatusIndicator` component exists, and `InventoryListViewModel` correctly exposes the `syncStatus` as a `StateFlow`.
-- **The Gap**: This component is never actually placed within any screen's composable tree. It is ready to use but effectively invisible to the user.
+### 5. SyncStatusIndicator (Orphaned Component) (Resolved)
+- **Status**: ✅ Resolved
+- A fully functional and animated `SyncStatusIndicator` component existed, and `InventoryListViewModel` correctly exposed the `syncStatus` as a `StateFlow`, but the component was never actually placed within any screen's composable tree.
+- **Fix**: Since no screen shares a common `Scaffold`/top bar (each of the ~6 top-level screens manages its own independently), wiring it into one screen wouldn't have made it visible everywhere. Instead, added a small `SyncStatusViewModel` (just re-exposes `FirebaseSyncRepository.syncStatus`) and render it once in `InventoriaApp()` as a floating pill (`Surface` + `SyncStatusIndicator`) anchored top-end, above the `NavHost` content — visible on every screen without touching any of them individually. Hidden on the one route that already hides the tab bar (`item_location_map`), for consistency.
 
 ---
 

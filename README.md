@@ -57,7 +57,8 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Collaborative Syncing (Invite Codes)**: Generate an invite code to let another account read and write to your database, or paste one to sync with someone else's — useful for shared households/inventories.
     *   **Local / Google / External-Sync are mutually exclusive states**: you can't be signed into Google and connected to someone else's database at the same time — each path is blocked in the UI with an explanation of which state to clear first, and Settings shows a single always-accurate status banner (with the actual UID involved, masked by default with a reveal toggle) instead of scattered, potentially-contradictory indicators.
     *   **Connected Devices list**: Settings shows every account currently synced to *your* database (read from `sharedWith`), each with a Revoke button — previously this was invisible even though the data existed.
-*   **Soft Deletion**: All data is soft-deleted first, allowing for recovery or cleanup during sync.
+*   **Soft Deletion**: All data (items, tasks, collections, collection items, and item links) is soft-deleted first, so a deletion is itself synced data that converges correctly on every device rather than a one-off action only the deleting device knows about.
+*   **Live Sync Status**: A small pill in the top-right corner of every screen shows sync state at a glance (syncing / synced / error) — powered by a component that existed for a while but was never actually placed anywhere.
 
 ### ⚙️ Customization & Localization
 *   **Flexible Currency**: Automatically detects local currency or allows manual override (USD, EUR, GBP, etc.).
