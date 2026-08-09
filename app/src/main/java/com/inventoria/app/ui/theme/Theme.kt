@@ -74,8 +74,16 @@ fun InventoriaTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = Color.Transparent.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            // The app isn't edge-to-edge (system bars reserve their own space rather than
+            // content drawing underneath), so these need a real color, not transparent --
+            // otherwise the bar shows whatever the static window background happens to be
+            // instead of tracking the current (possibly in-app-toggled, not just system)
+            // light/dark theme.
+            window.statusBarColor = colorScheme.background.toArgb()
+            window.navigationBarColor = colorScheme.background.toArgb()
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.isAppearanceLightStatusBars = !darkTheme
+            insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
