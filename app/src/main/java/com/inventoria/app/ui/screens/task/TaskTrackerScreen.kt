@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.SubdirectoryArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material3.*
@@ -62,6 +63,30 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 
 enum class CalendarStatus { EMPTY, SOME, FULL_LOCAL, FULL_CALENDAR }
+
+// Presentation-only: activeSessions is a flat list, but interruptions chain via
+// Task.interruptedGroupId (an inner task can itself be paused and interrupted). This walks
+// that chain into a depth-first order so the UI can render it as a nested hierarchy instead of
+// unrelated-looking flat cards.
+private data class ActiveSessionTreeEntry(val session: TaskSessionUI, val depth: Int, val parentName: String?)
+
+private fun buildActiveSessionTree(activeSessions: List<TaskSessionUI>): List<ActiveSessionTreeEntry> {
+    fun refTaskOf(session: TaskSessionUI) = session.activeSegment?.task ?: session.segments.firstOrNull()
+    val activeGroupIds = activeSessions.map { it.groupId }.toSet()
+    val childrenByParentGroupId = activeSessions.groupBy { refTaskOf(it)?.interruptedGroupId }
+
+    val result = mutableListOf<ActiveSessionTreeEntry>()
+    fun visit(session: TaskSessionUI, depth: Int, parentName: String?) {
+        result.add(ActiveSessionTreeEntry(session, depth, parentName))
+        val name = refTaskOf(session)?.name ?: "Untitled"
+        childrenByParentGroupId[session.groupId]?.forEach { child -> visit(child, depth + 1, name) }
+    }
+
+    activeSessions
+        .filter { session -> refTaskOf(session)?.interruptedGroupId?.let { it !in activeGroupIds } != false }
+        .forEach { visit(it, 0, null) }
+    return result
+}
 
 @Composable
 fun rememberTick(intervalMs: Long = 1000): State<Long> {
@@ -126,6 +151,8 @@ fun TaskTrackerScreen(
         allTasks.filter { it.name.isNotBlank() && !it.name.startsWith("Task ") && it.name.lowercase() != "untitled" && !it.isDeleted }
             .distinctBy { it.name.trim().lowercase() }.map { Triple(it.name.trim(), it.groupId, it.kind) }
     }
+
+    val activeSessionTree = remember(activeSessions) { buildActiveSessionTree(activeSessions) }
 
     Scaffold(
         topBar = {
@@ -221,12 +248,15 @@ fun TaskTrackerScreen(
                 }
                 if (activeSessions.isNotEmpty()) {
                     item { Text("Active Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp)) }
-                    items(activeSessions) { session ->
+                    items(activeSessionTree, key = { it.session.groupId }) { entry ->
+                        val session = entry.session
                         ActiveSessionCard(
                             session = session,
                             currentTime = currentTime,
                             suggestions = taskSuggestions,
                             isFlowModeEnabled = isFlowModeEnabled,
+                            depth = entry.depth,
+                            parentName = entry.parentName,
                             onStop = { viewModel.stopTask(session) },
                             onPauseResume = { viewModel.pauseResumeTask(session) },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
@@ -688,7 +718,7 @@ fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
 }
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Triple<String, String, TaskKind>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Triple<String, String, TaskKind>>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -702,8 +732,15 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: Li
     val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser) { if (!isFocused || dropdownDismissedByUser || editableName.text.isBlank()) emptyList() else suggestions.filter { it.first.contains(editableName.text, ignoreCase = true) && !it.first.equals(editableName.text, ignoreCase = true) }.take(5) }; val taskColor = Color(refTask.kind.colorValue)
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(session.groupId, activeSegment?.task?.id) { if (sessionName.startsWith("Task ") && activeSegment?.task?.isRunning == true) { delay(100); focusRequester.requestFocus(); keyboardController?.show() } }
-    Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))) {
+    Card(modifier = Modifier.fillMaxWidth().padding(start = (depth * 20).dp), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))) {
         Column(modifier = Modifier.padding(16.dp)) {
+            if (depth > 0 && parentName != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.SubdirectoryArrowRight, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Interrupting $parentName", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
