@@ -658,6 +658,52 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
+    /** Inverse of [flattenSession]: cuts one segment into two at [splitTime], sharing the same
+     * groupId so both halves stay part of the same session (exactly like an existing
+     * paused-segment + running-segment pair already does). [task] may be running (in which case
+     * the second half keeps running to "now", open-ended, mirroring how [resumeSession] starts a
+     * fresh running segment) or already a completed/paused segment (in which case the second half
+     * is also completed, ending where [task] used to end). Both halves' scores are computed
+     * up front from the CURRENT streak, before either write lands, so freezing the first half
+     * doesn't shift the streak lookback out from under the second half's calculation. */
+    fun splitSegment(task: Task, splitTime: Long, secondName: String, secondKind: TaskKind) {
+        if (task.id.startsWith("cal_")) return
+        val effectiveEnd = task.endTime ?: System.currentTimeMillis()
+        if (splitTime <= task.startTime || splitTime >= effectiveEnd) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            val firstDuration = splitTime - task.startTime
+            val secondDuration = effectiveEnd - splitTime
+            val firstScore = repository.previewScore(task.kind, firstDuration)
+            val secondScore = if (task.isRunning) 0 else repository.previewScore(secondKind, secondDuration)
+
+            repository.updateTask(
+                task.copy(endTime = splitTime, duration = firstDuration, isRunning = false, isPaused = true, score = firstScore)
+            )
+            repository.insertTask(
+                Task(
+                    id = UUID.randomUUID().toString(),
+                    groupId = task.groupId,
+                    name = secondName.ifBlank { task.name },
+                    kind = secondKind,
+                    startTime = splitTime,
+                    endTime = if (task.isRunning) null else task.endTime,
+                    duration = if (task.isRunning) 0L else secondDuration,
+                    isRunning = task.isRunning,
+                    isPaused = if (task.isRunning) false else task.isPaused,
+                    isSessionActive = task.isSessionActive,
+                    isNameCustom = secondName.isNotBlank() && secondName != task.name,
+                    isKindCustom = secondKind != task.kind,
+                    interruptedGroupId = task.interruptedGroupId,
+                    countsForStreak = task.countsForStreak,
+                    originTodoId = task.originTodoId,
+                    score = secondScore
+                )
+            )
+            _isLoading.value = false
+        }
+    }
+
     fun toggleTaskSelection(taskId: String) {
         val current = _selectedTaskIds.value
         _selectedTaskIds.value = if (taskId in current) current - taskId else current + taskId

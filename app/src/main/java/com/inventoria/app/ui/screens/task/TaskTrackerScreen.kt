@@ -343,7 +343,8 @@ fun TaskTrackerScreen(
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
-            previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) }
+            previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
+            onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) }
         )
     }
 
@@ -892,8 +893,9 @@ fun SessionDetailDialog(
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int) {
+fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind) -> Unit) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
+    var showSplitDialog by remember { mutableStateOf(false) }
     
     // Duration Editor State
     val initialDuration = task.duration
@@ -963,6 +965,14 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                 val liveDuration = if (task.isRunning) currentTime - task.startTime else task.duration; DetailItem("Duration", formatDetailedDuration(liveDuration))
 
                 if (!isCalendarTask) {
+                    TextButton(onClick = { showSplitDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.ContentCut, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Split This Segment")
+                    }
+                }
+
+                if (!isCalendarTask) {
                     HorizontalDivider()
                     Text("Point Calculation", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     if (task.isRunning) {
@@ -1030,6 +1040,58 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
             }
         }
     )
+
+    if (showSplitDialog) {
+        val effectiveEnd = task.endTime ?: currentTime
+        var splitTime by remember { mutableStateOf((task.startTime + effectiveEnd) / 2) }
+        var splitName by remember { mutableStateOf(task.name) }
+        var splitKind by remember { mutableStateOf(task.kind) }
+        val isValidSplit = splitTime > task.startTime && splitTime < effectiveEnd
+
+        AlertDialog(
+            onDismissRequest = { showSplitDialog = false },
+            title = { Text("Split This Segment") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Cuts this segment in two at the chosen time. The first part keeps this name and category; the second part is a new segment in the same session.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    EditableDetailItem("Split at", formatDateTime(splitTime)) {
+                        showDateTimePicker(context, splitTime) { splitTime = it }
+                    }
+                    if (!isValidSplit) {
+                        Text(
+                            text = "Split time must be between the start and ${if (task.isRunning) "now" else "end"}.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    OutlinedTextField(
+                        value = splitName,
+                        onValueChange = { splitName = it },
+                        label = { Text("Second Segment Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Second Segment Category", style = MaterialTheme.typography.labelSmall)
+                    TaskKindDropdownMenu(selectedKind = splitKind, onKindSelected = { splitKind = it })
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onSplit(splitTime, splitName, splitKind)
+                        showSplitDialog = false
+                        onDismiss()
+                    },
+                    enabled = isValidSplit
+                ) { Text("Split") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSplitDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
