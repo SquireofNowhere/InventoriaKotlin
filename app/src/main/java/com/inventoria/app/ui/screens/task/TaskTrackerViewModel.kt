@@ -405,10 +405,12 @@ class TaskTrackerViewModel @Inject constructor(
 
     private suspend fun resumeSession(session: TaskSessionUI) {
         val first = session.segments.firstOrNull() ?: return
-        // interruptedGroupId/countsForStreak must carry over from the session's own segments, or
-        // an interruption that gets paused (to spawn a further interruption of its own) silently
-        // loses its parent-child link -- and its streak opt-in -- the moment it's resumed, since
-        // a fresh Task() defaults both back to null/false.
+        // interruptedGroupId/countsForStreak/originTodoId must carry over from the session's own
+        // segments, or a session that gets paused (to spawn an interruption, or just paused and
+        // later resumed) silently loses its parent-child link, streak opt-in, or Todo origin the
+        // moment it's resumed, since a fresh Task() defaults all three back to null/false -- and
+        // since resumeSession always reads the MOST RECENT segment, a single un-propagated resume
+        // would otherwise permanently sever the link for every resume after it too.
         val newTask = Task(
             id = UUID.randomUUID().toString(),
             groupId = session.groupId,
@@ -417,7 +419,8 @@ class TaskTrackerViewModel @Inject constructor(
             isRunning = true,
             startTime = System.currentTimeMillis(),
             interruptedGroupId = first.interruptedGroupId,
-            countsForStreak = first.countsForStreak
+            countsForStreak = first.countsForStreak,
+            originTodoId = first.originTodoId
         )
         repository.insertTask(newTask)
     }

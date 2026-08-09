@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
@@ -28,8 +29,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
@@ -72,6 +76,7 @@ private fun showDatePicker(context: Context, initialTime: Long, onDateSelected: 
 @Composable
 fun TodoScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToTasks: () -> Unit,
     viewModel: TodoViewModel
 ) {
     val allTodos by viewModel.todos.collectAsState()
@@ -169,6 +174,7 @@ fun TodoScreen(
                                 },
                                 onDelete = { viewModel.deleteTodo(entry.todo) },
                                 onStart = { viewModel.startTaskFromTodo(entry.todo) },
+                                onViewTask = onNavigateToTasks,
                                 onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
                                 onDragStart = { iconRootTopLeft, localOffset ->
                                     draggedTodoId = entry.todo.id
@@ -203,6 +209,7 @@ fun TodoScreen(
                                 },
                                 onDelete = { viewModel.deleteTodo(entry.todo) },
                                 onStart = { viewModel.startTaskFromTodo(entry.todo) },
+                                onViewTask = onNavigateToTasks,
                                 onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
                                 onDragStart = { iconRootTopLeft, localOffset ->
                                     draggedTodoId = entry.todo.id
@@ -330,6 +337,7 @@ private fun TodoRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onStart: () -> Unit,
+    onViewTask: () -> Unit,
     onBoundsChanged: (ClosedFloatingPointRange<Float>) -> Unit,
     onDragStart: (iconRootTopLeft: Offset, localOffset: Offset) -> Unit,
     onDragDelta: (Offset) -> Unit,
@@ -380,6 +388,16 @@ private fun TodoRow(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Kind color, at a glance, before anything else in the row -- same left-bar
+                // convention SingleTaskItemCard already uses for tracked tasks.
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(todo.kind.colorValue))
+                )
+                Spacer(Modifier.width(6.dp))
                 Icon(
                     Icons.Default.DragIndicator,
                     contentDescription = "Drag to make this a sub-todo of another",
@@ -436,18 +454,20 @@ private fun TodoRow(
                         )
                     }
                 }
+                TaskKindChip(kind = todo.kind, modifier = Modifier.scale(0.85f))
                 if (todo.state != TodoState.COMPLETE) {
                     if (todo.activeSessionGroupId == null) {
                         IconButton(onClick = onStart) {
                             Icon(Icons.Default.PlayArrow, contentDescription = "Start Tracking", tint = MaterialTheme.colorScheme.primary)
                         }
                     } else {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = "In Progress",
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                            modifier = Modifier.padding(12.dp)
-                        )
+                        IconButton(onClick = onViewTask) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "In Progress -- View on Tasks",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
                 IconButton(onClick = onDelete) {

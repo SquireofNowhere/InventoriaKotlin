@@ -295,7 +295,8 @@ fun InventoriaApp() {
                 val viewModel: TodoViewModel = hiltViewModel()
                 TodoScreen(
                     viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToTasks = { navController.navigate(Screen.Tasks.route) }
                 )
             }
 

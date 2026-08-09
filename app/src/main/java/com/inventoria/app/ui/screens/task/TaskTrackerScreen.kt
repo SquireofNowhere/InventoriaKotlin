@@ -542,6 +542,10 @@ fun SingleTaskItemCard(
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (task.originTodoId != null) {
+                            Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(4.dp))
+                        }
                         Text(
                             text = task.name,
                             style = MaterialTheme.typography.titleSmall,
@@ -558,6 +562,12 @@ fun SingleTaskItemCard(
                         text = "${formatDetailedDuration(task.duration)} • $percentage",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (task.score >= 0) "+${task.score} pts" else "${task.score} pts",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
                     )
                 }
                 TaskKindChip(kind = task.kind)
@@ -610,6 +620,8 @@ fun CompletedSessionCard(
     val allSaved = segments.all { it.savedToCalendar }
     val someSaved = segments.any { it.savedToCalendar }
     val isCalendarSession = segments.any { it.id.startsWith("cal_") }
+    val hasTodoOrigin = segments.any { it.originTodoId != null }
+    val sessionScore = segments.sumOf { it.score }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -628,11 +640,23 @@ fun CompletedSessionCard(
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f).clickable { onClick() }) {
-                    Text(text = sessionName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (hasTodoOrigin) {
+                            Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(text = sessionName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     Text(
                         text = "${segments.size} segments • ${formatDetailedDuration(todayDuration)} • $percentage",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (sessionScore >= 0) "+$sessionScore pts" else "$sessionScore pts",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (sessionScore >= 0) Success else Color(0xFFFF4D4D)
                     )
                     if (allSaved && !isCalendarSession) {
                         val latestSaveAt = segments.mapNotNull { it.savedToCalendarAt }.maxOrNull() ?: 0L
@@ -707,13 +731,21 @@ private fun SegmentRow(
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (segment.originTodoId != null) {
+                        Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Text(text = segment.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (isSelected) {
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     }
                 }
-                Text(text = "${formatDetailedDuration(segment.duration)} • $percentage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = "${formatDetailedDuration(segment.duration)} • $percentage • ${if (segment.score >= 0) "+${segment.score} pts" else "${segment.score} pts"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             TaskKindChip(kind = segment.kind, modifier = Modifier.scale(0.85f))
             Spacer(Modifier.width(2.dp))
@@ -764,6 +796,10 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: Li
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (refTask.originTodoId != null) {
+                    Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                }
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
                         BasicTextField(value = editableName, onValueChange = { editableName = it }, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { focusState -> isFocused = focusState.isFocused; if (!focusState.isFocused && editableName.text != sessionName) onUpdateName(editableName.text) }, textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }), singleLine = true)
