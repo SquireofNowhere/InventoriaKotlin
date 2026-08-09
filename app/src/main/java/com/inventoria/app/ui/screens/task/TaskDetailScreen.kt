@@ -8,10 +8,12 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.ui.theme.Success
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,6 +94,52 @@ fun TaskDetailScreen(
                 DetailItem("Ended", formatDateTime(it))
             }
             DetailItem("Duration", formatDetailedDuration(task.duration))
+
+            HorizontalDivider()
+
+            Text("Point Calculation", style = MaterialTheme.typography.titleSmall)
+            if (task.isRunning) {
+                // Still running: no frozen score to show yet, so tick a live estimate off the
+                // currently-selected Kind (previewScore hits the DB for the current streak, but
+                // only once a second here, not per-frame -- fine for a single detail screen).
+                val currentTime by rememberTick()
+                val liveDuration = currentTime - task.startTime
+                var livePreview by remember { mutableIntStateOf(0) }
+                LaunchedEffect(liveDuration, kind) {
+                    livePreview = viewModel.previewScore(kind, liveDuration)
+                }
+                DetailItem("Kind Value", (if (kind.productivityValue >= 0) "+" else "") + kind.productivityValue)
+                DetailItem("Elapsed", formatDetailedDuration(liveDuration))
+                Text(
+                    text = "Running total: ${if (livePreview >= 0) "+" else ""}$livePreview pts",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (livePreview >= 0) Success else Color(0xFFFF4D4D)
+                )
+                Text(
+                    text = "Updates live while running, using your current momentum streak for this Kind.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                // Already frozen: show the ACTUAL stored score rather than recomputing (the streak
+                // may have moved on since), and back out the momentum multiplier that must have
+                // applied algebraically (score = round(kindValue * minutes * multiplier)) purely
+                // for display, since the multiplier itself isn't separately stored.
+                val minutes = task.duration / 60000.0
+                val impliedMultiplier = if (task.kind.productivityValue != 0 && minutes > 0) {
+                    task.score / (task.kind.productivityValue * minutes)
+                } else 1.0
+                DetailItem("Kind Value", (if (task.kind.productivityValue >= 0) "+" else "") + task.kind.productivityValue)
+                DetailItem("Duration", formatDetailedDuration(task.duration))
+                DetailItem("Momentum Multiplier", "${"%.2f".format(impliedMultiplier)}x")
+                Text(
+                    text = "Total: ${if (task.score >= 0) "+" else ""}${task.score} pts",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
+                )
+            }
         }
     }
 }

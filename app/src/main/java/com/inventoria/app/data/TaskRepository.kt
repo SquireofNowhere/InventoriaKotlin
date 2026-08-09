@@ -144,6 +144,12 @@ class TaskRepository @Inject constructor(
         updateTask(task.copy(isRunning = false, isPaused = true, endTime = endTime, duration = duration, score = score))
     }
 
+    /** Same formula as computeFrozenScore, exposed publicly for a live/preview display -- a
+     * running task's "so far" estimate, ticking as duration grows -- without implying anything is
+     * actually being frozen/stored. Uses the CURRENT streak, so it can differ slightly from
+     * whatever the streak happens to be at the moment the task is actually stopped. */
+    suspend fun previewScore(kind: TaskKind, durationMs: Long): Int = computeFrozenScore(kind, durationMs)
+
     private suspend fun computeFrozenScore(kind: TaskKind, durationMs: Long): Int {
         val streak = getStreakCountForKind(kind)
         val multiplier = momentumMultiplier(streak, kind)

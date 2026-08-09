@@ -611,6 +611,10 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch { repository.softDeleteTask(task.id) }
     }
 
+    /** Live point estimate for the Task Edit screen -- a running task's "so far" total, or a
+     * what-if preview if the user changes Kind before saving. See TaskRepository.previewScore. */
+    suspend fun previewScore(kind: TaskKind, durationMs: Long): Int = repository.previewScore(kind, durationMs)
+
     fun deleteSelectedTasks() {
         viewModelScope.launch {
             _isLoading.value = true
