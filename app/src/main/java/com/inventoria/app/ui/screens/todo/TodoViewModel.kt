@@ -1,12 +1,20 @@
 package com.inventoria.app.ui.screens.todo
 
+import android.content.Context
+import android.content.Intent
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.TodoRepository
+import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.repository.FirebaseSyncRepository
+import com.inventoria.app.ui.screens.task.TaskTimerService
 import com.inventoria.app.util.getStartOfDay
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.UUID
@@ -41,7 +49,10 @@ data class TodoDaySection(
 
 @HiltViewModel
 class TodoViewModel @Inject constructor(
-    private val todoRepository: TodoRepository
+    @ApplicationContext private val context: Context,
+    private val todoRepository: TodoRepository,
+    private val taskRepository: TaskRepository,
+    private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
     val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
@@ -113,6 +124,32 @@ class TodoViewModel @Inject constructor(
 
     fun setCompleted(todo: Todo, completed: Boolean) {
         viewModelScope.launch { todoRepository.setCompleted(todo.id, completed) }
+    }
+
+    /** Kicks off a real tracked session from this todo -- same shape as
+     * TaskTrackerViewModel.addNewTask(), just seeded with the todo's title/kind and tagged with
+     * Task.originTodoId so the completion check-in can find its way back to this todo once the
+     * session stops (see TaskTrackerViewModel.stopTask()). */
+    fun startTaskFromTodo(todo: Todo) {
+        if (todo.activeSessionGroupId != null) return
+        viewModelScope.launch {
+            val groupId = UUID.randomUUID().toString()
+            val task = Task(
+                id = UUID.randomUUID().toString(),
+                groupId = groupId,
+                name = todo.title,
+                kind = todo.kind,
+                isRunning = true,
+                startTime = System.currentTimeMillis(),
+                originTodoId = todo.id
+            )
+            taskRepository.insertTask(task)
+            todoRepository.setActiveSessionGroupId(todo.id, groupId)
+            val intent = Intent(context, TaskTimerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
+            else { context.startService(intent) }
+            syncRepository.triggerFullSync()
+        }
     }
 
     fun deleteTodo(todo: Todo) {

@@ -41,6 +41,8 @@ class TodoRepository @Inject constructor(
 
     fun getVisibleTodos(): Flow<List<Todo>> = todoDao.getVisibleTodos()
 
+    suspend fun getTodoById(id: String): Todo? = todoDao.getTodoById(id)
+
     suspend fun getCompletedInRange(dayStart: Long, dayEnd: Long): List<Todo> =
         todoDao.getCompletedInRange(dayStart, dayEnd)
 

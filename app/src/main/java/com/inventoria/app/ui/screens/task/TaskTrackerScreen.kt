@@ -121,6 +121,7 @@ fun TaskTrackerScreen(
     val isAutoStartPending by viewModel.isAutoStartPending.collectAsState()
     val pendingInnerTaskPrompt by viewModel.pendingInnerTaskPrompt.collectAsState()
     val pendingInnerTaskRename by viewModel.pendingInnerTaskRename.collectAsState()
+    val pendingTodoCompletionCheckIn by viewModel.pendingTodoCompletionCheckIn.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
 
     val totalScore by viewModel.totalScoreToday.collectAsState()
@@ -443,6 +444,24 @@ fun TaskTrackerScreen(
             confirmButton = {
                 TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak, interruptionKind) }) {
                     Text("Save")
+                }
+            }
+        )
+    }
+
+    pendingTodoCompletionCheckIn?.let { todo ->
+        AlertDialog(
+            onDismissRequest = { viewModel.respondToTodoCompletionCheckIn(false) },
+            title = { Text("Finished?") },
+            text = { Text("Is \"${todo.title}\" complete, or still ongoing?") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.respondToTodoCompletionCheckIn(true) }) {
+                    Text("Complete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.respondToTodoCompletionCheckIn(false) }) {
+                    Text("Still Ongoing")
                 }
             }
         )

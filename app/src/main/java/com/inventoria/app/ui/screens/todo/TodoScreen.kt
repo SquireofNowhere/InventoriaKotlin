@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -100,7 +101,8 @@ fun TodoScreen(
                             todayStart = todayStart,
                             onToggleCompleted = { viewModel.setCompleted(entry.todo, !entry.todo.isCompleted) },
                             onClick = { viewModel.startEditingTodo(entry.todo) },
-                            onDelete = { viewModel.deleteTodo(entry.todo) }
+                            onDelete = { viewModel.deleteTodo(entry.todo) },
+                            onStart = { viewModel.startTaskFromTodo(entry.todo) }
                         )
                     }
                 }
@@ -119,7 +121,8 @@ fun TodoScreen(
                             todayStart = todayStart,
                             onToggleCompleted = { viewModel.setCompleted(entry.todo, !entry.todo.isCompleted) },
                             onClick = { viewModel.startEditingTodo(entry.todo) },
-                            onDelete = { viewModel.deleteTodo(entry.todo) }
+                            onDelete = { viewModel.deleteTodo(entry.todo) },
+                            onStart = { viewModel.startTaskFromTodo(entry.todo) }
                         )
                     }
                 }
@@ -196,7 +199,8 @@ private fun TodoRow(
     todayStart: Long,
     onToggleCompleted: () -> Unit,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onStart: () -> Unit
 ) {
     val todo = entry.todo
     val isOverdue = !todo.isCompleted && todo.deadline != null && todo.deadline < todayStart
@@ -241,6 +245,20 @@ private fun TodoRow(
                             text = "$completed/$total sub-todos complete",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (!todo.isCompleted) {
+                    if (todo.activeSessionGroupId == null) {
+                        IconButton(onClick = onStart) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Start Tracking", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = "In Progress",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                            modifier = Modifier.padding(12.dp)
                         )
                     }
                 }

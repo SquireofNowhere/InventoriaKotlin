@@ -9,8 +9,10 @@ import android.os.IBinder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.repository.CalendarRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,6 +39,7 @@ data class RunningTaskUI(
 class TaskTrackerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: TaskRepository,
+    private val todoRepository: TodoRepository,
     private val calendarRepository: CalendarRepository,
     private val settingsRepository: SettingsRepository,
     private val syncRepository: com.inventoria.app.data.repository.FirebaseSyncRepository
@@ -93,6 +96,19 @@ class TaskTrackerViewModel @Inject constructor(
 
     private val _isAutoStartPending = MutableStateFlow(false)
     val isAutoStartPending: StateFlow<Boolean> = _isAutoStartPending.asStateFlow()
+
+    // The Todo a just-stopped session was started from, awaiting "is this done, or still
+    // ongoing?" (see stopTask()) -- null when there's nothing to ask about.
+    private val _pendingTodoCompletionCheckIn = MutableStateFlow<Todo?>(null)
+    val pendingTodoCompletionCheckIn: StateFlow<Todo?> = _pendingTodoCompletionCheckIn.asStateFlow()
+
+    fun respondToTodoCompletionCheckIn(complete: Boolean) {
+        val todo = _pendingTodoCompletionCheckIn.value ?: return
+        _pendingTodoCompletionCheckIn.value = null
+        if (complete) {
+            viewModelScope.launch { todoRepository.setCompleted(todo.id, true) }
+        }
+    }
 
     private var flowModeJob: Job? = null
     private var hasLoadedInitialTasks = false
@@ -431,6 +447,9 @@ class TaskTrackerViewModel @Inject constructor(
             // still running on top of it) -- activeSegment is null in that case, so read
             // interruptedGroupId from the session's own segments instead of assuming it's running.
             val interruptedGroupId = (session.activeSegment?.task ?: session.segments.firstOrNull())?.interruptedGroupId
+            // Same "might already be paused" reasoning as interruptedGroupId above -- read the
+            // origin off whichever segment is actually available.
+            val originTodoId = (session.activeSegment?.task ?: session.segments.firstOrNull())?.originTodoId
 
             // Cascade: stop whatever is actively interrupting this session first (recursively,
             // in case that interruption has its own interruption on top of it), since it has
@@ -441,6 +460,13 @@ class TaskTrackerViewModel @Inject constructor(
                 repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime, ui.task.kind)
             } ?: run { repository.endSession(session.groupId) }
             _isLoading.value = false
+
+            // A session started from a Todo's Start button just ended -- free the todo up to be
+            // Start-ed again, and ask whether that actually finished the todo or it's still open.
+            if (originTodoId != null) {
+                todoRepository.setActiveSessionGroupId(originTodoId, null)
+                todoRepository.getTodoById(originTodoId)?.let { _pendingTodoCompletionCheckIn.value = it }
+            }
 
             // Stopping an interruption means "back to what I was doing" -- resume it automatically
             // rather than leaving the user to find and un-pause it themselves.
