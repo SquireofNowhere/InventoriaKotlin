@@ -258,7 +258,8 @@ fun TaskHistoryScreen(
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
-            onDelete = { viewModel.deleteSegment(task); selectedTaskId = null }
+            onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
+            previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) }
         )
     }
 }

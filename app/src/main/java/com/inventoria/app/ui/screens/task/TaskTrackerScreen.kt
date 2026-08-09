@@ -342,7 +342,8 @@ fun TaskTrackerScreen(
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
-            onDelete = { viewModel.deleteSegment(task); selectedTaskId = null }
+            onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
+            previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) }
         )
     }
 
@@ -891,7 +892,7 @@ fun SessionDetailDialog(
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit) {
+fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
     
     // Duration Editor State
@@ -960,7 +961,48 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                 val currentEndTime = task.endTime ?: currentTime; if (isSpanningDays(task.startTime, currentEndTime)) { DetailItem("Date", formatDateRange(task.startTime, currentEndTime)) }
                 if (isCalendarTask) { DetailItem("Started", formatDateTime(task.startTime)); DetailItem("Stopped", formatDateTime(currentEndTime)) } else { EditableDetailItem("Started", formatDateTime(task.startTime)) { showDateTimePicker(context, task.startTime) { newStart -> onUpdateTime(newStart, task.endTime ?: System.currentTimeMillis()) } }; val stoppedText = if (task.endTime != null) formatDateTime(task.endTime!!) else "Running..."; EditableDetailItem("Stopped", stoppedText) { if (task.endTime != null) { showDateTimePicker(context, task.endTime!!) { newEnd -> onUpdateTime(task.startTime, newEnd) } } } }
                 val liveDuration = if (task.isRunning) currentTime - task.startTime else task.duration; DetailItem("Duration", formatDetailedDuration(liveDuration))
-                
+
+                if (!isCalendarTask) {
+                    HorizontalDivider()
+                    Text("Point Calculation", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    if (task.isRunning) {
+                        // No frozen score yet -- tick a live estimate off the current Kind (updates
+                        // whenever liveDuration or the Kind changes; previewScore hits the DB for the
+                        // current streak, but only once a second here via currentTime, not per-frame).
+                        var livePreview by remember { mutableIntStateOf(0) }
+                        LaunchedEffect(liveDuration, task.kind) { livePreview = previewScore(task.kind, liveDuration) }
+                        DetailItem("Kind Value", (if (task.kind.productivityValue >= 0) "+" else "") + task.kind.productivityValue)
+                        Text(
+                            text = "Running total: ${if (livePreview >= 0) "+" else ""}$livePreview pts",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (livePreview >= 0) Success else Color(0xFFFF4D4D)
+                        )
+                        Text(
+                            text = "Updates live while running, using your current momentum streak for this Kind.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        // Already frozen: show the ACTUAL stored score (the streak may have moved on
+                        // since), and back out the momentum multiplier that must have applied
+                        // algebraically (score = round(kindValue * minutes * multiplier)) purely for
+                        // display, since the multiplier itself isn't stored anywhere.
+                        val minutes = task.duration / 60000.0
+                        val impliedMultiplier = if (task.kind.productivityValue != 0 && minutes > 0) {
+                            task.score / (task.kind.productivityValue * minutes)
+                        } else 1.0
+                        DetailItem("Kind Value", (if (task.kind.productivityValue >= 0) "+" else "") + task.kind.productivityValue)
+                        DetailItem("Momentum Multiplier", "${"%.2f".format(impliedMultiplier)}x")
+                        Text(
+                            text = "Total: ${if (task.score >= 0) "+" else ""}${task.score} pts",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
+                        )
+                    }
+                }
+
                 // Calendar Sync UI
                 if (!isCalendarTask) { 
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { 
