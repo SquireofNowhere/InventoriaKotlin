@@ -42,6 +42,22 @@ private fun <T> bucketByDay(items: List<T>, dayStartOf: (T) -> Long): List<DayBu
 private fun formatTimeOfDay(timestamp: Long): String =
     SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 
+/** For a list of time-gutter rows in the order they're displayed, returns which ones should
+ * actually show their clock time -- false whenever it's identical to the immediately preceding
+ * row's (e.g. an interruption starting the instant its parent gets paused, landing on the same
+ * minute), so the gutter doesn't print the same "08:45" twice in a row. */
+private fun <T> showTimeFlagsById(items: List<T>, idAndStartTime: (T) -> Pair<String, Long>): Map<String, Boolean> {
+    val flags = mutableMapOf<String, Boolean>()
+    var lastLabel: String? = null
+    items.forEach { item ->
+        val (id, startTime) = idAndStartTime(item)
+        val label = formatTimeOfDay(startTime)
+        flags[id] = label != lastLabel
+        lastLabel = label
+    }
+    return flags
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskHistoryScreen(
@@ -85,6 +101,21 @@ fun TaskHistoryScreen(
     // as one card either way, so it has to live under a single day header.
     val sessionDayBuckets = remember(completedSessions) {
         bucketByDay(completedSessions.filter { it.isNotEmpty() }) { session -> getStartOfDay(session.first().startTime) }
+    }
+
+    // Per-day "should this row show its clock time" lookups, keyed by day then by task id --
+    // computed once here (remember requires composable context, unlike inside LazyListScope's
+    // plain content lambda) and just read as plain maps down in the list below.
+    val flatShowTimeByDay = remember(flatDayBuckets) {
+        flatDayBuckets.associate { day -> day.dayStart to showTimeFlagsById(day.items) { it.id to it.startTime } }
+    }
+    // Only single-segment sessions show a time gutter (CompletedSessionCard has no spot for
+    // one), so the dedup chain only tracks those, skipping multi-segment sessions entirely
+    // rather than comparing against a label nobody can see.
+    val sessionShowTimeByDay = remember(sessionDayBuckets) {
+        sessionDayBuckets.associate { day ->
+            day.dayStart to showTimeFlagsById(day.items.filter { it.size == 1 }) { it.first().id to it.first().startTime }
+        }
     }
 
     Scaffold(
@@ -144,10 +175,12 @@ fun TaskHistoryScreen(
                     item(key = "day_${day.dayStart}") {
                         DayTimelineHeader(day.dayStart, day.items)
                     }
+                    val showTimeById = flatShowTimeByDay[day.dayStart] ?: emptyMap()
                     items(day.items, key = { it.id }) { task ->
                         TimelineTaskRow(
                             task = task,
                             isSelected = task.id in selectedTaskIds,
+                            showTime = showTimeById[task.id] != false,
                             onClick = {
                                 if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
                                 else selectedTaskId = task.id
@@ -171,6 +204,7 @@ fun TaskHistoryScreen(
                     item(key = "day_${day.dayStart}") {
                         DayTimelineHeader(day.dayStart, dayStats[day.dayStart] ?: emptyList())
                     }
+                    val showTimeById = sessionShowTimeByDay[day.dayStart] ?: emptyMap()
                     items(day.items, key = { it.first().groupId }) { session ->
                         if (session.size > 1) {
                             CompletedSessionCard(
@@ -192,6 +226,7 @@ fun TaskHistoryScreen(
                             TimelineTaskRow(
                                 task = task,
                                 isSelected = task.id in selectedTaskIds,
+                                showTime = showTimeById[task.id] != false,
                                 onClick = {
                                     if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
                                     else selectedTaskId = task.id
@@ -306,6 +341,7 @@ private fun DayMiniTimeline(dayStart: Long, tasksThatDay: List<Task>) {
 private fun TimelineTaskRow(
     task: Task,
     isSelected: Boolean,
+    showTime: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleCalendar: () -> Unit,
@@ -313,13 +349,17 @@ private fun TimelineTaskRow(
     onAddToCalendar: () -> Unit
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = formatTimeOfDay(task.startTime),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(40.dp)
-        )
+        if (showTime) {
+            Text(
+                text = formatTimeOfDay(task.startTime),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(40.dp)
+            )
+        } else {
+            Spacer(Modifier.width(40.dp))
+        }
         SingleTaskItemCard(
             task = task,
             isSelected = isSelected,
