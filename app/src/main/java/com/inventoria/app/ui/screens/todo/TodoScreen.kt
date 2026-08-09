@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,8 +56,9 @@ fun TodoScreen(
     onNavigateBack: () -> Unit,
     viewModel: TodoViewModel
 ) {
+    val allTodos by viewModel.todos.collectAsState()
     val todoSections by viewModel.todoSections.collectAsState()
-    val undatedTodos by viewModel.undatedTodos.collectAsState()
+    val undatedTodoEntries by viewModel.undatedTodoEntries.collectAsState()
     val isAddingNew by viewModel.isAddingNew.collectAsState()
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
@@ -78,7 +80,7 @@ fun TodoScreen(
             }
         }
     ) { padding ->
-        if (todoSections.isEmpty() && undatedTodos.isEmpty()) {
+        if (todoSections.isEmpty() && undatedTodoEntries.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("No todos yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -92,17 +94,17 @@ fun TodoScreen(
                     item(key = "day_${section.dayStart}") {
                         TodoDayHeader(section.dayStart, section.totalDueCount, section.completedDueCount)
                     }
-                    items(section.visibleTodos, key = { it.id }) { todo ->
+                    items(section.visibleTodos, key = { it.todo.id }) { entry ->
                         TodoRow(
-                            todo = todo,
+                            entry = entry,
                             todayStart = todayStart,
-                            onToggleCompleted = { viewModel.setCompleted(todo, !todo.isCompleted) },
-                            onClick = { viewModel.startEditingTodo(todo) },
-                            onDelete = { viewModel.deleteTodo(todo) }
+                            onToggleCompleted = { viewModel.setCompleted(entry.todo, !entry.todo.isCompleted) },
+                            onClick = { viewModel.startEditingTodo(entry.todo) },
+                            onDelete = { viewModel.deleteTodo(entry.todo) }
                         )
                     }
                 }
-                if (undatedTodos.isNotEmpty()) {
+                if (undatedTodoEntries.isNotEmpty()) {
                     item(key = "no_deadline_header") {
                         Text(
                             text = "No Deadline",
@@ -111,13 +113,13 @@ fun TodoScreen(
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         )
                     }
-                    items(undatedTodos, key = { it.id }) { todo ->
+                    items(undatedTodoEntries, key = { it.todo.id }) { entry ->
                         TodoRow(
-                            todo = todo,
+                            entry = entry,
                             todayStart = todayStart,
-                            onToggleCompleted = { viewModel.setCompleted(todo, !todo.isCompleted) },
-                            onClick = { viewModel.startEditingTodo(todo) },
-                            onDelete = { viewModel.deleteTodo(todo) }
+                            onToggleCompleted = { viewModel.setCompleted(entry.todo, !entry.todo.isCompleted) },
+                            onClick = { viewModel.startEditingTodo(entry.todo) },
+                            onDelete = { viewModel.deleteTodo(entry.todo) }
                         )
                     }
                 }
@@ -130,18 +132,23 @@ fun TodoScreen(
             initialTitle = "",
             initialKind = TaskKind.GRAPHITE,
             initialDeadline = null,
+            initialParentId = null,
+            parentChoices = allTodos,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline -> viewModel.addTodo(title, kind, deadline) }
+            onSave = { title, kind, deadline, parentId -> viewModel.addTodo(title, kind, deadline, parentId) }
         )
     }
 
     pendingEditTodo?.let { todo ->
+        val invalidParentIds = remember(todo.id, allTodos) { viewModel.invalidParentIds(todo.id, allTodos) }
         TodoEditDialog(
             initialTitle = todo.title,
             initialKind = todo.kind,
             initialDeadline = todo.deadline,
+            initialParentId = todo.parentTodoId,
+            parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline -> viewModel.saveEditedTodo(todo, title, kind, deadline) }
+            onSave = { title, kind, deadline, parentId -> viewModel.saveEditedTodo(todo, title, kind, deadline, parentId) }
         )
     }
 }
@@ -185,47 +192,61 @@ private fun TodoDayHeader(dayStart: Long, totalDue: Int, completedDue: Int) {
 
 @Composable
 private fun TodoRow(
-    todo: Todo,
+    entry: TodoTreeEntry,
     todayStart: Long,
     onToggleCompleted: () -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val todo = entry.todo
     val isOverdue = !todo.isCompleted && todo.deadline != null && todo.deadline < todayStart
     val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(start = (entry.depth * 20).dp),
         shape = MaterialTheme.shapes.medium
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(checked = todo.isCompleted, onCheckedChange = { onToggleCompleted() })
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onClick)
-                    .padding(vertical = 8.dp)
-            ) {
-                Text(
-                    text = todo.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else null,
-                    color = if (todo.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
-                )
-                if (isOverdue) {
-                    Text(
-                        text = "Overdue by $daysOverdue day${if (daysOverdue == 1) "" else "s"}",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.error
-                    )
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            if (entry.parentName != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, start = 8.dp)) {
+                    Icon(Icons.Default.SubdirectoryArrowRight, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Sub-todo of ${entry.parentName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = todo.isCompleted, onCheckedChange = { onToggleCompleted() })
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = onClick)
+                        .padding(vertical = 8.dp)
+                ) {
+                    Text(
+                        text = todo.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else null,
+                        color = if (todo.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isOverdue) {
+                        Text(
+                            text = "Overdue by $daysOverdue day${if (daysOverdue == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    entry.childProgress?.let { (completed, total) ->
+                        Text(
+                            text = "$completed/$total sub-todos complete",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
@@ -236,12 +257,15 @@ private fun TodoEditDialog(
     initialTitle: String,
     initialKind: TaskKind,
     initialDeadline: Long?,
+    initialParentId: String?,
+    parentChoices: List<Todo>,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind, Long?) -> Unit
+    onSave: (String, TaskKind, Long?, String?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var kind by remember { mutableStateOf(initialKind) }
     var deadline by remember { mutableStateOf(initialDeadline) }
+    var parentId by remember { mutableStateOf(initialParentId) }
     val context = LocalContext.current
 
     AlertDialog(
@@ -280,10 +304,15 @@ private fun TodoEditDialog(
                         }
                     }
                 }
+                ParentTodoPicker(
+                    parentChoices = parentChoices,
+                    selectedParentId = parentId,
+                    onParentSelected = { parentId = it }
+                )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, kind, deadline) }, enabled = title.isNotBlank()) {
+            TextButton(onClick = { onSave(title, kind, deadline, parentId) }, enabled = title.isNotBlank()) {
                 Text("Save")
             }
         },
@@ -291,4 +320,34 @@ private fun TodoEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+@Composable
+private fun ParentTodoPicker(
+    parentChoices: List<Todo>,
+    selectedParentId: String?,
+    onParentSelected: (String?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedTitle = parentChoices.find { it.id == selectedParentId }?.title ?: "No parent"
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = true },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(selectedTitle)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("No parent") }, onClick = { onParentSelected(null); expanded = false })
+            parentChoices.forEach { candidate ->
+                DropdownMenuItem(
+                    text = { Text(candidate.title) },
+                    onClick = { onParentSelected(candidate.id); expanded = false }
+                )
+            }
+        }
+    }
 }
