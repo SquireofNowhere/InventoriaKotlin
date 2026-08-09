@@ -25,10 +25,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.R
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.ui.components.SyncStatusIndicator
 import com.inventoria.app.ui.components.UnequipRepackDialog
+import com.inventoria.app.ui.main.SyncStatusViewModel
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import java.text.NumberFormat
@@ -69,9 +72,11 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { 
-                    Text("Inventoria", fontWeight = FontWeight.Bold) 
+            val syncStatusViewModel: SyncStatusViewModel = hiltViewModel()
+            val syncStatus by syncStatusViewModel.syncStatus.collectAsState()
+            CenterAlignedTopAppBar(
+                title = {
+                    SyncStatusIndicator(syncStatus = syncStatus)
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {

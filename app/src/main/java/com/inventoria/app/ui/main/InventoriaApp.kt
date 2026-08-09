@@ -1,21 +1,16 @@
 package com.inventoria.app.ui.main
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -25,7 +20,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.inventoria.app.ui.components.SyncStatusIndicator
 import com.inventoria.app.ui.screens.collections.*
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
 import com.inventoria.app.ui.screens.dashboard.DashboardViewModel
@@ -68,7 +62,6 @@ fun InventoriaApp() {
     // nav bar -- it has its own back button and shouldn't be reachable via tab taps at all.
     val showNavigation = screens.any { it.route == currentBaseRoute }
 
-    Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
         if (isWideScreen && showNavigation) {
             NavigationRail {
@@ -366,27 +359,6 @@ fun InventoriaApp() {
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
-        }
-    }
-    }
-
-    // Global, screen-agnostic sync status: each screen manages its own top bar independently
-    // (no shared Scaffold), so this lives as a floating badge above everything rather than
-    // needing to be wired into every individual screen. Hidden on routes with no nav (e.g. the
-    // item-location-map drill-down), matching how those routes already hide the tab bar too.
-    if (showNavigation) {
-        val syncStatusViewModel: SyncStatusViewModel = hiltViewModel()
-        val syncStatus by syncStatusViewModel.syncStatus.collectAsState()
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 8.dp, end = 8.dp),
-            shape = RoundedCornerShape(50),
-            tonalElevation = 3.dp,
-            shadowElevation = 2.dp
-        ) {
-            SyncStatusIndicator(syncStatus = syncStatus)
         }
     }
 }

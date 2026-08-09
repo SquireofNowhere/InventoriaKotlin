@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.preference.PreferenceManager
@@ -22,6 +23,8 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.inventoria.app.R
+import com.inventoria.app.ui.components.SyncStatusIndicator
+import com.inventoria.app.ui.main.SyncStatusViewModel
 import com.inventoria.app.ui.screens.inventory.InventoryListViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.DelayedMapListener
@@ -137,6 +140,12 @@ fun InventoryMapScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
+                )
+            } else {
+                val syncStatusViewModel: SyncStatusViewModel = hiltViewModel()
+                val syncStatus by syncStatusViewModel.syncStatus.collectAsState()
+                CenterAlignedTopAppBar(
+                    title = { SyncStatusIndicator(syncStatus = syncStatus) }
                 )
             }
         },
