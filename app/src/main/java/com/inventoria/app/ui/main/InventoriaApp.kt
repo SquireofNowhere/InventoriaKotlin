@@ -27,12 +27,15 @@ import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.*
 import com.inventoria.app.ui.screens.task.*
+import com.inventoria.app.ui.screens.todo.TodoScreen
+import com.inventoria.app.ui.screens.todo.TodoViewModel
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
     object Inventory : Screen("inventory", "Inventory", Icons.Default.Inventory)
     object Collections : Screen("collections", "Collections", Icons.Default.Collections)
     object Tasks : Screen("tasks", "Tasks", Icons.Default.Timer)
+    object Todos : Screen("todos", "Todos", Icons.Default.Checklist)
     object Map : Screen("map", "Map", Icons.Default.Map)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
@@ -52,6 +55,7 @@ fun InventoriaApp() {
         Screen.Collections,
         Screen.Map,
         Screen.Tasks,
+        Screen.Todos,
         Screen.Settings
     )
 
@@ -282,6 +286,14 @@ fun InventoriaApp() {
                 val viewModel: TaskTrackerViewModel = hiltViewModel()
                 TaskDetailScreen(
                     taskId = taskId,
+                    viewModel = viewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Todos.route) {
+                val viewModel: TodoViewModel = hiltViewModel()
+                TodoScreen(
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )
