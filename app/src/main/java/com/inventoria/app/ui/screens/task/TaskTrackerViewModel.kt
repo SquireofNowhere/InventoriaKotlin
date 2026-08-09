@@ -316,7 +316,20 @@ class TaskTrackerViewModel @Inject constructor(
 
     private suspend fun resumeSession(session: TaskSessionUI) {
         val first = session.segments.firstOrNull() ?: return
-        val newTask = Task(id = UUID.randomUUID().toString(), groupId = session.groupId, name = first.name, kind = first.kind, isRunning = true, startTime = System.currentTimeMillis())
+        // interruptedGroupId/countsForStreak must carry over from the session's own segments, or
+        // an interruption that gets paused (to spawn a further interruption of its own) silently
+        // loses its parent-child link -- and its streak opt-in -- the moment it's resumed, since
+        // a fresh Task() defaults both back to null/false.
+        val newTask = Task(
+            id = UUID.randomUUID().toString(),
+            groupId = session.groupId,
+            name = first.name,
+            kind = first.kind,
+            isRunning = true,
+            startTime = System.currentTimeMillis(),
+            interruptedGroupId = first.interruptedGroupId,
+            countsForStreak = first.countsForStreak
+        )
         repository.insertTask(newTask)
     }
 
@@ -397,7 +410,11 @@ class TaskTrackerViewModel @Inject constructor(
                     ?.let { resumeSession(it) }
             }
 
-            if (isFlowModeEnabled.value) {
+            // Flow Mode's auto-start-next-task only makes sense for a genuine stop -- an
+            // interruption stop already resumes the parent task above, so auto-starting a THIRD
+            // task on top of that would be wrong (and is exactly what was happening before this
+            // check existed).
+            if (isFlowModeEnabled.value && interruptedGroupId == null) {
                 flowModeJob?.cancel()
                 flowModeJob = viewModelScope.launch {
                     _isAutoStartPending.value = true
