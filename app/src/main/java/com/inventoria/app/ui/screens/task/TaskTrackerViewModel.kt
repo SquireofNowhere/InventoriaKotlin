@@ -349,12 +349,20 @@ class TaskTrackerViewModel @Inject constructor(
         return task
     }
 
-    fun renameInnerTask(task: Task, name: String, countsForStreak: Boolean) {
+    fun renameInnerTask(task: Task, name: String, countsForStreak: Boolean, kind: TaskKind) {
         _pendingInnerTaskRename.value = null
         val finalName = name.ifBlank { task.name }
-        if (finalName == task.name && countsForStreak == task.countsForStreak) return
+        if (finalName == task.name && countsForStreak == task.countsForStreak && kind == task.kind) return
         viewModelScope.launch {
-            repository.updateTask(task.copy(name = finalName, isNameCustom = finalName != task.name, countsForStreak = countsForStreak))
+            repository.updateTask(
+                task.copy(
+                    name = finalName,
+                    isNameCustom = finalName != task.name,
+                    countsForStreak = countsForStreak,
+                    kind = kind,
+                    isKindCustom = kind != task.kind
+                )
+            )
         }
     }
 

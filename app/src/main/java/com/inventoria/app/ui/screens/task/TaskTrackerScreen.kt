@@ -124,7 +124,7 @@ fun TaskTrackerScreen(
     val taskSuggestions = remember(activeSessions, completedSessions) {
         val allTasks = activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) } + completedSessions.flatten()
         allTasks.filter { it.name.isNotBlank() && !it.name.startsWith("Task ") && it.name.lowercase() != "untitled" && !it.isDeleted }
-            .distinctBy { it.name.trim().lowercase() }.map { Pair(it.name.trim(), it.groupId) }
+            .distinctBy { it.name.trim().lowercase() }.map { Triple(it.name.trim(), it.groupId, it.kind) }
     }
 
     Scaffold(
@@ -336,12 +336,22 @@ fun TaskTrackerScreen(
             mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(innerTask.name, androidx.compose.ui.text.TextRange(0, innerTask.name.length)))
         }
         var countsForStreak by remember(innerTask.id) { mutableStateOf(innerTask.countsForStreak) }
+        var interruptionKind by remember(innerTask.id) { mutableStateOf(innerTask.kind) }
+        var isNameFocused by remember(innerTask.id) { mutableStateOf(false) }
+        var dropdownDismissedByUser by remember(innerTask.id) { mutableStateOf(false) }
         val innerTaskFocusRequester = remember { FocusRequester() }
         val innerTaskKeyboardController = LocalSoftwareKeyboardController.current
         LaunchedEffect(innerTask.id) {
             delay(100)
             innerTaskFocusRequester.requestFocus()
             innerTaskKeyboardController?.show()
+        }
+        LaunchedEffect(interruptionName.text) { dropdownDismissedByUser = false }
+        val filteredInnerTaskSuggestions = remember(interruptionName.text, isNameFocused, dropdownDismissedByUser) {
+            if (!isNameFocused || dropdownDismissedByUser || interruptionName.text.isBlank()) emptyList()
+            else taskSuggestions.filter {
+                it.first.contains(interruptionName.text, ignoreCase = true) && !it.first.equals(interruptionName.text, ignoreCase = true)
+            }.take(5)
         }
         AlertDialog(
             onDismissRequest = { viewModel.dismissInnerTaskRenameDialog() },
@@ -354,13 +364,36 @@ fun TaskTrackerScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    OutlinedTextField(
-                        value = interruptionName,
-                        onValueChange = { interruptionName = it },
-                        label = { Text("e.g. Get Water") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().focusRequester(innerTaskFocusRequester)
-                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = interruptionName,
+                            onValueChange = { interruptionName = it },
+                            label = { Text("e.g. Get Water") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(innerTaskFocusRequester)
+                                .onFocusChanged { isNameFocused = it.isFocused }
+                        )
+                        DropdownMenu(
+                            expanded = filteredInnerTaskSuggestions.isNotEmpty(),
+                            onDismissRequest = { dropdownDismissedByUser = true },
+                            properties = PopupProperties(focusable = false),
+                            modifier = Modifier.fillMaxWidth(0.8f)
+                        ) {
+                            filteredInnerTaskSuggestions.forEach { suggestion ->
+                                DropdownMenuItem(
+                                    text = { Text(suggestion.first) },
+                                    onClick = {
+                                        interruptionName = androidx.compose.ui.text.input.TextFieldValue(suggestion.first, androidx.compose.ui.text.TextRange(suggestion.first.length))
+                                        interruptionKind = suggestion.third
+                                        dropdownDismissedByUser = true
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    TaskKindDropdownMenu(selectedKind = interruptionKind, onKindSelected = { interruptionKind = it })
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -376,7 +409,7 @@ fun TaskTrackerScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak) }) {
+                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak, interruptionKind) }) {
                     Text("Save")
                 }
             }
@@ -655,7 +688,7 @@ fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
 }
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Pair<String, String>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Triple<String, String, TaskKind>>, isFlowModeEnabled: Boolean, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
