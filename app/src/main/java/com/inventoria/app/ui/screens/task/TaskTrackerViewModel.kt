@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.repository.CalendarRepository
@@ -21,6 +22,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.*
 import javax.inject.Inject
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.roundToInt
 
 data class TaskSessionUI(
     val groupId: String,
@@ -138,31 +142,63 @@ class TaskTrackerViewModel @Inject constructor(
         completed.flatten() + active.flatMap { it.segments }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val personalScoreToday: StateFlow<Int> = allFinishedTasks.map { tasks ->
-        tasks
-            .filter { it.startTime >= getTodayStart() && it.kind.category.name == "PERSONAL" }
+    // Read only for scoring below -- the Todos screen itself owns the full Todo UI/StateFlow set
+    // (TodoViewModel). Kept private since nothing outside scoring needs the raw list here.
+    private val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Diminishing-returns squash toward +/-[ceiling]: approaches but never reaches it, so raw
+     * effort differences between time-tracked sessions still show up (unlike a hard min/max cap)
+     * while keeping their combined contribution from swamping the day the way an unbounded sum
+     * could (a single long Peacock session could otherwise outscore everything else combined).
+     * Symmetric across zero so draining kinds' negative scores get the same treatment rather than
+     * blowing up unbounded in the other direction. Completed Todos bypass this entirely and keep
+     * their full kind.productivityValue -- see categoryScoreToday below. */
+    private fun dampen(raw: Int, ceiling: Double = 5.0, decayConstant: Double = 15.0): Int {
+        val sign = if (raw < 0) -1.0 else 1.0
+        return (sign * ceiling * (1 - exp(-abs(raw.toDouble()) / decayConstant))).roundToInt()
+    }
+
+    /** One category's (Personal or Social) contribution to today's score: dampened time-tracked
+     * total, plus the full undamped value of every Todo of this category completed today, minus
+     * an escalating penalty (capped at 5/todo/day) for every still-incomplete Todo of this
+     * category that's overdue right now. */
+    private fun categoryScoreToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory): Int {
+        val todayStart = getTodayStart()
+        val rawTracked = tasks
+            .filter { it.startTime >= todayStart && it.kind.category == category }
             .sumOf { it.score }
+        val todoPoints = todoList
+            .filter { it.isCompleted && (it.completedAt ?: 0L) >= todayStart && it.kind.category == category }
+            .sumOf { it.kind.productivityValue }
+        val overduePenalty = todoList
+            .filter { !it.isCompleted && it.deadline != null && it.deadline!! < todayStart && it.kind.category == category }
+            .sumOf { minOf(((todayStart - it.deadline!!) / 86_400_000L).toInt(), 5) }
+        return dampen(rawTracked) + todoPoints - overduePenalty
+    }
+
+    val personalScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos) { tasks, todoList ->
+        categoryScoreToday(tasks, todoList, TaskCategory.PERSONAL)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val socialScoreToday: StateFlow<Int> = allFinishedTasks.map { tasks ->
-        tasks
-            .filter { it.startTime >= getTodayStart() && it.kind.category.name == "SOCIAL" }
-            .sumOf { it.score }
+    val socialScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos) { tasks, todoList ->
+        categoryScoreToday(tasks, todoList, TaskCategory.SOCIAL)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val totalScoreToday: StateFlow<Int> = allFinishedTasks.map { tasks ->
-        tasks.filter { it.startTime >= getTodayStart() }.sumOf { it.score }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    // NEUTRAL-kind items (Graphite/Grape, productivityValue 0) never contribute either way, so
+    // Personal + Social already is the full total -- no separate unfiltered sum needed.
+    val totalScoreToday: StateFlow<Int> = combine(personalScoreToday, socialScoreToday) { p, s -> p + s }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val personalScoreLifetime: StateFlow<Int> = allFinishedTasks.map { tasks ->
         tasks
-            .filter { it.kind.category.name == "PERSONAL" }
+            .filter { it.kind.category == TaskCategory.PERSONAL }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val socialScoreLifetime: StateFlow<Int> = allFinishedTasks.map { tasks ->
         tasks
-            .filter { it.kind.category.name == "SOCIAL" }
+            .filter { it.kind.category == TaskCategory.SOCIAL }
             .sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -170,11 +206,17 @@ class TaskTrackerViewModel @Inject constructor(
         tasks.sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = allFinishedTasks.map { tasks ->
-        tasks
-            .filter { it.startTime >= getTodayStart() }
-            .groupBy { it.kind }
-            .map { (kind, kindTasks) -> kind to kindTasks.size }
+    // Todo completions today are folded in as extra (kind, 1) occurrences alongside tracked-task
+    // kinds -- ProductivityScoreCard's breakdown UI already just multiplies count x
+    // kind.productivityValue per row, so a completed Todo naturally displays its own full,
+    // undamped value here without any special-casing.
+    val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = combine(allFinishedTasks, todos) { tasks, todoList ->
+        val todayStart = getTodayStart()
+        val taskKinds = tasks.filter { it.startTime >= todayStart }.map { it.kind }
+        val todoKinds = todoList.filter { it.isCompleted && (it.completedAt ?: 0L) >= todayStart }.map { it.kind }
+        (taskKinds + todoKinds)
+            .groupBy { it }
+            .map { (kind, occurrences) -> kind to occurrences.size }
             .sortedByDescending { it.second }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

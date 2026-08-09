@@ -203,7 +203,7 @@ private fun TodoRow(
     onStart: () -> Unit
 ) {
     val todo = entry.todo
-    val isOverdue = !todo.isCompleted && todo.deadline != null && todo.deadline < todayStart
+    val isOverdue = !todo.isCompleted && todo.deadline != null && todo.deadline!! < todayStart
     val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
 
     Card(
