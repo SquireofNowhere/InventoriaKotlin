@@ -687,7 +687,7 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: Li
                     if (activeSegment == null) { Text(text = "PAUSED", color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 12.dp)) }
                     IconButton(onClick = onPauseResume, modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)) { Icon(if (activeSegment != null) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary) }
                     Spacer(Modifier.width(8.dp))
-                    if (isFlowModeEnabled) {
+                    if (isFlowModeEnabled && refTask.interruptedGroupId == null) {
                         TextButton(onClick = onStop, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.tertiary), modifier = Modifier.height(40.dp)) {
                             Text("Stop & Continue", fontWeight = FontWeight.Bold)
                         }

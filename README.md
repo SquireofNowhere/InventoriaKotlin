@@ -69,7 +69,6 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 ## 🚀 Upcoming Features (TODO)
 *   **Interruption Task Grouping Choice**: Let the user choose how interruption ("Inner") tasks are grouped when displayed — e.g. nested under the task they paused, grouped by kind, or shown ungrouped — similar to the existing grouping-choice pattern used for inventory (`GroupOption`).
 *   **Interruption Task Hierarchy**: `Task.interruptedGroupId` already lets an interruption chain (an inner task can itself be paused and interrupted), but there's no dedicated hierarchy display — it should show as a proper nested chain rather than a flat list of sessions.
-*   **Flow Mode Stop Button Exception**: In Flow Mode, `ActiveSessionCard` always shows "Stop & Continue" instead of the plain Stop button whenever `isFlowModeEnabled` is true (`TaskTrackerScreen.kt`), with no check against `interruptedGroupId`. When the active task is an interruption (Inner Task), it should keep the regular Stop button instead of "Stop & Continue".
 *   **Todo Tasks**: Add real to-do list items distinct from tracked tasks/sessions.
     *   **Start Button**: Each todo has a "Start" button that kicks off an actual tracked task from it.
     *   **Completion Check-In**: Prompt the user on a todo to confirm whether it's complete or still ongoing.
