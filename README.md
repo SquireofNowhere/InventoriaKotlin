@@ -75,6 +75,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Split Task on Time**: Let the user split a segment at a chosen point in time into two separate tasks — e.g. you fall asleep while "Coding" is still running, so you split it into "Coding" (start → the time you passed out) and "Passed Out" (that time → when you resumed/stopped). The inverse of the existing session-flatten (`flattenSession`) operation.
 *   **Group Deadline-less Todo Children Under Their Parent**: A child todo (`parentTodoId` set) with no `deadline` of its own currently falls into the generic "No Deadline" section like any top-level todo — it should instead be grouped under its parent's section, wherever the parent lands.
 *   **Drag-and-Drop Todo Parenting**: Let the user drag one todo onto another to make it a child (set `parentTodoId`), instead of only being able to set the parent from the add/edit dialog. Dragging a todo that already has its own children should bring the whole subtree with it.
+*   **Completing a Todo Completes (or Marks Off) Its Children**: Right now a parent's completion is independent of its children's — only a "X/Y done" count is tracked. Completing a parent todo should cascade `isCompleted` down to its children (or at minimum visually mark them off like completed siblings) instead of leaving them dangling as incomplete.
 
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
