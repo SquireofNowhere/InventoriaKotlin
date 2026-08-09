@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.storage.FirebaseStorage
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.local.*
 import com.inventoria.app.data.repository.*
 import dagger.Module
@@ -38,12 +39,13 @@ class RepositoryModule {
         taskDao: TaskDao,
         collectionDao: CollectionDao,
         itemLinkDao: ItemLinkDao,
+        todoDao: TodoDao,
         firebaseDatabase: FirebaseDatabase,
         authRepository: FirebaseAuthRepository,
         settingsRepository: SettingsRepository
     ): FirebaseSyncRepository {
         return FirebaseSyncRepository(
-            inventoryDao, taskDao, collectionDao, itemLinkDao, 
+            inventoryDao, taskDao, collectionDao, itemLinkDao, todoDao,
             firebaseDatabase, authRepository, settingsRepository
         )
     }
@@ -65,6 +67,12 @@ class RepositoryModule {
     @Singleton
     fun provideTaskRepository(taskDao: TaskDao): TaskRepository {
         return TaskRepository(taskDao)
+    }
+
+    @Provides
+    @Singleton
+    fun provideTodoRepository(todoDao: TodoDao): TodoRepository {
+        return TodoRepository(todoDao)
     }
 
     @Provides

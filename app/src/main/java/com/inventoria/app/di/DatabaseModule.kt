@@ -9,6 +9,7 @@ import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.InventoryDatabase
 import com.inventoria.app.data.local.ItemLinkDao
 import com.inventoria.app.data.local.TaskDao
+import com.inventoria.app.data.local.TodoDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -67,5 +68,11 @@ object DatabaseModule {
     @Singleton
     fun provideItemLinkDao(database: InventoryDatabase): ItemLinkDao {
         return database.itemLinkDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTodoDao(database: InventoryDatabase): TodoDao {
+        return database.todoDao()
     }
 }

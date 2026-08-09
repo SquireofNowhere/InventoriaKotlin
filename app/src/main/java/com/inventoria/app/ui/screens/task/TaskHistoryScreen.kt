@@ -24,20 +24,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.util.bucketByDay
+import com.inventoria.app.util.formatSimpleDate
+import com.inventoria.app.util.getDayLabel
+import com.inventoria.app.util.getStartOfDay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-/** A calendar day's worth of history entries, most recent day first, each entry's own type
- * left generic since flat view buckets individual [Task]s while grouped view buckets whole
- * sessions ([List]<[Task]>). */
-private data class DayBucket<T>(val dayStart: Long, val items: List<T>)
-
-private fun <T> bucketByDay(items: List<T>, dayStartOf: (T) -> Long): List<DayBucket<T>> =
-    items.groupBy(dayStartOf)
-        .toList()
-        .sortedByDescending { it.first }
-        .map { (day, group) -> DayBucket(day, group) }
 
 private fun formatTimeOfDay(timestamp: Long): String =
     SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))

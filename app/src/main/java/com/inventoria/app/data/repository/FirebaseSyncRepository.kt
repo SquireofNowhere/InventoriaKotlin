@@ -18,6 +18,7 @@ class FirebaseSyncRepository @Inject constructor(
     private val taskDao: TaskDao,
     private val collectionDao: CollectionDao,
     private val itemLinkDao: ItemLinkDao,
+    private val todoDao: TodoDao,
     private val firebaseDatabase: FirebaseDatabase,
     private val authRepository: FirebaseAuthRepository,
     private val settingsRepository: SettingsRepository
@@ -100,7 +101,15 @@ class FirebaseSyncRepository @Inject constructor(
             pushAction = { ref, items -> pushCollectionItemsToFirebase(ref, items) },
             pullAction = { snapshot -> pullCollectionItemsFromFirebase(snapshot) }
         ))
-        
+
+        // Sync Todos
+        syncJobs.add(setupNodeSync(
+            nodeRef = rootRef.child("todos"),
+            localFlow = todoDao.getDirtyTodosFlow(),
+            pushAction = { ref, todos -> pushTodosToFirebase(ref, todos) },
+            pullAction = { snapshot -> pullTodosFromFirebase(snapshot) }
+        ))
+
         syncJobs.add(setupSettingsSync(rootRef.child("settings")))
     }
 
@@ -358,6 +367,41 @@ class FirebaseSyncRepository @Inject constructor(
         }
     }
 
+    private suspend fun pushTodosToFirebase(ref: DatabaseReference, todos: List<Todo>) {
+        if (todos.isEmpty()) return
+        try {
+            val updates = todos.associate { it.id to it }
+            ref.updateChildren(updates).await()
+            todoDao.markTodosClean(todos.map { it.id })
+        } catch (e: Exception) {
+            Log.e(TAG, "Push todos failed", e)
+        }
+    }
+
+    private suspend fun pullTodosFromFirebase(snapshot: DataSnapshot) {
+        try {
+            syncIgnoreCount.incrementAndGet()
+            val cloudTodos = snapshot.children.mapNotNull { it.getValue(Todo::class.java) }
+
+            // Only overwrite local if cloud version is newer
+            val todosToInsert = cloudTodos.filter { cloudTodo ->
+                val localTodo = todoDao.getTodoById(cloudTodo.id)
+                localTodo == null || cloudTodo.updatedAt > localTodo.updatedAt
+            }
+
+            if (todosToInsert.isNotEmpty()) {
+                todoDao.insertTodos(todosToInsert)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Pull todos failed", e)
+        } finally {
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
+        }
+    }
+
     fun triggerFullSync() {
         Log.d(TAG, "Manual sync triggered")
         val ref = userRef ?: return
@@ -372,7 +416,8 @@ class FirebaseSyncRepository @Inject constructor(
                         async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksForSyncList()) },
                         async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
                         async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsForSyncList()) },
-                        async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsForSyncList()) }
+                        async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsForSyncList()) },
+                        async { pushTodosToFirebase(ref.child("todos"), todoDao.getAllTodosForSyncList()) }
                     ).awaitAll()
                 }
                 
@@ -400,7 +445,8 @@ class FirebaseSyncRepository @Inject constructor(
                     async { pullLinksFromFirebase(ref.child("item_links").get().await()) },
                     async { pullTasksFromFirebase(ref.child("tasks").get().await()) },
                     async { pullCollectionsFromFirebase(ref.child("collections").get().await()) },
-                    async { pullCollectionItemsFromFirebase(ref.child("collection_items").get().await()) }
+                    async { pullCollectionItemsFromFirebase(ref.child("collection_items").get().await()) },
+                    async { pullTodosFromFirebase(ref.child("todos").get().await()) }
                 ).awaitAll()
 
                 // 2. Then push local changes (in parallel)
@@ -409,7 +455,8 @@ class FirebaseSyncRepository @Inject constructor(
                     async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getDirtyLinksList()) },
                     async { pushTasksToFirebase(ref.child("tasks"), taskDao.getDirtyTasksList()) },
                     async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getDirtyCollectionsList()) },
-                    async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getDirtyCollectionItemsList()) }
+                    async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getDirtyCollectionItemsList()) },
+                    async { pushTodosToFirebase(ref.child("todos"), todoDao.getDirtyTodosList()) }
                 ).awaitAll()
             }
 

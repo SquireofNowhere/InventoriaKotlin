@@ -31,6 +31,9 @@ data class Task(
     // explicitly opting an interruption in lets it break/participate in streaks like a normal
     // session would.
     @get:PropertyName("countsForStreak") @set:PropertyName("countsForStreak") var countsForStreak: Boolean = false,
+    // Set once at creation when this session was started from a Todo's Start button -- used to
+    // trigger the "is this todo done?" check-in when the session stops.
+    @get:PropertyName("originTodoId") @set:PropertyName("originTodoId") var originTodoId: String? = null,
     // Frozen at session-stop time (see TaskRepository.stopTaskAndSession) -- productivityValue
     // times total session minutes times the momentum multiplier from the current same-kind
     // streak, rounded. Not recomputed afterward so historical totals don't drift if the rate
