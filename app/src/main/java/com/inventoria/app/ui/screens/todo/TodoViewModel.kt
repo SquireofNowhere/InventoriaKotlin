@@ -62,7 +62,9 @@ class TodoViewModel @Inject constructor(
         .map { list ->
             val byId = list.associateBy { it.id }
             val childCounts = computeChildCounts(list)
-            buildTodoTree(list.filter { it.deadline == null }, byId, childCounts)
+            val todayStart = getStartOfDay(System.currentTimeMillis())
+            val undated = list.filter { effectiveSectionDay(it, byId, todayStart) == null }
+            buildTodoTree(undated, byId, childCounts)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -199,25 +201,46 @@ class TodoViewModel @Inject constructor(
         return result
     }
 
+    /** Which day a todo visually belongs to: its own deadline if it has one -- redirected to
+     * today if that deadline has passed and it's still incomplete (the overdue carry-over) --
+     * else walks up parentTodoId until it finds a dated ancestor and inherits THAT ancestor's
+     * resolved day (so a deadline-less child sits with its parent, including following the
+     * parent into Today if the parent itself is overdue), else null (the "No Deadline" section,
+     * only reached when nothing in the whole ancestor chain has a deadline at all). */
+    private fun effectiveSectionDay(todo: Todo, byId: Map<String, Todo>, todayStart: Long): Long? {
+        var current: Todo? = todo
+        while (current != null) {
+            val deadline = current.deadline
+            if (deadline != null) {
+                return if (!current.isCompleted && deadline < todayStart) todayStart else deadline
+            }
+            current = current.parentTodoId?.let { byId[it] }
+        }
+        return null
+    }
+
     private fun buildTodoSections(all: List<Todo>): List<TodoDaySection> {
         val todayStart = getStartOfDay(System.currentTimeMillis())
         val byId = all.associateBy { it.id }
         val childCounts = computeChildCounts(all)
-        val dated = all.filter { it.deadline != null }
-        val byDeadline = dated.groupBy { it.deadline!! }
-        // Overdue = still incomplete past its own deadline -- carried over into Today's section
-        // (same row, no cloning) rather than left invisible under a day nobody's looking at.
-        val overdue = dated.filter { !it.isCompleted && it.deadline!! < todayStart }
-        val overdueIds = overdue.map { it.id }.toSet()
+
+        // "Due" stats (the day header's X% Done bar) are strictly about todos with their OWN
+        // deadline -- a deadline-less child inheriting a section from its parent doesn't make it
+        // "due" that day for percentage purposes.
+        val ownDueByDeadline = all.filter { it.deadline != null }.groupBy { it.deadline!! }
+
+        val sectionDayById = all.associate { it.id to effectiveSectionDay(it, byId, todayStart) }
+        val bySectionDay = all.filter { sectionDayById[it.id] != null }.groupBy { sectionDayById[it.id]!! }
 
         val sections = mutableListOf<TodoDaySection>()
 
-        val todayOwnTodos = byDeadline[todayStart] ?: emptyList()
-        if (todayOwnTodos.isNotEmpty() || overdue.isNotEmpty()) {
+        val todaySectionTodos = bySectionDay[todayStart] ?: emptyList()
+        if (todaySectionTodos.isNotEmpty()) {
+            val todayOwnTodos = ownDueByDeadline[todayStart] ?: emptyList()
             sections.add(
                 TodoDaySection(
                     dayStart = todayStart,
-                    visibleTodos = buildTodoTree(todayOwnTodos + overdue, byId, childCounts),
+                    visibleTodos = buildTodoTree(todaySectionTodos, byId, childCounts),
                     totalDueCount = todayOwnTodos.size,
                     completedDueCount = todayOwnTodos.count { it.isCompleted }
                 )
@@ -225,20 +248,19 @@ class TodoViewModel @Inject constructor(
         }
 
         // Upcoming days, soonest first.
-        byDeadline.keys.filter { it > todayStart }.sorted().forEach { day ->
-            val forDay = byDeadline[day]!!
-            sections.add(TodoDaySection(day, buildTodoTree(forDay, byId, childCounts), forDay.size, forDay.count { it.isCompleted }))
+        bySectionDay.keys.filter { it > todayStart }.sorted().forEach { day ->
+            val sectionTodos = bySectionDay[day]!!
+            val ownForDay = ownDueByDeadline[day] ?: emptyList()
+            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.isCompleted }))
         }
 
-        // Past days, most recent first -- only what's left after pulling overdue rows into Today
-        // (i.e. whatever already got completed) is actually shown as rows, but the percentage
-        // still reflects everything that was originally due that day.
-        byDeadline.keys.filter { it < todayStart }.sortedDescending().forEach { day ->
-            val forDay = byDeadline[day]!!
-            val visible = forDay.filter { it.id !in overdueIds }
-            if (visible.isNotEmpty()) {
-                sections.add(TodoDaySection(day, buildTodoTree(visible, byId, childCounts), forDay.size, forDay.count { it.isCompleted }))
-            }
+        // Past days, most recent first -- overdue-and-incomplete todos (and any deadline-less
+        // children following them) already resolved to Today above via effectiveSectionDay, so
+        // whatever's left here is exactly what's since been completed.
+        bySectionDay.keys.filter { it < todayStart }.sortedDescending().forEach { day ->
+            val sectionTodos = bySectionDay[day]!!
+            val ownForDay = ownDueByDeadline[day] ?: emptyList()
+            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.isCompleted }))
         }
 
         return sections
