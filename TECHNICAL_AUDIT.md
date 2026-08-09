@@ -18,9 +18,9 @@ The `quickEquipCollection` and `quickPackCollection` methods in `CollectionsView
 
 ## 👻 Incomplete Features / Data Model Ghosts
 
-### 3. InventoryItem.tags (Incomplete Migration)
-The `InventoryItem` model contains both a `tags: List<String>` field and a `category: String` field. 
-- **The Gap**: All filtering, searching, and the `getParsedTags()` helper function operate solely on the `category` string. The `tags` list is never populated or used. This indicates a planned migration to a list-based tagging system that was abandoned midway.
+### 3. InventoryItem.tags (Incomplete Migration) (Resolved)
+- **Status**: ✅ Resolved — removed
+- The `InventoryItem` model contained both a `tags: List<String>` field and a `category: String` field. All filtering, searching, and the `getParsedTags()` helper operated solely on the `category` string (comma-split into pseudo-tags); `tags` was never populated or read anywhere, indicating a list-based tagging migration that was abandoned midway. Decided not to finish the migration (the comma-hack already works and nothing needs real structured multi-tag support) — removed the dead `tags` field instead. Room DB bumped to version 9.
 
 ### 4. Barcode & SKU Support (Headless Feature)
 The Room entity for `InventoryItem` includes fields for `barcode` and `sku`, and `InventoryDao.searchItems()` is programmed to search them.

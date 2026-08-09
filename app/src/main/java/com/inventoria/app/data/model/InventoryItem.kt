@@ -22,7 +22,6 @@ data class InventoryItem(
     @get:PropertyName("createdAt") @set:PropertyName("createdAt") var createdAt: Long = System.currentTimeMillis(),
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
     @get:PropertyName("category") @set:PropertyName("category") var category: String? = null,
-    @get:PropertyName("tags") @set:PropertyName("tags") var tags: List<String> = emptyList(),
     @get:PropertyName("description") @set:PropertyName("description") var description: String? = null,
     @get:PropertyName("imageUrls") @set:PropertyName("imageUrls") var imageUrls: List<String> = emptyList(),
     @get:PropertyName("profilePictureUrl") @set:PropertyName("profilePictureUrl") var profilePictureUrl: String? = null,
