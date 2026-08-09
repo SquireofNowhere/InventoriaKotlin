@@ -299,35 +299,36 @@ class TaskTrackerViewModel @Inject constructor(
                     _pendingInnerTaskRename.value = createAndStartInnerTask(session.groupId)
                 }
             } ?: run {
-                // RESUMING: auto-stop whatever inner task is tracking this session's interruption
-                findActiveInterruptionFor(session.groupId)?.let { interrupting ->
-                    val now = System.currentTimeMillis()
-                    repository.stopTaskAndSession(interrupting.task.id, interrupting.task.groupId, now, now - interrupting.task.startTime, interrupting.task.kind)
-                }
+                // RESUMING: resuming this session directly means "back to this" -- collapse the
+                // whole interruption chain on top of it (however many levels deep, whatever their
+                // individual pause state), since none of them have anything left to return to.
+                val now = System.currentTimeMillis()
+                stopActiveInterruptionChain(session.groupId, now)
                 resumeSession(session)
             }
         }
     }
 
-    private fun findActiveInterruptionFor(groupId: String): RunningTaskUI? =
-        _activeSessions.value
-            .mapNotNull { it.activeSegment }
-            .find { it.task.interruptedGroupId == groupId }
+    /** Finds the session that is interrupting [groupId] -- i.e. whose own (first) segment has
+     * [Task.interruptedGroupId] pointing at it -- regardless of whether that interrupting session
+     * currently has a running segment or is itself paused (because IT has a further interruption
+     * on top). Unlike checking only [TaskSessionUI.activeSegment], this finds the whole chain. */
+    private fun findInterruptionSessionFor(groupId: String): TaskSessionUI? =
+        _activeSessions.value.find { s ->
+            (s.activeSegment?.task ?: s.segments.firstOrNull())?.interruptedGroupId == groupId
+        }
 
-    /** Stops whatever is currently, actively interrupting [groupId] -- and, recursively,
-     * whatever is interrupting THAT -- deepest first. Used when stopping a session outright
-     * (rather than resuming it) so a chain of interruptions doesn't get left dangling with
-     * nothing left to eventually return to. */
+    /** Stops whatever is interrupting [groupId] -- and, recursively, whatever is interrupting
+     * THAT -- deepest first, regardless of how many levels are currently paused partway down the
+     * chain. Used whenever a session is being stopped or resumed outright (rather than simply
+     * un-pausing straight back into an active interruption), so a chain of interruptions doesn't
+     * get left dangling with nothing left to eventually return to. */
     private suspend fun stopActiveInterruptionChain(groupId: String, now: Long) {
-        val interrupting = findActiveInterruptionFor(groupId) ?: return
-        stopActiveInterruptionChain(interrupting.task.groupId, now)
-        repository.stopTaskAndSession(
-            interrupting.task.id,
-            interrupting.task.groupId,
-            now,
-            now - interrupting.task.startTime,
-            interrupting.task.kind
-        )
+        val interrupting = findInterruptionSessionFor(groupId) ?: return
+        stopActiveInterruptionChain(interrupting.groupId, now)
+        interrupting.activeSegment?.let { ui ->
+            repository.stopTaskAndSession(ui.task.id, interrupting.groupId, now, now - ui.task.startTime, ui.task.kind)
+        } ?: repository.endSession(interrupting.groupId)
     }
 
     private suspend fun resumeSession(session: TaskSessionUI) {
