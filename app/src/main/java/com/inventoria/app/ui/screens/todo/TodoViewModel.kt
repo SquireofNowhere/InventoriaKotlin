@@ -168,6 +168,15 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch { todoRepository.softDeleteTodo(todo.id) }
     }
 
+    /** Drag-and-drop parenting: [child] dropped onto [newParentId]. Only parentTodoId changes --
+     * [child]'s own deadline/kind/etc. are untouched, and since a todo's children follow it in
+     * whichever day section it lands in (see effectiveSectionDay), dragging a todo that already
+     * has its own children brings that whole subtree along automatically. */
+    fun setParent(child: Todo, newParentId: String) {
+        if (newParentId == child.parentTodoId) return
+        viewModelScope.launch { todoRepository.updateTodo(child.copy(parentTodoId = newParentId)) }
+    }
+
     /** Every id that would become a cycle if picked as [todoId]'s parent -- itself, plus every
      * descendant (direct or transitive), since a descendant becoming an ancestor loops the tree. */
     fun invalidParentIds(todoId: String, all: List<Todo>): Set<String> {

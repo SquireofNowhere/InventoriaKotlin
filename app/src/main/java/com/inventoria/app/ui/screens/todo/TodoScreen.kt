@@ -2,7 +2,9 @@ package com.inventoria.app.ui.screens.todo
 
 import android.app.DatePickerDialog
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,13 +16,18 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -66,6 +73,19 @@ fun TodoScreen(
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
 
+    // Drag-and-drop parenting: each row reports its own on-screen Y range here as it's laid out
+    // (below), so hover target detection is just "which range contains the current drag Y" --
+    // no separate bounds-tracking pass needed since the list is already being composed anyway.
+    val itemBoundsY = remember { mutableStateMapOf<String, ClosedFloatingPointRange<Float>>() }
+    var draggedTodoId by remember { mutableStateOf<String?>(null) }
+    var dragY by remember { mutableStateOf(0f) }
+    val invalidDropTargets = remember(draggedTodoId, allTodos) {
+        draggedTodoId?.let { viewModel.invalidParentIds(it, allTodos) } ?: emptySet()
+    }
+    val hoverTodoId = if (draggedTodoId != null) {
+        itemBoundsY.entries.firstOrNull { (id, range) -> id !in invalidDropTargets && dragY in range }?.key
+    } else null
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -101,10 +121,22 @@ fun TodoScreen(
                         TodoRow(
                             entry = entry,
                             todayStart = todayStart,
+                            isDragged = draggedTodoId == entry.todo.id,
+                            isHoverTarget = hoverTodoId == entry.todo.id,
                             onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
                             onClick = { viewModel.startEditingTodo(entry.todo) },
                             onDelete = { viewModel.deleteTodo(entry.todo) },
-                            onStart = { viewModel.startTaskFromTodo(entry.todo) }
+                            onStart = { viewModel.startTaskFromTodo(entry.todo) },
+                            onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
+                            onDragStart = {
+                                draggedTodoId = entry.todo.id
+                                dragY = itemBoundsY[entry.todo.id]?.let { (it.start + it.endInclusive) / 2f } ?: 0f
+                            },
+                            onDragDelta = { deltaY -> dragY += deltaY },
+                            onDragEnd = {
+                                hoverTodoId?.let { target -> viewModel.setParent(entry.todo, target) }
+                                draggedTodoId = null
+                            }
                         )
                     }
                 }
@@ -121,10 +153,22 @@ fun TodoScreen(
                         TodoRow(
                             entry = entry,
                             todayStart = todayStart,
+                            isDragged = draggedTodoId == entry.todo.id,
+                            isHoverTarget = hoverTodoId == entry.todo.id,
                             onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
                             onClick = { viewModel.startEditingTodo(entry.todo) },
                             onDelete = { viewModel.deleteTodo(entry.todo) },
-                            onStart = { viewModel.startTaskFromTodo(entry.todo) }
+                            onStart = { viewModel.startTaskFromTodo(entry.todo) },
+                            onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
+                            onDragStart = {
+                                draggedTodoId = entry.todo.id
+                                dragY = itemBoundsY[entry.todo.id]?.let { (it.start + it.endInclusive) / 2f } ?: 0f
+                            },
+                            onDragDelta = { deltaY -> dragY += deltaY },
+                            onDragEnd = {
+                                hoverTodoId?.let { target -> viewModel.setParent(entry.todo, target) }
+                                draggedTodoId = null
+                            }
                         )
                     }
                 }
@@ -199,17 +243,34 @@ private fun TodoDayHeader(dayStart: Long, totalDue: Int, completedDue: Int) {
 private fun TodoRow(
     entry: TodoTreeEntry,
     todayStart: Long,
+    isDragged: Boolean,
+    isHoverTarget: Boolean,
     onToggleCompleted: () -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    onStart: () -> Unit
+    onStart: () -> Unit,
+    onBoundsChanged: (ClosedFloatingPointRange<Float>) -> Unit,
+    onDragStart: () -> Unit,
+    onDragDelta: (Float) -> Unit,
+    onDragEnd: () -> Unit
 ) {
     val todo = entry.todo
     val isOverdue = todo.state != TodoState.COMPLETE && todo.deadline != null && todo.deadline!! < todayStart
     val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
 
     Card(
-        modifier = Modifier.fillMaxWidth().padding(start = (entry.depth * 20).dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = (entry.depth * 20).dp)
+            .alpha(if (isDragged) 0.5f else 1f)
+            .then(
+                if (isHoverTarget) Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                else Modifier
+            )
+            .onGloballyPositioned { coords ->
+                val top = coords.positionInRoot().y
+                onBoundsChanged(top..(top + coords.size.height))
+            },
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
@@ -221,6 +282,21 @@ private fun TodoRow(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.DragIndicator,
+                    contentDescription = "Drag to make this a sub-todo of another",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .pointerInput(todo.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart() },
+                                onDrag = { change, dragAmount -> change.consume(); onDragDelta(dragAmount.y) },
+                                onDragEnd = onDragEnd,
+                                onDragCancel = onDragEnd
+                            )
+                        }
+                )
                 TriStateCheckbox(
                     state = when (entry.effectiveState) {
                         TodoState.COMPLETE -> ToggleableState.On
