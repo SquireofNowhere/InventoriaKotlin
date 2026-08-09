@@ -67,6 +67,19 @@ class TaskTrackerViewModel @Inject constructor(
     val hasSeenInnerTaskPrompt: StateFlow<Boolean> = settingsRepository.hasSeenInnerTaskPrompt()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val isTaskHistoryFlatView: StateFlow<Boolean> = settingsRepository.isTaskHistoryFlatView()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setTaskHistoryFlatView(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setTaskHistoryFlatView(enabled) }
+    }
+
+    // Task History's flat mode: every individual completed segment, regardless of which session
+    // it belongs to, ordered purely by when it happened rather than grouped under its session.
+    val flatCompletedTasks: StateFlow<List<Task>> = _completedSessions.map { sessions ->
+        sessions.flatten().sortedByDescending { it.startTime }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // groupId of the session that was just paused, awaiting a response to the first-time
     // "enable interruption tracking?" explanation dialog.
     private val _pendingInnerTaskPrompt = MutableStateFlow<String?>(null)

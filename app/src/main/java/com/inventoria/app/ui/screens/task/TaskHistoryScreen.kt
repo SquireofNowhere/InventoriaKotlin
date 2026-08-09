@@ -5,9 +5,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -22,6 +24,8 @@ fun TaskHistoryScreen(
     viewModel: TaskTrackerViewModel
 ) {
     val completedSessions by viewModel.completedSessions.collectAsState()
+    val flatCompletedTasks by viewModel.flatCompletedTasks.collectAsState()
+    val isFlatView by viewModel.isTaskHistoryFlatView.collectAsState()
     val currentTime by rememberTick()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
@@ -71,14 +75,44 @@ fun TaskHistoryScreen(
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
+                    },
+                    actions = {
+                        IconButton(onClick = { viewModel.setTaskHistoryFlatView(!isFlatView) }) {
+                            Icon(
+                                if (isFlatView) Icons.Default.ViewAgenda else Icons.AutoMirrored.Filled.List,
+                                contentDescription = if (isFlatView) "Switch to Grouped View" else "Switch to Flat View"
+                            )
+                        }
                     }
                 )
             }
         }
     ) { padding ->
-        if (completedSessions.isEmpty()) {
+        val isEmpty = if (isFlatView) flatCompletedTasks.isEmpty() else completedSessions.isEmpty()
+        if (isEmpty) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Text("No tasks recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (isFlatView) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(flatCompletedTasks, key = { it.id }) { task ->
+                    SingleTaskItemCard(
+                        task = task,
+                        isSelected = task.id in selectedTaskIds,
+                        onClick = {
+                            if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
+                            else selectedTaskId = task.id
+                        },
+                        onLongClick = { viewModel.toggleTaskSelection(task.id) },
+                        onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
+                        onDelete = { viewModel.deleteSegment(task) },
+                        onAddToCalendar = { addToGoogleCalendar(context, task) }
+                    )
+                }
             }
         } else {
             LazyColumn(
@@ -94,9 +128,9 @@ fun TaskHistoryScreen(
                             selectedTaskIds = selectedTaskIds,
                             onClick = { selectedSessionGroupId = session.first().groupId },
                             onDelete = { viewModel.deleteSession(session.first().groupId) },
-                            onSegmentClick = { 
+                            onSegmentClick = {
                                 if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
-                                else selectedTaskId = it.id 
+                                else selectedTaskId = it.id
                             },
                             onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
                             onSegmentDelete = { viewModel.deleteSegment(it) },
@@ -107,7 +141,7 @@ fun TaskHistoryScreen(
                         SingleTaskItemCard(
                             task = task,
                             isSelected = task.id in selectedTaskIds,
-                            onClick = { 
+                            onClick = {
                                 if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
                                 else selectedTaskId = task.id
                             },

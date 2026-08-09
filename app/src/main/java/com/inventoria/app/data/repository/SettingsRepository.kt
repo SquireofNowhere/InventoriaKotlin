@@ -33,6 +33,7 @@ class SettingsRepository @Inject constructor(
     private val FLOW_MODE_ENABLED = booleanPreferencesKey("flow_mode_enabled")
     private val INNER_TASK_ENABLED = booleanPreferencesKey("inner_task_enabled")
     private val INNER_TASK_PROMPT_SHOWN = booleanPreferencesKey("inner_task_prompt_shown")
+    private val TASK_HISTORY_FLAT_VIEW = booleanPreferencesKey("task_history_flat_view")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -55,6 +56,7 @@ class SettingsRepository @Inject constructor(
     fun isFlowModeEnabled(): Flow<Boolean> = context.dataStore.data.map { it[FLOW_MODE_ENABLED] ?: false }
     fun isInnerTaskEnabled(): Flow<Boolean> = context.dataStore.data.map { it[INNER_TASK_ENABLED] ?: false }
     fun hasSeenInnerTaskPrompt(): Flow<Boolean> = context.dataStore.data.map { it[INNER_TASK_PROMPT_SHOWN] ?: false }
+    fun isTaskHistoryFlatView(): Flow<Boolean> = context.dataStore.data.map { it[TASK_HISTORY_FLAT_VIEW] ?: false }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }
@@ -128,5 +130,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setInnerTaskPromptShown(shown: Boolean) {
         context.dataStore.edit { it[INNER_TASK_PROMPT_SHOWN] = shown }
+    }
+
+    suspend fun setTaskHistoryFlatView(enabled: Boolean) {
+        context.dataStore.edit { it[TASK_HISTORY_FLAT_VIEW] = enabled }
     }
 }
