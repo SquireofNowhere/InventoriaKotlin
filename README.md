@@ -73,6 +73,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 ## 🚀 Upcoming Features (TODO)
 *   **Interruption Task Grouping Choice**: Let the user choose how interruption ("Inner") tasks are grouped when displayed — e.g. nested under the task they paused, grouped by kind, or shown ungrouped — similar to the existing grouping-choice pattern used for inventory (`GroupOption`).
 *   **Local Data Migration Prompt on Sign-In**: When a user signs into Google while they have local-only (anonymous-account) inventory and tasks, prompt them to migrate that local data up into their new Firebase-synced account instead of silently orphaning it.
+*   **Repeating Todos**: Let a todo repeat (daily, weekly, or some other interval) instead of being one-off — completing it should set up the next occurrence rather than the todo just being done forever.
 
 ## ⚙️ Known Optimization Opportunities
 Found during a dead-code/performance audit; documented here rather than fixed immediately so they aren't lost. Ranked by impact.
