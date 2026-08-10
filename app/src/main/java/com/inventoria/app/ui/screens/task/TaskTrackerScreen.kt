@@ -1043,21 +1043,29 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
         // that manual value and stops following the clock, since typing "1 min 4 sec" means "I
         // want exactly that split point," not "keep counting from wherever I paused you."
         var useLiveOffset by remember { mutableStateOf(task.isRunning) }
-        var manualOffsetMs by remember { mutableStateOf(totalSpan / 2) }
-        val offsetMs = (if (useLiveOffset) currentTime - task.startTime else manualOffsetMs).coerceIn(0L, totalSpan)
+        // The fields hold their own freely-typed text, NOT a value derived-and-clamped from
+        // offsetMs -- clamping the display itself made any typed number that (even momentarily)
+        // exceeded the segment's length snap back to the old value, which read as "my edit keeps
+        // getting reverted." Validity is checked separately below without touching what's typed.
+        val initialOffsetMs = if (useLiveOffset) (currentTime - task.startTime) else totalSpan / 2
+        var hoursStr by remember { mutableStateOf(TimeUnit.MILLISECONDS.toHours(initialOffsetMs).toString()) }
+        var minutesStr by remember { mutableStateOf((TimeUnit.MILLISECONDS.toMinutes(initialOffsetMs) % 60).toString()) }
+        var secondsStr by remember { mutableStateOf((TimeUnit.MILLISECONDS.toSeconds(initialOffsetMs) % 60).toString()) }
         var splitName by remember { mutableStateOf(task.name) }
         var splitKind by remember { mutableStateOf(task.kind) }
 
-        fun setOffset(newOffsetMs: Long) {
-            useLiveOffset = false
-            manualOffsetMs = newOffsetMs.coerceIn(0L, totalSpan)
+        LaunchedEffect(currentTime) {
+            if (useLiveOffset) {
+                val liveOffset = (currentTime - task.startTime).coerceIn(0L, totalSpan)
+                hoursStr = TimeUnit.MILLISECONDS.toHours(liveOffset).toString()
+                minutesStr = (TimeUnit.MILLISECONDS.toMinutes(liveOffset) % 60).toString()
+                secondsStr = (TimeUnit.MILLISECONDS.toSeconds(liveOffset) % 60).toString()
+            }
         }
 
-        val hoursPart = TimeUnit.MILLISECONDS.toHours(offsetMs)
-        val minutesPart = TimeUnit.MILLISECONDS.toMinutes(offsetMs) % 60
-        val secondsPart = TimeUnit.MILLISECONDS.toSeconds(offsetMs) % 60
-        fun offsetWith(hours: Long = hoursPart, minutes: Long = minutesPart, seconds: Long = secondsPart) =
-            TimeUnit.HOURS.toMillis(hours) + TimeUnit.MINUTES.toMillis(minutes) + TimeUnit.SECONDS.toMillis(seconds)
+        val offsetMs = TimeUnit.HOURS.toMillis(hoursStr.toLongOrNull() ?: 0L) +
+            TimeUnit.MINUTES.toMillis(minutesStr.toLongOrNull() ?: 0L) +
+            TimeUnit.SECONDS.toMillis(secondsStr.toLongOrNull() ?: 0L)
 
         val splitTime = task.startTime + offsetMs
         // While still ticking live off "now" for a running task, offsetMs and totalSpan are
@@ -1079,9 +1087,9 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                         style = MaterialTheme.typography.bodySmall
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DurationPartField("Hrs", hoursPart.toString(), { setOffset(offsetWith(hours = it.toLongOrNull() ?: 0L)) }, Modifier.weight(1f))
-                        DurationPartField("Min", minutesPart.toString(), { setOffset(offsetWith(minutes = it.toLongOrNull() ?: 0L)) }, Modifier.weight(1f))
-                        DurationPartField("Sec", secondsPart.toString(), { setOffset(offsetWith(seconds = it.toLongOrNull() ?: 0L)) }, Modifier.weight(1f))
+                        DurationPartField("Hrs", hoursStr, { useLiveOffset = false; hoursStr = it }, Modifier.weight(1f))
+                        DurationPartField("Min", minutesStr, { useLiveOffset = false; minutesStr = it }, Modifier.weight(1f))
+                        DurationPartField("Sec", secondsStr, { useLiveOffset = false; secondsStr = it }, Modifier.weight(1f))
                     }
                     Text(
                         text = formatDetailedDuration(offsetMs) + " in" + if (useLiveOffset) " -- still counting, live" else "",
