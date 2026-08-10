@@ -888,7 +888,8 @@ fun SessionDetailDialog(
                 if (segments.size > 1) { TextButton(onClick = { showFlattenConfirm = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Default.Merge, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Flatten into one segment") } }
             }
         },
-        confirmButton = { TextButton(onClick = { focusManager.clearFocus(); if (sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput); onDismiss() }) { Text("Close") } }
+        confirmButton = { TextButton(onClick = { focusManager.clearFocus(); if (sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput); onDismiss() }) { Text("Close") } },
+        dismissButton = { TextButton(onClick = { focusManager.clearFocus(); onDismiss() }) { Text("Cancel") } }
     )
     if (showFlattenConfirm) { AlertDialog(onDismissRequest = { showFlattenConfirm = false }, title = { Text("Flatten Session?") }, text = { Text("This will merge all segments into a single continuous task. This action cannot be undone.") }, confirmButton = { Button(onClick = { onFlatten(); showFlattenConfirm = false; onDismiss() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Flatten") } }, dismissButton = { TextButton(onClick = { showFlattenConfirm = false }) { Text("Cancel") } }) }
 }
@@ -936,9 +937,12 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
             }) { Text("Done") } 
         },
         dismissButton = {
-            if (!isCalendarTask) {
-                TextButton(onClick = onDelete) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+            Row {
+                TextButton(onClick = { focusManager.clearFocus(); onDismiss() }) { Text("Cancel") }
+                if (!isCalendarTask) {
+                    TextButton(onClick = onDelete) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         },
