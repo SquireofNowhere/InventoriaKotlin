@@ -43,7 +43,8 @@ fun ProductivityPieChart(
     tasks: List<Task>,
     modifier: Modifier = Modifier,
     currentTime: Long = System.currentTimeMillis(),
-    strokeWidthDp: Int = 12
+    strokeWidthDp: Int = 12,
+    centerScore: Int? = null
 ) {
     val todayStart = remember(currentTime) {
         Calendar.getInstance().apply {
@@ -133,6 +134,8 @@ fun ProductivityPieChart(
         label = "pie_animation"
     )
 
+    val elapsedMaskColor = MaterialTheme.colorScheme.onSurface
+
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
@@ -150,11 +153,12 @@ fun ProductivityPieChart(
                 style = Stroke(width = strokeWidth)
             )
 
-            // 2. Passed Time Track: "Blacked out" untracked time
-            // Represents the time from midnight until NOW.
+            // 2. Passed Time Track: untracked time from midnight until NOW, softly shaded
+            // (was a heavy solid-black mask -- theme-aware and much lighter now, just enough to
+            // distinguish "elapsed but untracked" from the light-gray "still to come" track).
             val passedTimeSweep = ((currentTime - todayStart).toFloat() / dayDuration.toFloat()) * 360f
             drawArc(
-                color = Color.Black.copy(alpha = 0.8f),
+                color = elapsedMaskColor.copy(alpha = 0.25f),
                 startAngle = -90f,
                 sweepAngle = passedTimeSweep,
                 useCenter = false,
@@ -163,12 +167,13 @@ fun ProductivityPieChart(
                 topLeft = topLeft
             )
 
-            // Hour marks for the 24h clock face
-            for (i in 0 until 24) {
+            // Hour marks for the 24h clock face -- just the 6-hour marks (12/6/12/6) to keep the
+            // ring readable at a glance instead of 24 ticks of clutter.
+            for (i in 0 until 24 step 6) {
                 val angle = (i * 15f - 90f) * (Math.PI / 180f).toFloat()
                 val startRadius = innerRadius + (strokeWidth / 2)
                 val endRadius = innerRadius - (strokeWidth / 2)
-                
+
                 val startOffset = Offset(
                     center.x + startRadius * cos(angle),
                     center.y + startRadius * sin(angle)
@@ -177,13 +182,8 @@ fun ProductivityPieChart(
                     center.x + endRadius * cos(angle),
                     center.y + endRadius * sin(angle)
                 )
-                
-                drawOutlineHourMark(
-                    startOffset, 
-                    endOffset, 
-                    if (i % 6 == 0) 2.dp.toPx() else 1.dp.toPx(),
-                    if (i % 6 == 0) Color.Gray else Color.LightGray.copy(alpha = 0.5f)
-                )
+
+                drawOutlineHourMark(startOffset, endOffset, 2.dp.toPx(), Color.Gray)
             }
 
             // 3. Task Productivity Segments: Overlays the black "passed" track
@@ -227,13 +227,13 @@ fun ProductivityPieChart(
         
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "$percentage%",
+                text = if ((centerScore ?: 0) >= 0) "+${centerScore ?: 0}" else "${centerScore ?: 0}",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if ((centerScore ?: 0) >= 0) Success else Color(0xFFFF4D4D)
             )
             Text(
-                text = "tracked",
+                text = "$percentage% tracked",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -241,6 +241,7 @@ fun ProductivityPieChart(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DailyProductivityDialog(
     tasks: List<Task>,
@@ -314,11 +315,39 @@ fun DailyProductivityDialog(
                         tasks = tasks,
                         modifier = Modifier.size(240.dp),
                         strokeWidthDp = 24,
-                        currentTime = currentTime
+                        currentTime = currentTime,
+                        centerScore = totalScore
                     )
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Legend: what each color on the ring means, at a glance -- one dot+label per
+                // kind actually present today (reuses taskBreakdown, no extra computation).
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    taskBreakdown.forEach { (kind, _, _) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(kind.colorValue))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = kind.displayName.split(" • ").last(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

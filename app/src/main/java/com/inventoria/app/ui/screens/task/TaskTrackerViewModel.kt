@@ -166,8 +166,14 @@ class TaskTrackerViewModel @Inject constructor(
      * category that's overdue right now. */
     private fun categoryScoreToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory): Int {
         val todayStart = getTodayStart()
+        val todayEnd = todayStart + 86_400_000L
+        // Overlap check, not a startTime filter -- a task starting before midnight and ending
+        // after (e.g. 11:40 PM -> 12:10 AM) genuinely spans today, matching how the pie chart
+        // and allTodayTasks already treat it. A startTime-only filter silently dropped that
+        // task's whole score from BOTH days. endTime ?: Long.MAX_VALUE treats a still-running
+        // task as unbounded, so it always overlaps "now" without needing a currentTime param.
         val rawTracked = tasks
-            .filter { it.startTime >= todayStart && it.kind.category == category }
+            .filter { (it.endTime ?: Long.MAX_VALUE) > todayStart && it.startTime < todayEnd && it.kind.category == category }
             .sumOf { it.score }
         val todoPoints = todoList
             .filter { it.state == TodoState.COMPLETE && (it.completedAt ?: 0L) >= todayStart && it.kind.category == category }

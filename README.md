@@ -34,7 +34,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
     *   **Foreground Service**: Keep timers running accurately even when the app is in the background.
     *   **Live Editing**: Instant saving of task names and notes during active sessions.
 *   **Productivity Dashboard**: Visualize your productivity trends and task history.
-*   **24-Hour Pie Chart**: The daily productivity card shows a circular breakdown of today's tasks by kind, mapped onto their actual time-of-day position around the full 24-hour clock face.
+*   **24-Hour Pie Chart**: The daily productivity card shows a circular breakdown of today's tasks by kind, mapped onto their actual time-of-day position around the full 24-hour clock face. The ring's center shows today's actual score (not just a tracked-percentage), and the full "Daily Overview" dialog adds a color legend so each kind on the ring is identifiable at a glance.
 *   **Calendar Integration**: Sync tasks with the system calendar; identify "Inventoria" tasks via smart description tags.
 *   **Task History as a Day Tracker**: The Task History screen is organized into day sections (Today, Yesterday, then by date) like a calendar day view — each day header shows the total time tracked plus a mini 24-hour timeline bar with a colored segment per task, positioned and sized by when it actually happened. Individual task rows show their clock time in a left-hand gutter. A toggle in the top bar switches between the session-grouped view and a flat list of every individual completed segment ordered purely by start time; both are broken down by day the same way. Persisted across app restarts.
 *   **Segmented Sessions**: Sessions spanning multiple calendar days show a per-day percentage breakdown (e.g., "0.4% of Today - 5.3% of 25 Feb"). Multi-segment sessions can be "Flattened" in the details dialog to merge all segments into one continuous block (irreversible), or a single segment can be "Split" at a chosen point in time into two — e.g. you fall asleep while "Coding" is still running, so you split it into "Coding" (start → the time you passed out) and a brand new, independent task picking up from there. The new task's name auto-fills the same way a fresh task would (e.g. "Task 7").
@@ -72,7 +72,6 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 
 ## 🚀 Upcoming Features (TODO)
 *   **Interruption Task Grouping Choice**: Let the user choose how interruption ("Inner") tasks are grouped when displayed — e.g. nested under the task they paused, grouped by kind, or shown ungrouped — similar to the existing grouping-choice pattern used for inventory (`GroupOption`).
-*   **Revisit Daily Productivity Pie Chart**: The 24-hour pie chart (`ProductivityPieChart`) hasn't been reconsidered since it first shipped — worth another pass/review.
 *   **Local Data Migration Prompt on Sign-In**: When a user signs into Google while they have local-only (anonymous-account) inventory and tasks, prompt them to migrate that local data up into their new Firebase-synced account instead of silently orphaning it.
 
 ## ⚙️ Known Optimization Opportunities
