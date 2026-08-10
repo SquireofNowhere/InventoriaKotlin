@@ -43,8 +43,7 @@ fun ProductivityPieChart(
     tasks: List<Task>,
     modifier: Modifier = Modifier,
     currentTime: Long = System.currentTimeMillis(),
-    strokeWidthDp: Int = 12,
-    centerScore: Int? = null
+    strokeWidthDp: Int = 12
 ) {
     val todayStart = remember(currentTime) {
         Calendar.getInstance().apply {
@@ -243,13 +242,13 @@ fun ProductivityPieChart(
         
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = if ((centerScore ?: 0) >= 0) "+${centerScore ?: 0}" else "${centerScore ?: 0}",
+                text = "$percentage%",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = if ((centerScore ?: 0) >= 0) Success else Color(0xFFFF4D4D)
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "$percentage% tracked",
+                text = "tracked",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -333,8 +332,7 @@ fun DailyProductivityDialog(
                         tasks = tasks,
                         modifier = Modifier.size(240.dp),
                         strokeWidthDp = 24,
-                        currentTime = currentTime,
-                        centerScore = totalScore
+                        currentTime = currentTime
                     )
                 }
 

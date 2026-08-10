@@ -482,7 +482,7 @@ fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, tasks:
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                ProductivityPieChart(tasks = tasks, currentTime = currentTime, modifier = Modifier.size(80.dp), centerScore = totalScore)
+                ProductivityPieChart(tasks = tasks, currentTime = currentTime, modifier = Modifier.size(80.dp))
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text("Today's Productivity", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
