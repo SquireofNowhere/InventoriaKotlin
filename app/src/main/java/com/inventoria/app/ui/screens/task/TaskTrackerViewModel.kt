@@ -160,6 +160,11 @@ class TaskTrackerViewModel @Inject constructor(
         return (sign * ceiling * (1 - exp(-abs(raw.toDouble()) / decayConstant))).roundToInt()
     }
 
+    /** Exposes [dampen] for UI display -- e.g. showing "raw total -> dampened" context in the
+     * Activity Breakdown's per-task calculation dropdown -- without letting the UI reimplement
+     * the formula itself. */
+    fun previewDampen(raw: Int): Int = dampen(raw)
+
     /** One category's (Personal or Social) contribution to today's score: dampened time-tracked
      * total, plus the full undamped value of every Todo of this category completed today, minus
      * an escalating penalty (capped at 5/todo/day) for every still-incomplete Todo of this

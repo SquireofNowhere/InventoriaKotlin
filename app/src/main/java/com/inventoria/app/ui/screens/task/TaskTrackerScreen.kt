@@ -316,7 +316,8 @@ fun TaskTrackerScreen(
             totalScore = totalScore,
             personalScore = personalScore,
             socialScore = socialScore,
-            onDismiss = { showProductivityDialog = false }
+            onDismiss = { showProductivityDialog = false },
+            dampen = { raw -> viewModel.previewDampen(raw) }
         )
     }
 

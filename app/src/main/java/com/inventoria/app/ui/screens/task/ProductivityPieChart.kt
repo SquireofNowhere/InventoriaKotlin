@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import java.util.*
@@ -263,9 +264,14 @@ fun DailyProductivityDialog(
     totalScore: Int,
     personalScore: Int,
     socialScore: Int,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    dampen: (Int) -> Int
 ) {
     var expandedBreakdown by remember { mutableStateOf(false) }
+    // Keyed by task.id rather than remembered inside each row -- individualTasks is sorted by
+    // startTime and can reorder as new tasks appear, so positional remember would misattribute
+    // expand state to the wrong row after a reorder.
+    val expandedTaskIds = remember { mutableStateMapOf<String, Boolean>() }
     val currentTime = System.currentTimeMillis()
     val todayStart = remember(currentTime) {
         Calendar.getInstance().apply {
@@ -290,6 +296,16 @@ fun DailyProductivityDialog(
             val end = minOf(task.endTime ?: currentTime, todayStart + 24 * 60 * 60 * 1000L, currentTime)
             task to (if (end > start) end - start else 0L)
         }.sortedByDescending { it.first.startTime }
+    }
+
+    // Raw (pre-dampening) score total + task count per category, today -- matches
+    // categoryScoreToday's own grouping exactly, so the "category context" shown in each row's
+    // dropdown is consistent with the actual Personal/Social score computation.
+    val categoryRawTotals = remember(tasks) {
+        TaskCategory.entries.associateWith { category ->
+            val categoryTasks = tasks.filter { it.kind.category == category }
+            categoryTasks.sumOf { it.score } to categoryTasks.size
+        }
     }
 
     Dialog(
@@ -417,7 +433,18 @@ fun DailyProductivityDialog(
                                     )
                                 }
                                 individualTasks.forEach { (task, duration) ->
-                                    TaskBreakdownRow(task, duration)
+                                    key(task.id) {
+                                        val (categoryRaw, categoryCount) = categoryRawTotals[task.kind.category] ?: (0 to 0)
+                                        TaskBreakdownRow(
+                                            task = task,
+                                            duration = duration,
+                                            expanded = expandedTaskIds[task.id] == true,
+                                            onToggleExpand = { expandedTaskIds[task.id] = expandedTaskIds[task.id] != true },
+                                            categoryRawTotal = categoryRaw,
+                                            categoryTaskCount = categoryCount,
+                                            dampen = dampen
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -446,40 +473,120 @@ fun ScoreSummaryItem(label: String, score: Int, color: Color) {
 }
 
 @Composable
-fun TaskBreakdownRow(task: Task, duration: Long) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
+fun TaskBreakdownRow(
+    task: Task,
+    duration: Long,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
+    categoryRawTotal: Int,
+    categoryTaskCount: Int,
+    dampen: (Int) -> Int
+) {
+    val isCalendarTask = task.id.startsWith("cal_")
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(Color(task.kind.colorValue))
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+                .fillMaxWidth()
+                .then(if (isCalendarTask) Modifier else Modifier.clickable { onToggleExpand() })
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(Color(task.kind.colorValue))
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = formatDetailedDuration(duration),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
-                text = task.name,
-                style = MaterialTheme.typography.bodyMedium,
+                text = if (task.score >= 0) "+${task.score}" else "${task.score}",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
             )
-            Text(
-                text = formatDetailedDuration(duration),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (!isCalendarTask) {
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Hide calculation" else "Show calculation",
+                    modifier = Modifier.padding(start = 4.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        Text(
-            text = if (task.score >= 0) "+${task.score}" else "${task.score}",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
-        )
+
+        if (isCalendarTask) return@Column
+
+        AnimatedVisibility(visible = expanded) {
+            // task.duration (the full stored duration), NOT the today-clipped `duration` param
+            // above -- the frozen score was computed from the full duration, so backing out the
+            // multiplier from the clipped figure would be wrong for any task spanning midnight.
+            val minutes = task.duration / 60000.0
+            val impliedMultiplier = if (task.kind.productivityValue != 0 && minutes > 0) {
+                task.score / (task.kind.productivityValue * minutes)
+            } else 1.0
+            val isNeutral = task.kind.category == TaskCategory.NEUTRAL
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 32.dp, end = 8.dp, top = 2.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Kind Value: ${if (task.kind.productivityValue >= 0) "+" else ""}${task.kind.productivityValue}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Duration: ${formatDetailedDuration(task.duration)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Momentum Multiplier: ${"%.2f".format(impliedMultiplier)}x",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Raw Score: ${if (task.score >= 0) "+" else ""}${task.score} pts",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (isNeutral) {
+                    Text(
+                        text = "This Kind is Neutral and doesn't count toward today's Personal or Social score.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    val categoryLabel = if (task.kind.category == TaskCategory.PERSONAL) "Personal" else "Social"
+                    val dampedCategory = dampen(categoryRawTotal)
+                    Text(
+                        text = "Today's $categoryLabel raw total: ${if (categoryRawTotal >= 0) "+" else ""}$categoryRawTotal pts" +
+                            " from $categoryTaskCount task${if (categoryTaskCount == 1) "" else "s"}" +
+                            " → dampened to ${if (dampedCategory >= 0) "+" else ""}$dampedCategory pts",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
