@@ -50,6 +50,8 @@ import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
+import com.inventoria.app.ui.screens.task.TodoPriorityChip
+import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
