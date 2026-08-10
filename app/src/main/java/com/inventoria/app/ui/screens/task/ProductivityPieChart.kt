@@ -26,12 +26,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.inventoria.app.data.model.Task
-import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import java.util.*
@@ -277,19 +277,19 @@ fun DailyProductivityDialog(
         }.timeInMillis
     }
 
-    val taskBreakdown = remember(tasks) {
-        tasks.groupBy { it.kind }
-            .map { (kind, kindTasks) ->
-                val totalDuration = kindTasks.sumOf {
-                    val start = maxOf(it.startTime, todayStart)
-                    // Also capped at currentTime -- a calendar-imported event's endTime can be
-                    // later than "now" (e.g. still mid-meeting), and that hasn't happened yet.
-                    val end = minOf(it.endTime ?: currentTime, todayStart + 24 * 60 * 60 * 1000L, currentTime)
-                    if (end > start) end - start else 0L
-                }
-                val totalPoints = kindTasks.sumOf { it.score }
-                Triple(kind, totalDuration, totalPoints)
-            }.sortedByDescending { it.second }
+    // Kept for the legend -- just the distinct Kinds present today, not an aggregate.
+    val todayKinds = remember(tasks) { tasks.map { it.kind }.distinct() }
+
+    // One row per individual task (not grouped by Kind) for the Activity Breakdown list, so each
+    // task's own points are visible rather than only a per-Kind total.
+    val individualTasks = remember(tasks, todayStart, currentTime) {
+        tasks.map { task ->
+            val start = maxOf(task.startTime, todayStart)
+            // Also capped at currentTime -- a calendar-imported event's endTime can be later
+            // than "now" (e.g. still mid-meeting), and that hasn't happened yet.
+            val end = minOf(task.endTime ?: currentTime, todayStart + 24 * 60 * 60 * 1000L, currentTime)
+            task to (if (end > start) end - start else 0L)
+        }.sortedByDescending { it.first.startTime }
     }
 
     Dialog(
@@ -339,13 +339,13 @@ fun DailyProductivityDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Legend: what each color on the ring means, at a glance -- one dot+label per
-                // kind actually present today (reuses taskBreakdown, no extra computation).
+                // kind actually present today.
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    taskBreakdown.forEach { (kind, _, _) ->
+                    todayKinds.forEach { kind ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
@@ -408,7 +408,7 @@ fun DailyProductivityDialog(
                                     .padding(top = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (taskBreakdown.isEmpty()) {
+                                if (individualTasks.isEmpty()) {
                                     Text(
                                         text = "No activities tracked yet today.",
                                         style = MaterialTheme.typography.bodySmall,
@@ -416,8 +416,8 @@ fun DailyProductivityDialog(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                taskBreakdown.forEach { (kind, duration, points) ->
-                                    BreakdownRow(kind, duration, points)
+                                individualTasks.forEach { (task, duration) ->
+                                    TaskBreakdownRow(task, duration)
                                 }
                             }
                         }
@@ -446,7 +446,7 @@ fun ScoreSummaryItem(label: String, score: Int, color: Color) {
 }
 
 @Composable
-fun BreakdownRow(kind: TaskKind, duration: Long, points: Int) {
+fun TaskBreakdownRow(task: Task, duration: Long) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -457,14 +457,16 @@ fun BreakdownRow(kind: TaskKind, duration: Long, points: Int) {
             modifier = Modifier
                 .size(12.dp)
                 .clip(CircleShape)
-                .background(Color(kind.colorValue))
+                .background(Color(task.kind.colorValue))
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = kind.displayName.substringAfter(" "),
+                text = task.name,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = formatDetailedDuration(duration),
@@ -473,10 +475,10 @@ fun BreakdownRow(kind: TaskKind, duration: Long, points: Int) {
             )
         }
         Text(
-            text = if (points >= 0) "+$points" else "$points",
+            text = if (task.score >= 0) "+${task.score}" else "${task.score}",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = if (points >= 0) Success else Color(0xFFFF4D4D)
+            color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
         )
     }
 }

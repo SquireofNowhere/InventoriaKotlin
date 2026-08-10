@@ -868,6 +868,13 @@ fun SessionDetailDialog(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(segment.kind.colorValue))); Spacer(Modifier.width(8.dp))
                             Text(text = segment.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), modifier = Modifier.weight(1f))
+                            Text(
+                                text = if (segment.score >= 0) "+${segment.score} pts" else "${segment.score} pts",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (segment.score >= 0) Success else Color(0xFFFF4D4D),
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
                             if (segment.id.startsWith("cal_")) {
                                 Icon(Icons.Default.EventAvailable, null, modifier = Modifier.size(16.dp), tint = Color(0xFF4285F4))
                             } else {
