@@ -34,6 +34,11 @@ class SettingsRepository @Inject constructor(
     private val INNER_TASK_ENABLED = booleanPreferencesKey("inner_task_enabled")
     private val INNER_TASK_PROMPT_SHOWN = booleanPreferencesKey("inner_task_prompt_shown")
     private val TASK_HISTORY_FLAT_VIEW = booleanPreferencesKey("task_history_flat_view")
+    private val PROCRASTINATION_TODO_ENABLED = booleanPreferencesKey("procrastination_todo_enabled")
+    private val PROCRASTINATION_TODO_CUTOFF = stringPreferencesKey("procrastination_todo_cutoff")
+    private val PROCRASTINATION_TASK_ENABLED = booleanPreferencesKey("procrastination_task_enabled")
+    private val PROCRASTINATION_TASK_KINDS = stringSetPreferencesKey("procrastination_task_kinds")
+    private val PROCRASTINATION_PENALTY_AMOUNT = intPreferencesKey("procrastination_penalty_amount")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -57,6 +62,11 @@ class SettingsRepository @Inject constructor(
     fun isInnerTaskEnabled(): Flow<Boolean> = context.dataStore.data.map { it[INNER_TASK_ENABLED] ?: false }
     fun hasSeenInnerTaskPrompt(): Flow<Boolean> = context.dataStore.data.map { it[INNER_TASK_PROMPT_SHOWN] ?: false }
     fun isTaskHistoryFlatView(): Flow<Boolean> = context.dataStore.data.map { it[TASK_HISTORY_FLAT_VIEW] ?: false }
+    fun isProcrastinationTodoEnabled(): Flow<Boolean> = context.dataStore.data.map { it[PROCRASTINATION_TODO_ENABLED] ?: false }
+    fun getProcrastinationTodoCutoff(): Flow<String> = context.dataStore.data.map { it[PROCRASTINATION_TODO_CUTOFF] ?: "B1" }
+    fun isProcrastinationTaskEnabled(): Flow<Boolean> = context.dataStore.data.map { it[PROCRASTINATION_TASK_ENABLED] ?: false }
+    fun getProcrastinationTaskKinds(): Flow<Set<String>> = context.dataStore.data.map { it[PROCRASTINATION_TASK_KINDS] ?: emptySet() }
+    fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }
@@ -134,5 +144,25 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setTaskHistoryFlatView(enabled: Boolean) {
         context.dataStore.edit { it[TASK_HISTORY_FLAT_VIEW] = enabled }
+    }
+
+    suspend fun setProcrastinationTodoEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PROCRASTINATION_TODO_ENABLED] = enabled }
+    }
+
+    suspend fun setProcrastinationTodoCutoff(priorityName: String) {
+        context.dataStore.edit { it[PROCRASTINATION_TODO_CUTOFF] = priorityName }
+    }
+
+    suspend fun setProcrastinationTaskEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PROCRASTINATION_TASK_ENABLED] = enabled }
+    }
+
+    suspend fun saveProcrastinationTaskKinds(kindNames: Set<String>) {
+        context.dataStore.edit { it[PROCRASTINATION_TASK_KINDS] = kindNames }
+    }
+
+    suspend fun setProcrastinationPenaltyAmount(amount: Int) {
+        context.dataStore.edit { it[PROCRASTINATION_PENALTY_AMOUNT] = amount }
     }
 }

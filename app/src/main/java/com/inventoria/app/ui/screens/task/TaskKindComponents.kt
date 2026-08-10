@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskCategory
+import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.ui.theme.Success
 
 @Composable
@@ -139,6 +140,87 @@ fun TaskKindDropdownMenu(
                     )
                 }
                 if (category != categories.keys.last()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                }
+            }
+        }
+    }
+}
+
+/** Tier-colored chip for a Todo priority (A1 best .. C3 worst), or a neutral "No Priority" chip
+ * when unset. Color is by LETTER tier only (A=red/urgent, B=orange, C=green), not per-exact-
+ * level, since the 9-way distinction matters far less at a glance than which third it's in. */
+@Composable
+fun TodoPriorityChip(
+    priority: TodoPriority?,
+    modifier: Modifier = Modifier
+) {
+    val color = when (priority?.name?.firstOrNull()) {
+        'A' -> Color(0xFFE53935)
+        'B' -> Color(0xFFFB8C00)
+        'C' -> Color(0xFF43A047)
+        else -> Color.Gray
+    }
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.15f),
+        contentColor = color
+    ) {
+        Text(
+            text = priority?.name ?: "No Priority",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/** Shared between TodoEditDialog (allowUnset = true, a Todo can genuinely have no priority) and
+ * the Settings procrastination-cutoff picker (allowUnset = false, a cutoff tier is always set --
+ * "unset" isn't a meaningful cutoff value). */
+@Composable
+fun TodoPriorityDropdownMenu(
+    selectedPriority: TodoPriority?,
+    onPrioritySelected: (TodoPriority?) -> Unit,
+    modifier: Modifier = Modifier,
+    allowUnset: Boolean = true
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        TodoPriorityChip(
+            priority = selectedPriority,
+            modifier = Modifier.clickable { expanded = true }
+        )
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            if (allowUnset) {
+                DropdownMenuItem(
+                    text = { Text("No Priority", style = MaterialTheme.typography.bodyMedium) },
+                    onClick = { onPrioritySelected(null); expanded = false }
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            }
+            val tiers = TodoPriority.entries.groupBy { it.name.first() }
+            tiers.forEach { (letter, levels) ->
+                Text(
+                    text = "Tier $letter",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    fontWeight = FontWeight.Bold
+                )
+                levels.forEach { level ->
+                    DropdownMenuItem(
+                        text = { Text(level.name, style = MaterialTheme.typography.bodyMedium) },
+                        onClick = { onPrioritySelected(level); expanded = false }
+                    )
+                }
+                if (letter != tiers.keys.last()) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 }
             }

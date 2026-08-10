@@ -10,6 +10,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,9 +25,13 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
+import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
 import java.util.Currency
 import java.util.Locale
 
@@ -49,6 +54,11 @@ fun SettingsScreen(
     val inviteCodeError by viewModel.inviteCodeError.collectAsState()
     val sharedWithUsers by viewModel.sharedWithUsers.collectAsState()
     val innerTaskEnabled by viewModel.innerTaskEnabled.collectAsState()
+    val procrastinationTodoEnabled by viewModel.procrastinationTodoEnabled.collectAsState()
+    val procrastinationTodoCutoff by viewModel.procrastinationTodoCutoff.collectAsState()
+    val procrastinationTaskEnabled by viewModel.procrastinationTaskEnabled.collectAsState()
+    val procrastinationTaskKinds by viewModel.procrastinationTaskKinds.collectAsState()
+    val procrastinationPenaltyAmount by viewModel.procrastinationPenaltyAmount.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -121,6 +131,18 @@ fun SettingsScreen(
                 icon = Icons.Default.NotificationImportant,
                 checked = innerTaskEnabled,
                 onCheckedChange = { viewModel.toggleInnerTask(it) }
+            )
+            ProcrastinationPenaltySettings(
+                todoEnabled = procrastinationTodoEnabled,
+                todoCutoff = procrastinationTodoCutoff,
+                taskEnabled = procrastinationTaskEnabled,
+                taskKinds = procrastinationTaskKinds,
+                penaltyAmount = procrastinationPenaltyAmount,
+                onToggleTodo = { viewModel.toggleProcrastinationTodo(it) },
+                onCutoffSelected = { viewModel.setProcrastinationTodoCutoff(it) },
+                onToggleTask = { viewModel.toggleProcrastinationTask(it) },
+                onToggleTaskKind = { viewModel.toggleProcrastinationTaskKind(it) },
+                onPenaltyAmountChange = { viewModel.setProcrastinationPenaltyAmount(it) }
             )
 
             SettingsCategoryHeader("Notifications")
@@ -252,6 +274,105 @@ fun CurrencySettings(
                     modifier = Modifier.padding(start = 40.dp)
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ProcrastinationPenaltySettings(
+    todoEnabled: Boolean,
+    todoCutoff: TodoPriority,
+    taskEnabled: Boolean,
+    taskKinds: Set<TaskKind>,
+    penaltyAmount: Int,
+    onToggleTodo: (Boolean) -> Unit,
+    onCutoffSelected: (TodoPriority) -> Unit,
+    onToggleTask: (Boolean) -> Unit,
+    onToggleTaskKind: (TaskKind) -> Unit,
+    onPenaltyAmountChange: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Flag, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Penalize Non-Priority Todos", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Subtract points when you complete a Todo at or below this cutoff, or with no priority set",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = todoEnabled, onCheckedChange = onToggleTodo)
+            }
+            if (todoEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 40.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Cutoff tier: ", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(8.dp))
+                    TodoPriorityDropdownMenu(
+                        selectedPriority = todoCutoff,
+                        onPrioritySelected = { it?.let(onCutoffSelected) },
+                        allowUnset = false
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Penalize Procrastination Task Kinds", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Subtract points whenever a tracked task of a flagged Kind is completed",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = taskEnabled, onCheckedChange = onToggleTask)
+            }
+            if (taskEnabled) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(start = 40.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TaskKind.entries.forEach { kind ->
+                        FilterChip(
+                            selected = kind in taskKinds,
+                            onClick = { onToggleTaskKind(kind) },
+                            label = { Text(kind.displayName.split(" • ").last()) }
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider()
+
+            var penaltyText by remember(penaltyAmount) { mutableStateOf(penaltyAmount.toString()) }
+            OutlinedTextField(
+                value = penaltyText,
+                onValueChange = { input ->
+                    if (input.all { it.isDigit() } && input.length <= 3) {
+                        penaltyText = input
+                        input.toIntOrNull()?.let(onPenaltyAmountChange)
+                    }
+                },
+                label = { Text("Penalty Points") },
+                supportingText = { Text("Points subtracted per qualifying completion") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

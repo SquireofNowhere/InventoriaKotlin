@@ -4,6 +4,8 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
+import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +45,23 @@ class SettingsViewModel @Inject constructor(
 
     val innerTaskEnabled: StateFlow<Boolean> = settingsRepository.isInnerTaskEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val procrastinationTodoEnabled: StateFlow<Boolean> = settingsRepository.isProcrastinationTodoEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val procrastinationTodoCutoff: StateFlow<TodoPriority> = settingsRepository.getProcrastinationTodoCutoff()
+        .map { try { TodoPriority.valueOf(it) } catch (e: IllegalArgumentException) { TodoPriority.B1 } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TodoPriority.B1)
+
+    val procrastinationTaskEnabled: StateFlow<Boolean> = settingsRepository.isProcrastinationTaskEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val procrastinationTaskKinds: StateFlow<Set<TaskKind>> = settingsRepository.getProcrastinationTaskKinds()
+        .map { names -> names.mapNotNull { try { TaskKind.valueOf(it) } catch (e: IllegalArgumentException) { null } }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    val procrastinationPenaltyAmount: StateFlow<Int> = settingsRepository.getProcrastinationPenaltyAmount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2)
 
     private val _generatedInviteCode = MutableStateFlow<String?>(null)
     val generatedInviteCode: StateFlow<String?> = _generatedInviteCode.asStateFlow()
@@ -151,6 +170,30 @@ class SettingsViewModel @Inject constructor(
             // Toggling it directly here counts as having seen the explanation.
             settingsRepository.setInnerTaskPromptShown(true)
         }
+    }
+
+    fun toggleProcrastinationTodo(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setProcrastinationTodoEnabled(enabled) }
+    }
+
+    fun setProcrastinationTodoCutoff(priority: TodoPriority) {
+        viewModelScope.launch { settingsRepository.setProcrastinationTodoCutoff(priority.name) }
+    }
+
+    fun toggleProcrastinationTask(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setProcrastinationTaskEnabled(enabled) }
+    }
+
+    fun toggleProcrastinationTaskKind(kind: TaskKind) {
+        viewModelScope.launch {
+            val current = procrastinationTaskKinds.value
+            val next = if (kind in current) current - kind else current + kind
+            settingsRepository.saveProcrastinationTaskKinds(next.map { it.name }.toSet())
+        }
+    }
+
+    fun setProcrastinationPenaltyAmount(amount: Int) {
+        viewModelScope.launch { settingsRepository.setProcrastinationPenaltyAmount(amount) }
     }
 
     fun updateCustomUsername(name: String) {

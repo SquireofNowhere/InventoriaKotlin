@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import java.util.*
 
@@ -80,5 +81,13 @@ class Converters {
         } catch (e: IllegalArgumentException) {
             TodoState.INCOMPLETE
         }
+    }
+
+    @TypeConverter
+    fun fromTodoPriority(priority: TodoPriority?): String? = priority?.name
+
+    @TypeConverter
+    fun toTodoPriority(value: String?): TodoPriority? = value?.let {
+        try { TodoPriority.valueOf(it) } catch (e: IllegalArgumentException) { null }
     }
 }

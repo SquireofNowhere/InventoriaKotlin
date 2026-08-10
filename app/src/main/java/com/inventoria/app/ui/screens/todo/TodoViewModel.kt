@@ -10,6 +10,7 @@ import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.ui.screens.task.TaskTimerService
@@ -134,22 +135,22 @@ class TodoViewModel @Inject constructor(
         _isAddingNew.value = true
     }
 
-    fun addTodo(title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?) {
+    fun addTodo(title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?, priority: TodoPriority?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
             todoRepository.insertTodo(
-                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, deadline = deadline, parentTodoId = parentTodoId)
+                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, deadline = deadline, parentTodoId = parentTodoId, priority = priority)
             )
         }
         _isAddingNew.value = false
     }
 
-    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?) {
+    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?, priority: TodoPriority?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, deadline = deadline, parentTodoId = parentTodoId))
+            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, deadline = deadline, parentTodoId = parentTodoId, priority = priority))
         }
         _pendingEditTodo.value = null
     }

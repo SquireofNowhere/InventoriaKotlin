@@ -14,6 +14,7 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.CalendarRepository
 import com.inventoria.app.data.repository.SettingsRepository
@@ -38,6 +39,19 @@ data class RunningTaskUI(
     val task: Task,
     val elapsedTime: MutableStateFlow<Long> = MutableStateFlow(0L),
     var timerJob: Job? = null
+)
+
+/** Bundles the five procrastination-penalty settings into one value so categoryScoreToday only
+ * needs a single extra parameter. Parsed from raw DataStore primitives here (rather than in
+ * SettingsRepository) to match this codebase's existing convention of keeping the repository
+ * dealing in primitives and letting the consuming ViewModel own the typed parsing (see
+ * getInventorySortOption returning a raw String, not an enum). */
+data class ProcrastinationSettings(
+    val todoEnabled: Boolean,
+    val todoCutoff: TodoPriority,
+    val taskEnabled: Boolean,
+    val taskKinds: Set<TaskKind>,
+    val penaltyAmount: Int
 )
 
 @HiltViewModel
@@ -148,6 +162,26 @@ class TaskTrackerViewModel @Inject constructor(
     private val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // WhileSubscribed, not Eagerly, unlike isInnerTaskEnabled above -- this only ever flows
+    // reactively into personalScoreToday/socialScoreToday's own combine() below, never read via
+    // a synchronous .value snapshot the way pauseResumeTask() reads isInnerTaskEnabled, so there's
+    // no staleness risk to guard against.
+    private val procrastinationSettings: StateFlow<ProcrastinationSettings> = combine(
+        settingsRepository.isProcrastinationTodoEnabled(),
+        settingsRepository.getProcrastinationTodoCutoff(),
+        settingsRepository.isProcrastinationTaskEnabled(),
+        settingsRepository.getProcrastinationTaskKinds(),
+        settingsRepository.getProcrastinationPenaltyAmount()
+    ) { todoEnabled, cutoffName, taskEnabled, kindNames, penaltyAmount ->
+        ProcrastinationSettings(
+            todoEnabled = todoEnabled,
+            todoCutoff = try { TodoPriority.valueOf(cutoffName) } catch (e: IllegalArgumentException) { TodoPriority.B1 },
+            taskEnabled = taskEnabled,
+            taskKinds = kindNames.mapNotNull { name -> try { TaskKind.valueOf(name) } catch (e: IllegalArgumentException) { null } }.toSet(),
+            penaltyAmount = penaltyAmount
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProcrastinationSettings(false, TodoPriority.B1, false, emptySet(), 2))
+
     /** Diminishing-returns squash toward +/-[ceiling]: approaches but never reaches it, so raw
      * effort differences between time-tracked sessions still show up (unlike a hard min/max cap)
      * while keeping their combined contribution from swamping the day the way an unbounded sum
@@ -168,8 +202,13 @@ class TaskTrackerViewModel @Inject constructor(
     /** One category's (Personal or Social) contribution to today's score: dampened time-tracked
      * total, plus the full undamped value of every Todo of this category completed today, minus
      * an escalating penalty (capped at 5/todo/day) for every still-incomplete Todo of this
-     * category that's overdue right now. */
-    private fun categoryScoreToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory): Int {
+     * category that's overdue right now, minus the procrastination penalty (if enabled) for
+     * every Todo completed today below the configured priority cutoff (or unset) and every
+     * time-tracked task completed today whose Kind is flagged as procrastination. Both
+     * procrastination penalties are derived live here, the same way overduePenalty already is,
+     * rather than baked into a stored field -- so changing the settings later doesn't leave
+     * already-completed items' contribution silently stale. */
+    private fun categoryScoreToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory, settings: ProcrastinationSettings): Int {
         val todayStart = getTodayStart()
         val todayEnd = todayStart + 86_400_000L
         // Overlap check, not a startTime filter -- a task starting before midnight and ending
@@ -186,15 +225,31 @@ class TaskTrackerViewModel @Inject constructor(
         val overduePenalty = todoList
             .filter { it.state != TodoState.COMPLETE && it.deadline != null && it.deadline!! < todayStart && it.kind.category == category }
             .sumOf { minOf(((todayStart - it.deadline!!) / 86_400_000L).toInt(), 5) }
-        return dampen(rawTracked) + todoPoints - overduePenalty
+        val todoProcrastinationPenalty = if (settings.todoEnabled) {
+            todoList
+                .filter {
+                    it.state == TodoState.COMPLETE && (it.completedAt ?: 0L) >= todayStart && it.kind.category == category &&
+                        (it.priority == null || it.priority!!.ordinal >= settings.todoCutoff.ordinal)
+                }
+                .sumOf { settings.penaltyAmount }
+        } else 0
+        val taskProcrastinationPenalty = if (settings.taskEnabled) {
+            tasks
+                .filter {
+                    (it.endTime ?: Long.MAX_VALUE) > todayStart && it.startTime < todayEnd &&
+                        it.kind.category == category && it.kind in settings.taskKinds
+                }
+                .sumOf { settings.penaltyAmount }
+        } else 0
+        return dampen(rawTracked) + todoPoints - overduePenalty - todoProcrastinationPenalty - taskProcrastinationPenalty
     }
 
-    val personalScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos) { tasks, todoList ->
-        categoryScoreToday(tasks, todoList, TaskCategory.PERSONAL)
+    val personalScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos, procrastinationSettings) { tasks, todoList, settings ->
+        categoryScoreToday(tasks, todoList, TaskCategory.PERSONAL, settings)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val socialScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos) { tasks, todoList ->
-        categoryScoreToday(tasks, todoList, TaskCategory.SOCIAL)
+    val socialScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos, procrastinationSettings) { tasks, todoList, settings ->
+        categoryScoreToday(tasks, todoList, TaskCategory.SOCIAL, settings)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     // NEUTRAL-kind items (Graphite/Grape, productivityValue 0) never contribute either way, so

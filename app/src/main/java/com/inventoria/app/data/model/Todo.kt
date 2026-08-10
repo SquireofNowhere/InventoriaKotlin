@@ -13,6 +13,12 @@ import com.google.firebase.database.PropertyName
  * effectiveState computation. */
 enum class TodoState { INCOMPLETE, IN_PROGRESS, COMPLETE }
 
+/** Franklin-Covey-style ABC-123 priority: letter tier (A most important) nested with a number
+ * sub-rank (1 highest within its tier), forming one ordered scale from A1 (best) to C3 (worst).
+ * Declared in that exact order so .ordinal doubles as the ranking -- see
+ * TaskTrackerViewModel.categoryScoreToday's procrastination-penalty cutoff comparison. */
+enum class TodoPriority { A1, A2, A3, B1, B2, B3, C1, C2, C3 }
+
 @Entity
 data class Todo(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: String = "",
@@ -20,6 +26,9 @@ data class Todo(
     @get:PropertyName("kind") @set:PropertyName("kind") var kind: TaskKind = TaskKind.GRAPHITE,
     // Date-only (start-of-day millis); null means no deadline, never overdue, never penalized.
     @get:PropertyName("deadline") @set:PropertyName("deadline") var deadline: Long? = null,
+    // Null means unprioritized -- always counts as procrastination if that penalty is enabled,
+    // regardless of the configured cutoff tier.
+    @get:PropertyName("priority") @set:PropertyName("priority") var priority: TodoPriority? = null,
     // Hierarchy: unlimited depth via self-reference, GitHub-Projects-style sub-todos.
     @get:PropertyName("parentTodoId") @set:PropertyName("parentTodoId") var parentTodoId: String? = null,
     @get:PropertyName("state") @set:PropertyName("state") var state: TodoState = TodoState.INCOMPLETE,

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
@@ -267,10 +268,11 @@ fun TodoScreen(
             initialKind = TaskKind.GRAPHITE,
             initialDeadline = null,
             initialParentId = selectedTodoId,
+            initialPriority = null,
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline, parentId -> viewModel.addTodo(title, kind, deadline, parentId) }
+            onSave = { title, kind, deadline, parentId, priority -> viewModel.addTodo(title, kind, deadline, parentId, priority) }
         )
     }
 
@@ -281,10 +283,11 @@ fun TodoScreen(
             initialKind = todo.kind,
             initialDeadline = todo.deadline,
             initialParentId = todo.parentTodoId,
+            initialPriority = todo.priority,
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline, parentId -> viewModel.saveEditedTodo(todo, title, kind, deadline, parentId) }
+            onSave = { title, kind, deadline, parentId, priority -> viewModel.saveEditedTodo(todo, title, kind, deadline, parentId, priority) }
         )
     }
 }
@@ -454,6 +457,9 @@ private fun TodoRow(
                         )
                     }
                 }
+                if (todo.priority != null) {
+                    TodoPriorityChip(priority = todo.priority, modifier = Modifier.scale(0.85f))
+                }
                 TaskKindChip(kind = todo.kind, modifier = Modifier.scale(0.85f))
                 if (todo.state != TodoState.COMPLETE) {
                     if (todo.activeSessionGroupId == null) {
@@ -484,15 +490,17 @@ private fun TodoEditDialog(
     initialKind: TaskKind,
     initialDeadline: Long?,
     initialParentId: String?,
+    initialPriority: TodoPriority?,
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind, Long?, String?) -> Unit
+    onSave: (String, TaskKind, Long?, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var kind by remember { mutableStateOf(initialKind) }
     var deadline by remember { mutableStateOf(initialDeadline) }
     var parentId by remember { mutableStateOf(initialParentId) }
+    var priority by remember { mutableStateOf(initialPriority) }
     val context = LocalContext.current
 
     AlertDialog(
@@ -509,6 +517,7 @@ private fun TodoEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 TaskKindDropdownMenu(selectedKind = kind, onKindSelected = { kind = it })
+                TodoPriorityDropdownMenu(selectedPriority = priority, onPrioritySelected = { priority = it })
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -546,7 +555,7 @@ private fun TodoEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, kind, deadline, parentId) }, enabled = title.isNotBlank()) {
+            TextButton(onClick = { onSave(title, kind, deadline, parentId, priority) }, enabled = title.isNotBlank()) {
                 Text("Save")
             }
         },
