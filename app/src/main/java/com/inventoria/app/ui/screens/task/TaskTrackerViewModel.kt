@@ -617,6 +617,14 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
+    /** Retags exactly one segment (see TaskRepository.updateSegmentKind) -- used by
+     * ActiveSessionCard's inline Kind dropdown, which shows/edits whichever segment is actually
+     * "current" (the running one, or the most recent paused one if nothing's running) and
+     * should only affect that one, not the whole session's history. */
+    fun updateSegmentKind(taskId: String, newKind: TaskKind) {
+        viewModelScope.launch { repository.updateSegmentKind(taskId, newKind) }
+    }
+
     fun updateCompletedTaskName(task: Task, newName: String) {
         if (task.id.startsWith("cal_")) return
         viewModelScope.launch { repository.updateTask(task.copy(name = newName, isNameCustom = true)) }
@@ -624,7 +632,10 @@ class TaskTrackerViewModel @Inject constructor(
 
     fun updateCompletedTaskKind(task: Task, newKind: TaskKind) {
         if (task.id.startsWith("cal_")) return
-        viewModelScope.launch { repository.updateTask(task.copy(kind = newKind, isKindCustom = true)) }
+        // Same staleness class as ActiveSessionCard's dropdown -- reuses updateSegmentKind
+        // rather than writing kind directly, so this task's frozen score gets recomputed under
+        // the new Kind instead of being left mismatched to the old one.
+        viewModelScope.launch { repository.updateSegmentKind(task.id, newKind) }
     }
 
     fun updateSegmentTime(task: Task, start: Long, end: Long) {

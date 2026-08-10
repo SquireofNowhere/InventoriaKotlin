@@ -114,11 +114,34 @@ class TaskRepository @Inject constructor(
         taskDao.joinGroupAtomically(oldGroupId, newName, newGroupId, timestamp)
     }
 
+    /** Deliberate whole-session recategorization (the "Session Category" picker in
+     * SessionDetailDialog, used for both active and fully historical sessions). Recomputes
+     * score per-segment rather than a single bulk SQL UPDATE, since each already-completed
+     * segment's frozen score is duration-dependent on the OLD Kind -- leaving it untouched
+     * would silently mismatch the new Kind's productivityValue, the same staleness
+     * updateSegmentTime already guards against for time edits. A still-running segment has no
+     * frozen score yet, so it's left alone (computed properly whenever it eventually stops). */
     suspend fun updateSessionKind(groupId: String, newKind: TaskKind) {
         val tasks = taskDao.getTasksByGroupId(groupId)
         val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-        val timestamp = getNextTimestamp(maxT)
-        taskDao.updateSessionKindAndResetCustom(groupId, newKind, timestamp)
+        var timestamp = getNextTimestamp(maxT)
+        tasks.forEach { task ->
+            val newScore = if (task.isRunning) task.score else computeFrozenScore(newKind, task.duration)
+            taskDao.updateTask(task.copy(kind = newKind, isKindCustom = false, score = newScore, updatedAt = timestamp, isDirty = true))
+            timestamp += 1
+        }
+    }
+
+    /** Retags exactly ONE segment's Kind -- unlike [updateSessionKind]'s deliberate whole-session
+     * recolor, this is for e.g. ActiveSessionCard's inline dropdown, which should only affect
+     * whichever segment is actually shown (the running one, or the most recent paused one if
+     * nothing's currently running) rather than silently recoloring the rest of the session's
+     * history too. Recomputes score the same way updateSessionKind does when the segment is
+     * already frozen. */
+    suspend fun updateSegmentKind(taskId: String, newKind: TaskKind) {
+        val existing = taskDao.getTaskById(taskId) ?: return
+        val newScore = if (existing.isRunning) existing.score else computeFrozenScore(newKind, existing.duration)
+        updateTask(existing.copy(kind = newKind, isKindCustom = true, score = newScore))
     }
 
     suspend fun endSession(groupId: String) {

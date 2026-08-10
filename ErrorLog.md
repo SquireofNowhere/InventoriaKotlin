@@ -241,35 +241,32 @@ Deleting an item or task on one device would not propagate to other devices. The
 ---
 
 ## 🐞 17. Google Sign-In Failure (Error 12500)
-**Status:** 🚨 Unresolved / Investigation Required
+**Status:** ✅ Resolved
 
 ### 📝 Problem
 Attempting to sign in with Google fails immediately, returning an `ApiException: 12500` error code. This prevents users from accessing cloud sync features and backing up their data.
 
 ### 🔍 Root Cause
-- **Configuration Mismatch**: Error 12500 is a generic "Internal Error" from Google Play Services, frequently caused by missing SHA-1 fingerprints in the Firebase Console or a misconfigured OAuth consent screen.
-- **Client ID Issues**: The `web_client_id` used for the sign-in request might not match the one configured for the current environment in the Google Cloud Console.
+Not an app-code bug — a Google Cloud project billing/configuration issue on the account side. A lapsed payment status on the Google Cloud project (which Firebase/OAuth sits on top of) put the project into a state where Google Play Services rejected sign-in with the generic Error 12500, alongside some Firebase project settings needing to be reconfigured/reconnected.
 
-### 🛠️ Proposed Fix (Pending)
-- **Certificate Verification**: Ensure that the SHA-1 certificates for both debug and release builds are added to the Firebase project settings.
-- **Client ID Check**: Double-check the `google-services.json` file and verify that the correct client ID is being passed to the `GoogleSignInOptions`.
-- **OAuth Console**: Verify that the OAuth consent screen is configured and published in the Google Cloud Console.
+### 🛠️ Final Fix
+Resolved the billing/payment issue on the Google Cloud project and reconfigured the affected Firebase project settings. No code changes were needed.
 
 ---
 
 ## 🐞 18. Task Segment Update Target Mismatch
-**Status:** 🚨 Unresolved / Investigation Required
+**Status:** ✅ Resolved
 
 ### 📝 Problem
 In running sessions, when a user changes the type (TaskKind) of the currently running segment, the update is incorrectly applied to the most recent *completed* segment in that session instead of the active one.
 
 ### 🔍 Root Cause
-- **Index/Targeting Logic**: The `ActiveSessionCard` uses a `refTask` (calculated as `activeSegment?.task ?: session.segments.firstOrNull()`) to populate the `TaskKindDropdownMenu`. When `onUpdateKind` is fired, it calls `viewModel.updateSessionKind(session.groupId, it)`.
-- **Session-Wide vs. Segment-Specific**: The `updateSessionKind` method currently updates the *entire session's* default kind or targets the wrong record in the DAO because it doesn't specifically distinguish between the "active" segment and the "history" segments within that group.
+Confirmed broader than the original description: `ActiveSessionCard`'s inline `TaskKindDropdownMenu` shows `refTask = activeSegment?.task ?: session.segments.firstOrNull()` (falling back to the most recent completed segment when nothing's currently running), but `onUpdateKind` was wired to `viewModel.updateSessionKind(session.groupId, it)` — a **blanket `UPDATE Task SET kind = ... WHERE groupId = :groupId`**, indiscriminately retagging *every* segment in the session (running and completed history alike), not just whichever one `refTask` displayed. A second, compounding bug found during the same investigation: this bulk update changed `kind` but never recomputed `score` — so any already-completed segment caught in the blanket update kept its OLD Kind's frozen score mismatched against its new Kind, the same staleness class as #25 (score not recomputed on a manual time edit), just triggered by a Kind change instead. `TaskDetailDialog`'s `updateCompletedTaskKind` (Task History's Kind-change path) had the identical score-staleness gap on a single task, independent of the session-wide issue.
 
-### 🛠️ Proposed Fix (Pending)
-- **Specific Targeting**: Ensure `updateSessionKind` specifically targets the task ID of the active segment if one exists, rather than applying a blanket update to the `groupId`.
-- **UI State Verification**: Verify that the `TaskKindDropdownMenu` in `ActiveSessionCard` is correctly passing the intent to update the *running* task specifically.
+### 🛠️ Final Fix
+- Added `TaskRepository.updateSegmentKind(taskId, newKind)`, which retargets exactly one `Task` row (recomputing its score too, when it's already frozen) instead of the whole group. `ActiveSessionCard`'s `onUpdateKind` now resolves the same `activeSegment?.task ?: session.segments.firstOrNull()` reference at the call site in `TaskTrackerScreen.kt` and calls this new method with that specific task's id.
+- `TaskRepository.updateSessionKind` (the *deliberate* whole-session "Session Category" picker in `SessionDetailDialog`, used for both active and fully historical sessions — left as a genuine bulk operation, since that's its actual purpose) now loops per-segment and recomputes each already-completed segment's score under the new Kind too, instead of a single unconditional bulk SQL `UPDATE`.
+- `updateCompletedTaskKind` (Task History's per-task Kind change) now delegates to the new `updateSegmentKind` instead of writing `kind` directly, fixing the same score-staleness gap there for free.
 
 ---
 
@@ -566,4 +563,4 @@ Follow-up to #34, reported immediately after verifying it: start a task, interru
 Replaced the active-segment-only lookup with `findInterruptionSessionFor(groupId)`, which finds the session interrupting `groupId` by checking `activeSegment?.task ?: segments.firstOrNull()` — so it matches regardless of whether that interrupting session currently has a running segment or is itself paused by a further interruption. `stopActiveInterruptionChain` was generalized to walk sessions (not just active `RunningTaskUI`s) via this helper, so it now correctly collapses a chain of any depth in one pass. Reused from both `stopTask()` (#34) and `pauseResumeTask()`'s resume branch, so both entry points share one correct implementation instead of two divergent ones.
 
 ---
-*Last Updated: 2026-08-09*
+*Last Updated: 2026-08-10*

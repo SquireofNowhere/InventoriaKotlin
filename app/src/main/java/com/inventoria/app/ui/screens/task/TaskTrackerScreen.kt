@@ -262,7 +262,14 @@ fun TaskTrackerScreen(
                             onPauseResume = { viewModel.pauseResumeTask(session) },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
                             onAutocompleteSelect = { n, g -> viewModel.updateSessionNameAndGroup(session.groupId, n, g) },
-                            onUpdateKind = { viewModel.updateSessionKind(session.groupId, it) },
+                            onUpdateKind = { kind ->
+                                // Only the segment actually shown in this card -- the running
+                                // one, or the most recent paused one if nothing's running --
+                                // not the whole session's history (see ErrorLog.md #18).
+                                (session.activeSegment?.task ?: session.segments.firstOrNull())?.let {
+                                    viewModel.updateSegmentKind(it.id, kind)
+                                }
+                            },
                             onSessionClick = { selectedSessionGroupId = session.groupId },
                             onToggleStreak = { task, enabled -> viewModel.setInnerTaskCountsForStreak(task, enabled) }
                         )
