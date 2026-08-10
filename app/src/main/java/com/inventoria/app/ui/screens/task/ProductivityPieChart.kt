@@ -57,7 +57,14 @@ fun ProductivityPieChart(
     }
 
     val dayDuration = 24 * 60 * 60 * 1000L
-    
+    // Absolute angle for "now" -- used to keep the "% tracked" stat from counting hours that
+    // haven't happened yet. Segments themselves are clipped only to end-of-day (see below), not
+    // to "now", so a task whose endTime is in the future -- most plausibly a calendar-imported
+    // event still in progress, e.g. a 12:00-1:00 meeting synced at 12:30 -- draws its full
+    // scheduled span (a reasonable "here's your day" preview), but its future portion must NOT
+    // count toward "tracked" time that's already elapsed.
+    val nowAngle = ((currentTime - todayStart).toFloat() / dayDuration.toFloat()) * 360f - 90f
+
     val segments = remember(tasks, todayStart, currentTime) {
         val todayTasks = tasks.filter { 
             val end = it.endTime ?: currentTime
@@ -156,7 +163,7 @@ fun ProductivityPieChart(
             // 2. Passed Time Track: untracked time from midnight until NOW, softly shaded
             // (was a heavy solid-black mask -- theme-aware and much lighter now, just enough to
             // distinguish "elapsed but untracked" from the light-gray "still to come" track).
-            val passedTimeSweep = ((currentTime - todayStart).toFloat() / dayDuration.toFloat()) * 360f
+            val passedTimeSweep = nowAngle - (-90f)
             drawArc(
                 color = elapsedMaskColor.copy(alpha = 0.25f),
                 startAngle = -90f,
@@ -205,18 +212,27 @@ fun ProductivityPieChart(
             }
         }
 
+        // Clip each segment's contribution to "now" before merging -- a segment can legitimately
+        // extend past now (a calendar event's scheduled end), but future time can't count as
+        // already-tracked. Segments are sorted by startAngle, and clamping only the end doesn't
+        // change that ordering, so the merge below still sees them in order.
+        val trackedIntervals = segments.mapNotNull { segment ->
+            val clippedEnd = minOf(segment.startAngle + segment.sweepAngle, nowAngle)
+            if (clippedEnd > segment.startAngle) segment.startAngle to clippedEnd else null
+        }
+
         var totalTrackedDegrees = 0.0
         var currentStart = -1000f
         var currentEnd = -1000f
-        for (segment in segments) {
-            if (segment.startAngle > currentEnd) {
+        for ((start, end) in trackedIntervals) {
+            if (start > currentEnd) {
                 if (currentEnd > -1000f) {
                     totalTrackedDegrees += (currentEnd - currentStart)
                 }
-                currentStart = segment.startAngle
-                currentEnd = segment.startAngle + segment.sweepAngle
+                currentStart = start
+                currentEnd = end
             } else {
-                currentEnd = maxOf(currentEnd, segment.startAngle + segment.sweepAngle)
+                currentEnd = maxOf(currentEnd, end)
             }
         }
         if (currentEnd > -1000f) {
@@ -265,9 +281,11 @@ fun DailyProductivityDialog(
     val taskBreakdown = remember(tasks) {
         tasks.groupBy { it.kind }
             .map { (kind, kindTasks) ->
-                val totalDuration = kindTasks.sumOf { 
+                val totalDuration = kindTasks.sumOf {
                     val start = maxOf(it.startTime, todayStart)
-                    val end = minOf(it.endTime ?: currentTime, todayStart + 24 * 60 * 60 * 1000L)
+                    // Also capped at currentTime -- a calendar-imported event's endTime can be
+                    // later than "now" (e.g. still mid-meeting), and that hasn't happened yet.
+                    val end = minOf(it.endTime ?: currentTime, todayStart + 24 * 60 * 60 * 1000L, currentTime)
                     if (end > start) end - start else 0L
                 }
                 val totalPoints = kindTasks.sumOf { it.score }
