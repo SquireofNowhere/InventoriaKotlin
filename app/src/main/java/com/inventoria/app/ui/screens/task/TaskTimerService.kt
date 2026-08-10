@@ -16,7 +16,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import java.util.*
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -126,18 +125,6 @@ class TaskTimerService : Service() {
         }
     }
 
-    fun startTask(id: String, startTime: Long, prevDuration: Long = 0L) {
-        // Now handled via startObservingTasks()
-    }
-
-    fun updateTaskName(id: String, name: String) {
-        // Now handled via startObservingTasks()
-    }
-
-    fun stopTask(id: String) {
-        // Now handled via startObservingTasks()
-    }
-
     private fun startForegroundService() {
         val notification = createNotification("Task Tracking Active", emptyMap())
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -185,13 +172,6 @@ class TaskTimerService : Service() {
         }
 
         return builder.build()
-    }
-
-    private fun formatTime(milliseconds: Long): String {
-        val hours = TimeUnit.MILLISECONDS.toHours(milliseconds)
-        val minutes = (TimeUnit.MILLISECONDS.toMinutes(milliseconds) % 60)
-        val seconds = (TimeUnit.MILLISECONDS.toSeconds(milliseconds) % 60)
-        return String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
     }
 
     private fun createNotificationChannel() {

@@ -62,7 +62,6 @@ class TaskRepository @Inject constructor(
     }
 
     fun getVisibleTasks(): Flow<List<Task>> = taskDao.getVisibleTasks()
-    fun getAllTasksForSync(): Flow<List<Task>> = taskDao.getAllTasks()
 
     suspend fun insertTask(task: Task) {
         val timestamp = getNextTimestamp(task.updatedAt)

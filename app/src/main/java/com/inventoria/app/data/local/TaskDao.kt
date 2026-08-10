@@ -10,9 +10,6 @@ interface TaskDao {
     @Query("SELECT * FROM Task WHERE isDeleted = 0 ORDER BY startTime DESC")
     fun getAllTasks(): Flow<List<Task>>
 
-    @Query("SELECT * FROM Task ORDER BY updatedAt DESC")
-    fun getAllTasksForSync(): Flow<List<Task>>
-
     @Query("SELECT * FROM Task WHERE isDirty = 1")
     fun getDirtyTasksFlow(): Flow<List<Task>>
 
@@ -24,9 +21,6 @@ interface TaskDao {
 
     @Query("SELECT * FROM Task")
     suspend fun getAllTasksForSyncList(): List<Task>
-
-    @Query("SELECT * FROM Task WHERE isDeleted = 0")
-    suspend fun getAllTasksList(): List<Task>
 
     @Query("SELECT * FROM Task WHERE isDeleted = 0 ORDER BY startTime DESC")
     fun getVisibleTasks(): Flow<List<Task>>

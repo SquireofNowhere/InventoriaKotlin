@@ -278,19 +278,6 @@ fun InventoriaApp() {
                 )
             }
 
-            composable(
-                route = "task_detail/{taskId}",
-                arguments = listOf(navArgument("taskId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val taskId = backStackEntry.arguments?.getString("taskId") ?: ""
-                val viewModel: TaskTrackerViewModel = hiltViewModel()
-                TaskDetailScreen(
-                    taskId = taskId,
-                    viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-
             composable(Screen.Todos.route) {
                 val viewModel: TodoViewModel = hiltViewModel()
                 TodoScreen(

@@ -207,27 +207,6 @@ class TaskTrackerViewModel @Inject constructor(
         tasks.sumOf { it.score }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    // Todo completions today are folded in as extra (kind, 1) occurrences alongside tracked-task
-    // kinds -- ProductivityScoreCard's breakdown UI already just multiplies count x
-    // kind.productivityValue per row, so a completed Todo naturally displays its own full,
-    // undamped value here without any special-casing.
-    val scoreBreakdownToday: StateFlow<List<Pair<TaskKind, Int>>> = combine(allFinishedTasks, todos) { tasks, todoList ->
-        val todayStart = getTodayStart()
-        val taskKinds = tasks.filter { it.startTime >= todayStart }.map { it.kind }
-        val todoKinds = todoList.filter { it.state == TodoState.COMPLETE && (it.completedAt ?: 0L) >= todayStart }.map { it.kind }
-        (taskKinds + todoKinds)
-            .groupBy { it }
-            .map { (kind, occurrences) -> kind to occurrences.size }
-            .sortedByDescending { it.second }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val scoreBreakdownLifetime: StateFlow<List<Pair<TaskKind, Int>>> = allFinishedTasks.map { tasks ->
-        tasks
-            .groupBy { it.kind }
-            .map { (kind, kindTasks) -> kind to kindTasks.size }
-            .sortedByDescending { it.second }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as TaskTimerService.TimerBinder
@@ -580,11 +559,6 @@ class TaskTrackerViewModel @Inject constructor(
     fun updateCompletedTaskKind(task: Task, newKind: TaskKind) {
         if (task.id.startsWith("cal_")) return
         viewModelScope.launch { repository.updateTask(task.copy(kind = newKind, isKindCustom = true)) }
-    }
-
-    fun updateSegment(task: Task) {
-        if (task.id.startsWith("cal_")) return
-        viewModelScope.launch { repository.updateTask(task) }
     }
 
     fun updateSegmentTime(task: Task, start: Long, end: Long) {

@@ -64,8 +64,6 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 
-enum class CalendarStatus { EMPTY, SOME, FULL_LOCAL, FULL_CALENDAR }
-
 // Presentation-only: activeSessions is a flat list, but interruptions chain via
 // Task.interruptedGroupId (an inner task can itself be paused and interrupted). This walks
 // that chain into a depth-first order so the UI can render it as a nested hierarchy instead of
@@ -768,11 +766,6 @@ private fun SegmentRow(
 }
 
 
-fun calculateCalendarStatus(segments: List<Task>): CalendarStatus {
-    val total = segments.size; val savedLocal = segments.count { it.savedToCalendar }; val savedCalendar = segments.count { it.id.startsWith("cal_") }
-    return when { savedCalendar == total -> CalendarStatus.FULL_CALENDAR; savedLocal == total -> CalendarStatus.FULL_LOCAL; savedLocal > 0 || savedCalendar > 0 -> CalendarStatus.SOME; else -> CalendarStatus.EMPTY }
-}
-
 @Composable
 fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Triple<String, String, TaskKind>>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
@@ -1179,7 +1172,6 @@ fun calculateOverlapWithToday(start: Long, end: Long, todayStart: Long): Long {
     val effectiveEnd = maxOf(end, todayStart)
     return if (effectiveEnd > effectiveStart) effectiveEnd - effectiveStart else 0L
 }
-fun calculateSessionPercentage(segments: List<Task>, activeDuration: Long = 0L, activeTask: Task? = null): String { val dayMillis = 86400000L; val dayDurations = mutableMapOf<Long, Long>(); segments.forEach { segment -> val dayStart = getStartOfDay(segment.startTime); dayDurations[dayStart] = (dayDurations[dayStart] ?: 0L) + segment.duration }; if (activeTask != null) { val dayStart = getStartOfDay(activeTask.startTime); dayDurations[dayStart] = (dayDurations[dayStart] ?: 0L) + activeDuration }; if (dayDurations.isEmpty()) return "0.0% of Today"; return dayDurations.entries.sortedByDescending { it.key }.joinToString(" - ") { (dayStart, duration) -> val percentage = (duration.toDouble() / dayMillis.toDouble()) * 100.0; val dayLabel = getDayLabel(dayStart); String.format("%.1f%% of %s", percentage, dayLabel) } }
 fun showDateTimePicker(context: Context, initialTime: Long, onTimeSelected: (Long) -> Unit) { val calendar = Calendar.getInstance().apply { timeInMillis = initialTime }; DatePickerDialog(context, { _, year, month, day -> TimePickerDialog(context, { _, hour, minute -> val result = Calendar.getInstance().apply { set(year, month, day, hour, minute) }; onTimeSelected(result.timeInMillis) }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show() }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show() }
 fun addToGoogleCalendar(context: Context, task: Task) { val googleColorId = when (task.kind) { TaskKind.TOMATO -> 11; TaskKind.TANGERINE -> 6; TaskKind.GRAPHITE -> 8; TaskKind.GRAPE -> 3; TaskKind.BLUEBERRY -> 9; TaskKind.LAVENDER -> 1; TaskKind.PEACOCK -> 7; TaskKind.BANANA -> 5; TaskKind.FLAMINGO -> 4; TaskKind.BASIL -> 10; TaskKind.SAGE -> 2 }; val description = "Type: ${task.kind.displayName}\nDuration: ${formatDetailedDuration(task.duration)}\nTracked via Inventoria Task Tracker\nTask ID: ${task.id}\nSession ID: ${task.groupId}"; val intent = Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI).putExtra(CalendarContract.Events.TITLE, task.name).putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, task.startTime).putExtra(CalendarContract.EXTRA_EVENT_END_TIME, task.endTime ?: (task.startTime + task.duration)).putExtra(CalendarContract.Events.DESCRIPTION, description).putExtra(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY).putExtra("eventColorId", googleColorId.toString()); context.startActivity(intent) }
 fun openInSystemCalendar(context: Context, task: Task) { if (task.id.startsWith("cal_")) { val eventId = task.id.removePrefix("cal_").toLongOrNull(); if (eventId != null) { val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId); try { context.startActivity(Intent(Intent.ACTION_VIEW).setData(uri)); return } catch (e: Exception) { Log.e("TaskTracker", "Could not open event $eventId", e) } } }; try { context.startActivity(Intent(Intent.ACTION_VIEW).setData(Uri.parse("content://com.android.calendar/time/${task.startTime}"))) } catch (e: Exception) { Log.e("TaskTracker", "Could not open calendar", e) } }
