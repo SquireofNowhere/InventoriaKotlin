@@ -342,7 +342,8 @@ fun TaskTrackerScreen(
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
             previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
-            onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) }
+            onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) },
+            nextTaskName = viewModel.nextTaskName
         )
     }
 
@@ -886,7 +887,7 @@ fun SessionDetailDialog(
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind) -> Unit) {
+fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind) -> Unit, nextTaskName: String) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
     var showSplitDialog by remember { mutableStateOf(false) }
     
@@ -1051,7 +1052,7 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
         var hoursStr by remember { mutableStateOf(TimeUnit.MILLISECONDS.toHours(initialOffsetMs).toString()) }
         var minutesStr by remember { mutableStateOf((TimeUnit.MILLISECONDS.toMinutes(initialOffsetMs) % 60).toString()) }
         var secondsStr by remember { mutableStateOf((TimeUnit.MILLISECONDS.toSeconds(initialOffsetMs) % 60).toString()) }
-        var splitName by remember { mutableStateOf(task.name) }
+        var splitName by remember { mutableStateOf(nextTaskName) }
         var splitKind by remember { mutableStateOf(task.kind) }
 
         LaunchedEffect(currentTime) {
@@ -1083,7 +1084,7 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Cuts this segment in two, this far into it. The first part keeps this name and category; the second part is a new segment in the same session.",
+                        text = "Cuts this segment in two, this far into it. The first part keeps this name and category; the second part becomes a brand new, separate task.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1125,10 +1126,10 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                     OutlinedTextField(
                         value = splitName,
                         onValueChange = { splitName = it },
-                        label = { Text("Second Segment Name") },
+                        label = { Text("New Task Name") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Text("Second Segment Category", style = MaterialTheme.typography.labelSmall)
+                    Text("New Task Category", style = MaterialTheme.typography.labelSmall)
                     TaskKindDropdownMenu(selectedKind = splitKind, onKindSelected = { splitKind = it })
                 }
             },

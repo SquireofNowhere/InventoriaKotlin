@@ -632,14 +632,21 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    /** Inverse of [flattenSession]: cuts one segment into two at [splitTime], sharing the same
-     * groupId so both halves stay part of the same session (exactly like an existing
-     * paused-segment + running-segment pair already does). [task] may be running (in which case
-     * the second half keeps running to "now", open-ended, mirroring how [resumeSession] starts a
-     * fresh running segment) or already a completed/paused segment (in which case the second half
-     * is also completed, ending where [task] used to end). Both halves' scores are computed
-     * up front from the CURRENT streak, before either write lands, so freezing the first half
-     * doesn't shift the streak lookback out from under the second half's calculation. */
+    /** Default name offered for a split's second half, the same auto-naming a brand new task
+     * gets via [addNewTask] -- lets the Split dialog auto-fill a sensible default instead of
+     * just repeating the original segment's name. */
+    val nextTaskName: String get() = "Task $taskCounter"
+
+    /** Inverse of [flattenSession]: cuts one segment into two at [splitTime]. Unlike a
+     * paused-segment + running-segment pair (which share a groupId), the second half gets its
+     * OWN fresh groupId -- it's meant to count as a genuinely new, independent task/session
+     * rather than a sub-segment nested under the original one. [task] may be running (in which
+     * case the second half keeps running to "now", open-ended, mirroring how [resumeSession]
+     * starts a fresh running segment) or already a completed/paused segment (in which case the
+     * second half is also completed, ending where [task] used to end). Both halves' scores are
+     * computed up front from the CURRENT streak, before either write lands, so freezing the
+     * first half doesn't shift the streak lookback out from under the second half's
+     * calculation. */
     fun splitSegment(task: Task, splitTime: Long, secondName: String, secondKind: TaskKind) {
         if (task.id.startsWith("cal_")) return
         val effectiveEnd = task.endTime ?: System.currentTimeMillis()
@@ -650,6 +657,7 @@ class TaskTrackerViewModel @Inject constructor(
             val secondDuration = effectiveEnd - splitTime
             val firstScore = repository.previewScore(task.kind, firstDuration)
             val secondScore = if (task.isRunning) 0 else repository.previewScore(secondKind, secondDuration)
+            val finalSecondName = secondName.ifBlank { task.name }
 
             repository.updateTask(
                 task.copy(endTime = splitTime, duration = firstDuration, isRunning = false, isPaused = true, score = firstScore)
@@ -657,8 +665,8 @@ class TaskTrackerViewModel @Inject constructor(
             repository.insertTask(
                 Task(
                     id = UUID.randomUUID().toString(),
-                    groupId = task.groupId,
-                    name = secondName.ifBlank { task.name },
+                    groupId = UUID.randomUUID().toString(),
+                    name = finalSecondName,
                     kind = secondKind,
                     startTime = splitTime,
                     endTime = if (task.isRunning) null else task.endTime,
@@ -666,7 +674,11 @@ class TaskTrackerViewModel @Inject constructor(
                     isRunning = task.isRunning,
                     isPaused = if (task.isRunning) false else task.isPaused,
                     isSessionActive = task.isSessionActive,
-                    isNameCustom = secondName.isNotBlank() && secondName != task.name,
+                    // Matches the convention processTasks()/updateSessionName() already use
+                    // elsewhere to recognize an untouched auto-generated "Task N" placeholder --
+                    // if the user left the dialog's auto-filled default alone, this isn't a
+                    // custom name.
+                    isNameCustom = !finalSecondName.startsWith("Task "),
                     isKindCustom = secondKind != task.kind,
                     interruptedGroupId = task.interruptedGroupId,
                     countsForStreak = task.countsForStreak,
