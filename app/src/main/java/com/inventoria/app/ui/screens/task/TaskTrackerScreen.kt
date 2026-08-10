@@ -1107,7 +1107,10 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                     )
 
                     // Split graphic: proportional bar showing where the cut falls across the
-                    // segment's full span, colored by each half's Kind.
+                    // segment's full span, colored by each half's Kind, with a fixed-width
+                    // divider between them so the boundary stays visible even when both halves
+                    // happen to share the same Kind (and thus the same color).
+                    val secondOffsetMs = (totalSpan - offsetMs).coerceAtLeast(0L)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1115,7 +1118,16 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
                             .clip(RoundedCornerShape(4.dp))
                     ) {
                         Box(modifier = Modifier.weight(splitFraction.coerceAtLeast(0.001f)).fillMaxHeight().background(Color(task.kind.colorValue)))
+                        Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.onSurface))
                         Box(modifier = Modifier.weight((1f - splitFraction).coerceAtLeast(0.001f)).fillMaxHeight().background(Color(splitKind.colorValue)))
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.weight(splitFraction.coerceAtLeast(0.001f)), contentAlignment = Alignment.Center) {
+                            Text(formatDetailedDuration(offsetMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Box(modifier = Modifier.weight((1f - splitFraction).coerceAtLeast(0.001f)), contentAlignment = Alignment.Center) {
+                            Text(formatDetailedDuration(secondOffsetMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     Text(
                         text = "At ${formatDateTime(splitTime)}",
