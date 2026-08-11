@@ -6,8 +6,8 @@
         <!-- Not edge-to-edge: solid system bars so app content is always fully below the status
              bar / above the nav bar rather than able to render underneath them. A translucent
              status bar relies on every single screen remembering to add its own inset padding
-             (Scaffold/TopAppBar do this by default, but anything outside one -- like the global
-             sync status overlay -- doesn't get it for free and silently renders underneath). -->
+             (Scaffold/TopAppBar do this by default, but anything outside one, like the global
+             sync status overlay, doesn't get it for free and silently renders underneath). -->
         <item name="android:statusBarColor">@color/light_background</item>
         <item name="android:navigationBarColor">@color/light_background</item>
         <item name="android:windowLightStatusBar">true</item>
