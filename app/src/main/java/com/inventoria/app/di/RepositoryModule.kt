@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.storage.FirebaseStorage
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.local.*
 import com.inventoria.app.data.repository.*
@@ -40,13 +41,23 @@ class RepositoryModule {
         collectionDao: CollectionDao,
         itemLinkDao: ItemLinkDao,
         todoDao: TodoDao,
+        taskTypeDao: TaskTypeDao,
         firebaseDatabase: FirebaseDatabase,
         authRepository: FirebaseAuthRepository,
         settingsRepository: SettingsRepository
     ): FirebaseSyncRepository {
+        // Named arguments deliberately: these constructors are long and same-shaped, and the
+        // positional form silently rebinds every argument after any newly inserted parameter.
         return FirebaseSyncRepository(
-            inventoryDao, taskDao, collectionDao, itemLinkDao, todoDao,
-            firebaseDatabase, authRepository, settingsRepository
+            inventoryDao = inventoryDao,
+            taskDao = taskDao,
+            collectionDao = collectionDao,
+            itemLinkDao = itemLinkDao,
+            todoDao = todoDao,
+            taskTypeDao = taskTypeDao,
+            firebaseDatabase = firebaseDatabase,
+            authRepository = authRepository,
+            settingsRepository = settingsRepository
         )
     }
 
@@ -56,17 +67,35 @@ class RepositoryModule {
         inventoryDao: InventoryDao,
         itemLinkDao: ItemLinkDao,
         syncRepository: FirebaseSyncRepository,
+        taskTypeRepository: TaskTypeRepository,
         authRepository: FirebaseAuthRepository,
         storageRepository: FirebaseStorageRepository,
         @ApplicationContext context: Context
     ): InventoryRepository {
-        return InventoryRepository(inventoryDao, itemLinkDao, syncRepository, authRepository, storageRepository, context)
+        return InventoryRepository(
+            inventoryDao = inventoryDao,
+            itemLinkDao = itemLinkDao,
+            syncRepository = syncRepository,
+            taskTypeRepository = taskTypeRepository,
+            authRepository = authRepository,
+            storageRepository = storageRepository,
+            context = context
+        )
     }
 
     @Provides
     @Singleton
     fun provideTaskRepository(taskDao: TaskDao): TaskRepository {
         return TaskRepository(taskDao)
+    }
+
+    @Provides
+    @Singleton
+    fun provideTaskTypeRepository(
+        taskTypeDao: TaskTypeDao,
+        settingsRepository: SettingsRepository
+    ): TaskTypeRepository {
+        return TaskTypeRepository(taskTypeDao, settingsRepository)
     }
 
     @Provides
