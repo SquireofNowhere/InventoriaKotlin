@@ -164,6 +164,14 @@ class TaskTrackerViewModel @Inject constructor(
     val taskTypes: StateFlow<List<TaskType>> = taskTypeRepository.getVisibleTaskTypes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** Type id -> display name, for the cards that only need to *label* a task's type rather than
+     * work with the whole row. Built off the visible types, so a task pointing at a soft-deleted
+     * type resolves to null and simply shows no type label -- the type no longer exists as far as
+     * the user is concerned, and the id stays on the task in case it comes back. */
+    val taskTypeNamesById: StateFlow<Map<String, String>> = taskTypes
+        .map { types -> types.associate { it.id to it.name } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     // ONE shared aggregate pass, deliberately not a stat-per-flow -- see computeTaskTypeStats.
     // Everything that needs per-type numbers (the autofill's kind prefill, the Task Types manager
     // rows, the By Type stats tab) reads this same map rather than re-scanning the task list.

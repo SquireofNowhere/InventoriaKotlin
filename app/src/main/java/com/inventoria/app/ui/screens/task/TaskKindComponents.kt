@@ -15,6 +15,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskCategory
@@ -69,6 +71,39 @@ fun TaskKindChip(
                 )
             }
         }
+    }
+}
+
+/**
+ * A task's Type ("Eating"), rendered as a small caption sitting above the task's own name so the
+ * two tiers read as separate things: the type is the shared activity, the name is this particular
+ * instance of it ("Eating with V"). Without this the type was stored and used for autofill and
+ * reporting but never actually shown on a card, so a task looked like nothing but a free-text name.
+ *
+ * Deliberately quieter than [TaskKindChip] -- the Kind owns a color and a score and earns a chip;
+ * the type is a plain label and shouldn't compete with the name it sits above.
+ */
+@Composable
+fun TaskTypeLabel(
+    typeName: String,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 12.dp
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Default.Category,
+            contentDescription = "Task type",
+            modifier = Modifier.size(iconSize),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = typeName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

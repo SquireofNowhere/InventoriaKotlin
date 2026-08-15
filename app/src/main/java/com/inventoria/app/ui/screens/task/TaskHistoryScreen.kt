@@ -62,6 +62,7 @@ fun TaskHistoryScreen(
     val isFlatView by viewModel.isTaskHistoryFlatView.collectAsState()
     val currentTime by rememberTick()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
+    val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
     val context = LocalContext.current
 
@@ -173,6 +174,7 @@ fun TaskHistoryScreen(
                         TimelineTaskRow(
                             task = task,
                             isSelected = task.id in selectedTaskIds,
+                            taskTypeNames = taskTypeNames,
                             showTime = showTimeById[task.id] != false,
                             onClick = {
                                 if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
@@ -204,6 +206,7 @@ fun TaskHistoryScreen(
                                 segments = session,
                                 currentTime = currentTime,
                                 selectedTaskIds = selectedTaskIds,
+                                taskTypeNames = taskTypeNames,
                                 onClick = { selectedSessionGroupId = session.first().groupId },
                                 onDelete = { viewModel.deleteSession(session.first().groupId) },
                                 onSegmentClick = {
@@ -219,6 +222,7 @@ fun TaskHistoryScreen(
                             TimelineTaskRow(
                                 task = task,
                                 isSelected = task.id in selectedTaskIds,
+                                taskTypeNames = taskTypeNames,
                                 showTime = showTimeById[task.id] != false,
                                 onClick = {
                                     if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
@@ -337,6 +341,7 @@ private fun DayMiniTimeline(dayStart: Long, tasksThatDay: List<Task>) {
 private fun TimelineTaskRow(
     task: Task,
     isSelected: Boolean,
+    taskTypeNames: Map<String, String>,
     showTime: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -359,6 +364,7 @@ private fun TimelineTaskRow(
         SingleTaskItemCard(
             task = task,
             isSelected = isSelected,
+            taskTypeNames = taskTypeNames,
             modifier = Modifier.weight(1f),
             onClick = onClick,
             onLongClick = onLongClick,

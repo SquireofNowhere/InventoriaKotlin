@@ -129,6 +129,7 @@ fun TaskTrackerScreen(
     val socialScore by viewModel.socialScoreToday.collectAsState()
     val taskTypes by viewModel.taskTypes.collectAsState()
     val taskTypeStats by viewModel.taskTypeStats.collectAsState()
+    val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }
@@ -291,6 +292,7 @@ fun TaskTrackerScreen(
                                 segments = session,
                                 currentTime = currentTime,
                                 selectedTaskIds = selectedTaskIds,
+                                taskTypeNames = taskTypeNames,
                                 onClick = { selectedSessionGroupId = session.first().groupId },
                                 onDelete = { viewModel.deleteSession(session.first().groupId) },
                                 onSegmentLongClick = { viewModel.toggleTaskSelection(it.id) },
@@ -305,6 +307,7 @@ fun TaskTrackerScreen(
                             val task = session.first()
                             SingleTaskItemCard(
                                 task = task, isSelected = task.id in selectedTaskIds,
+                                taskTypeNames = taskTypeNames,
                                 onClick = { if (isSelectionMode) viewModel.toggleTaskSelection(task.id) else selectedTaskId = task.id },
                                 onLongClick = { viewModel.toggleTaskSelection(task.id) },
                                 onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
@@ -535,6 +538,7 @@ fun ScoreMiniItem(label: String, score: Int, color: Color) {
 fun SingleTaskItemCard(
     task: Task,
     isSelected: Boolean = false,
+    taskTypeNames: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -567,6 +571,8 @@ fun SingleTaskItemCard(
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    val typeName = task.taskTypeId?.let { taskTypeNames[it] }
+                    if (typeName != null) TaskTypeLabel(typeName)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (task.originTodoId != null) {
                             Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
@@ -628,6 +634,7 @@ fun CompletedSessionCard(
     segments: List<Task>,
     currentTime: Long,
     selectedTaskIds: Set<String>,
+    taskTypeNames: Map<String, String> = emptyMap(),
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onSegmentClick: (Task) -> Unit,
@@ -638,6 +645,11 @@ fun CompletedSessionCard(
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     val majorityKind = segments.groupBy { it.kind }.maxByOrNull { it.value.size }?.key ?: segments.first().kind
+    // Same majority rule the Kind above already uses: segments of one session can carry different
+    // types (an interruption gets its own), and the header summarises the session, not any one
+    // segment. Untyped segments don't get a vote -- expand the session to see them individually.
+    val majorityTypeName = segments.mapNotNull { it.taskTypeId?.let { id -> taskTypeNames[id] } }
+        .groupBy { it }.maxByOrNull { it.value.size }?.key
     val sessionName = segments.firstOrNull { it.isNameCustom }?.name ?: segments.firstOrNull()?.name ?: "Untitled Session"
     val todayStart = getStartOfDay(currentTime)
     val todayDuration = segments.sumOf { calculateOverlapWithToday(it.startTime, it.endTime ?: (it.startTime + it.duration), todayStart) }
@@ -666,6 +678,7 @@ fun CompletedSessionCard(
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f).clickable { onClick() }) {
+                    majorityTypeName?.let { TaskTypeLabel(it) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (hasTodoOrigin) {
                             Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
@@ -714,6 +727,7 @@ fun CompletedSessionCard(
                         SegmentRow(
                             segment = segment,
                             isSelected = segment.id in selectedTaskIds,
+                            typeName = segment.taskTypeId?.let { taskTypeNames[it] },
                             onClick = { onSegmentClick(segment) },
                             onLongClick = { onSegmentLongClick(segment) },
                             onToggleCalendar = { onSegmentToggleCalendar(segment) },
@@ -732,6 +746,7 @@ fun CompletedSessionCard(
 private fun SegmentRow(
     segment: Task,
     isSelected: Boolean,
+    typeName: String?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleCalendar: () -> Unit,
@@ -756,6 +771,7 @@ private fun SegmentRow(
             Box(modifier = Modifier.width(2.dp).height(28.dp).clip(RoundedCornerShape(2.dp)).background(if (isSelected) MaterialTheme.colorScheme.primary else segmentColor.copy(alpha = 0.7f)))
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
+                typeName?.let { TaskTypeLabel(it, iconSize = 10.dp) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (segment.originTodoId != null) {
                         Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
@@ -815,6 +831,12 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                     Spacer(Modifier.width(4.dp))
                     Text("Interrupting $parentName", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            // Resolved from the type list this card already receives for its autofill dropdown,
+            // so picking a type suggestion labels the running card immediately.
+            val activeTypeName = refTask.taskTypeId?.let { id -> taskTypes.firstOrNull { it.id == id }?.name }
+            if (activeTypeName != null) {
+                TaskTypeLabel(activeTypeName, modifier = Modifier.padding(bottom = 2.dp), iconSize = 14.dp)
             }
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (refTask.originTodoId != null) {
