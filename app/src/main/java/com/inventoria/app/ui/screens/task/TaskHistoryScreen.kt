@@ -71,6 +71,8 @@ fun TaskHistoryScreen(
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
     var pendingActivityDelete by remember { mutableStateOf<ActivityGroup?>(null) }
+    var pendingScopedEdit by remember { mutableStateOf<PendingScopedEdit?>(null) }
+    val activityFor: (Task) -> ActivityGroup? = { task -> activityGroups.find { it.key == activityKeyOf(task) } }
 
     val currentSelectedSession = remember(selectedSessionGroupId, completedSessions) {
         selectedSessionGroupId?.let { groupId ->
@@ -251,6 +253,10 @@ fun TaskHistoryScreen(
         }
     }
 
+    pendingScopedEdit?.let { pending ->
+        ScopedEditPrompt(pending = pending, onDismiss = { pendingScopedEdit = null })
+    }
+
     pendingActivityDelete?.let { group ->
         EditScopeDialog(
             title = "Delete \"${group.displayName}\"?",
@@ -270,9 +276,33 @@ fun TaskHistoryScreen(
             segments = segments,
             taskTypes = taskTypes,
             onDismiss = { selectedSessionGroupId = null },
-            onUpdateSessionName = { name -> viewModel.updateSessionName(segments.first().groupId, name) },
-            onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
-            onUpdateSessionTaskType = { typeId -> viewModel.updateSessionTaskType(segments.first().groupId, typeId) },
+            onUpdateSessionName = { name ->
+                scopedEdit(
+                    group = activityFor(segments.first()),
+                    description = "Rename to \"$name\"",
+                    applyAll = { ids -> viewModel.updateActivityName(ids, name) },
+                    applyOne = { viewModel.updateSessionName(segments.first().groupId, name) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onUpdateSessionKind = { kind ->
+                scopedEdit(
+                    group = activityFor(segments.first()),
+                    description = "Change Kind to ${kind.displayName.split(" • ").last()}",
+                    applyAll = { ids -> viewModel.updateActivityKind(ids, kind) },
+                    applyOne = { viewModel.updateSessionKind(segments.first().groupId, kind) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onUpdateSessionTaskType = { typeId ->
+                scopedEdit(
+                    group = activityFor(segments.first()),
+                    description = "Change type to ${typeId?.let { taskTypeNames[it] } ?: "no type"}",
+                    applyAll = { ids -> viewModel.updateActivityTaskType(ids, typeId) },
+                    applyOne = { viewModel.updateSessionTaskType(segments.first().groupId, typeId) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
             onFlatten = { viewModel.flattenSession(segments.first().groupId) },
             onNavigateToTaskDetail = { selectedTaskId = it },
@@ -285,9 +315,33 @@ fun TaskHistoryScreen(
             task = task,
             taskTypes = taskTypes,
             onDismiss = { selectedTaskId = null },
-            onSaveName = { viewModel.updateCompletedTaskName(task, it) },
-            onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
-            onTaskTypeChange = { viewModel.updateCompletedTaskType(task, it) },
+            onSaveName = { name ->
+                scopedEdit(
+                    group = activityFor(task),
+                    description = "Rename to \"$name\"",
+                    applyAll = { ids -> viewModel.updateActivityName(ids, name) },
+                    applyOne = { viewModel.updateCompletedTaskName(task, name) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onKindChange = { kind ->
+                scopedEdit(
+                    group = activityFor(task),
+                    description = "Change Kind to ${kind.displayName.split(" • ").last()}",
+                    applyAll = { ids -> viewModel.updateActivityKind(ids, kind) },
+                    applyOne = { viewModel.updateCompletedTaskKind(task, kind) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onTaskTypeChange = { typeId ->
+                scopedEdit(
+                    group = activityFor(task),
+                    description = "Change type to ${typeId?.let { taskTypeNames[it] } ?: "no type"}",
+                    applyAll = { ids -> viewModel.updateActivityTaskType(ids, typeId) },
+                    applyOne = { viewModel.updateCompletedTaskType(task, typeId) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },

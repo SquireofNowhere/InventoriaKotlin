@@ -811,6 +811,31 @@ class TaskTrackerViewModel @Inject constructor(
         groupIds.forEach { deleteSession(it) }
     }
 
+    /* Activity-wide edits: the same per-session writes, applied to every sitting behind one
+     * activity card. All three are reached only through the scope prompt -- the "change all" arm.
+     * Renaming in particular has to be all-or-nothing to be coherent: the name is half the
+     * activity key, so renaming one sitting is exactly how you'd split it back out. */
+
+    fun updateActivityName(groupIds: List<String>, newName: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            groupIds.forEach { repository.updateSessionName(it, newName) }
+            _isLoading.value = false
+        }
+    }
+
+    fun updateActivityKind(groupIds: List<String>, newKind: TaskKind) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            groupIds.forEach { repository.updateSessionKind(it, newKind) }
+            _isLoading.value = false
+        }
+    }
+
+    fun updateActivityTaskType(groupIds: List<String>, newTaskTypeId: String?) {
+        viewModelScope.launch { groupIds.forEach { repository.updateSessionTaskType(it, newTaskTypeId) } }
+    }
+
     fun deleteSession(groupId: String) {
         viewModelScope.launch {
             _isLoading.value = true

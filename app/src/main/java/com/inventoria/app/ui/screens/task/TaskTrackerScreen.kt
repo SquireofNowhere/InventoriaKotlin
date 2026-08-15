@@ -134,6 +134,8 @@ fun TaskTrackerScreen(
     val isRecentFlatView by viewModel.isRecentSessionsFlatView.collectAsState()
     val activityGroups by viewModel.completedActivityGroups.collectAsState()
     var pendingActivityDelete by remember { mutableStateOf<ActivityGroup?>(null) }
+    var pendingScopedEdit by remember { mutableStateOf<PendingScopedEdit?>(null) }
+    val activityFor: (Task) -> ActivityGroup? = { task -> activityGroups.find { it.key == activityKeyOf(task) } }
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }
@@ -436,9 +438,33 @@ fun TaskTrackerScreen(
     currentSelectedSession?.let { segments ->
         SessionDetailDialog(
             segments = segments, taskTypes = taskTypes, onDismiss = { selectedSessionGroupId = null },
-            onUpdateSessionName = { viewModel.updateSessionName(segments.first().groupId, it) },
-            onUpdateSessionKind = { viewModel.updateSessionKind(segments.first().groupId, it) },
-            onUpdateSessionTaskType = { viewModel.updateSessionTaskType(segments.first().groupId, it) },
+            onUpdateSessionName = { name ->
+                scopedEdit(
+                    group = activityFor(segments.first()),
+                    description = "Rename to \"$name\"",
+                    applyAll = { ids -> viewModel.updateActivityName(ids, name) },
+                    applyOne = { viewModel.updateSessionName(segments.first().groupId, name) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onUpdateSessionKind = { kind ->
+                scopedEdit(
+                    group = activityFor(segments.first()),
+                    description = "Change Kind to ${kind.displayName.split(" • ").last()}",
+                    applyAll = { ids -> viewModel.updateActivityKind(ids, kind) },
+                    applyOne = { viewModel.updateSessionKind(segments.first().groupId, kind) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onUpdateSessionTaskType = { typeId ->
+                scopedEdit(
+                    group = activityFor(segments.first()),
+                    description = "Change type to ${typeId?.let { taskTypeNames[it] } ?: "no type"}",
+                    applyAll = { ids -> viewModel.updateActivityTaskType(ids, typeId) },
+                    applyOne = { viewModel.updateSessionTaskType(segments.first().groupId, typeId) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
             onFlatten = { viewModel.flattenSession(segments.first().groupId) },
             onNavigateToTaskDetail = { selectedTaskId = it }, // Bypassing route, using dialog
@@ -451,9 +477,36 @@ fun TaskTrackerScreen(
             task = task,
             taskTypes = taskTypes,
             onDismiss = { selectedTaskId = null },
-            onSaveName = { viewModel.updateCompletedTaskName(task, it) },
-            onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
-            onTaskTypeChange = { viewModel.updateCompletedTaskType(task, it) },
+            // Segment-scoped by default (this dialog edits one segment), with "change all"
+            // reaching every sitting of the activity -- the two ends of the ladder. Retagging the
+            // middle rung, one whole session, is what the session dialog is for.
+            onSaveName = { name ->
+                scopedEdit(
+                    group = activityFor(task),
+                    description = "Rename to \"$name\"",
+                    applyAll = { ids -> viewModel.updateActivityName(ids, name) },
+                    applyOne = { viewModel.updateCompletedTaskName(task, name) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onKindChange = { kind ->
+                scopedEdit(
+                    group = activityFor(task),
+                    description = "Change Kind to ${kind.displayName.split(" • ").last()}",
+                    applyAll = { ids -> viewModel.updateActivityKind(ids, kind) },
+                    applyOne = { viewModel.updateCompletedTaskKind(task, kind) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
+            onTaskTypeChange = { typeId ->
+                scopedEdit(
+                    group = activityFor(task),
+                    description = "Change type to ${typeId?.let { taskTypeNames[it] } ?: "no type"}",
+                    applyAll = { ids -> viewModel.updateActivityTaskType(ids, typeId) },
+                    applyOne = { viewModel.updateCompletedTaskType(task, typeId) },
+                    setPending = { pendingScopedEdit = it }
+                )
+            },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
@@ -461,6 +514,10 @@ fun TaskTrackerScreen(
             onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) },
             nextTaskName = viewModel.nextTaskName
         )
+    }
+
+    pendingScopedEdit?.let { pending ->
+        ScopedEditPrompt(pending = pending, onDismiss = { pendingScopedEdit = null })
     }
 
     pendingActivityDelete?.let { group ->
@@ -859,6 +916,62 @@ fun CompletedSessionCard(
             }
         }
     }
+}
+
+/**
+ * An edit made from a detail dialog that could reasonably mean "this sitting" or "this activity",
+ * held until the user says which. [applyOne] is the dialog's original per-session (or per-segment)
+ * behaviour; [applyAll] is the same edit across every sitting of the activity.
+ */
+data class PendingScopedEdit(
+    val activityName: String,
+    val sessionCount: Int,
+    val description: String,
+    val applyAll: () -> Unit,
+    val applyOne: () -> Unit
+)
+
+/**
+ * Routes a detail-dialog edit through the scope prompt when -- and only when -- the thing being
+ * edited is part of an activity spanning several sittings. A one-sitting activity has nothing to
+ * disambiguate, so it just applies, and an edit to a still-running session never prompts: its
+ * activity grouping is about completed history, and quietly offering to rewrite that mid-session
+ * is more surprising than useful.
+ */
+fun scopedEdit(
+    group: ActivityGroup?,
+    description: String,
+    applyAll: (List<String>) -> Unit,
+    applyOne: () -> Unit,
+    setPending: (PendingScopedEdit?) -> Unit
+) {
+    if (group == null || group.sessionCount <= 1) {
+        applyOne()
+        return
+    }
+    setPending(
+        PendingScopedEdit(
+            activityName = group.displayName,
+            sessionCount = group.sessionCount,
+            description = description,
+            applyAll = { applyAll(group.groupIds) },
+            applyOne = applyOne
+        )
+    )
+}
+
+@Composable
+fun ScopedEditPrompt(pending: PendingScopedEdit, onDismiss: () -> Unit) {
+    EditScopeDialog(
+        title = pending.description,
+        message = "\"${pending.activityName}\" covers ${pending.sessionCount} sittings. Apply this " +
+            "to all of them, or only to the one you opened?",
+        allLabel = "Change all ${pending.sessionCount}",
+        oneLabel = "Just this one",
+        onAll = pending.applyAll,
+        onOne = pending.applyOne,
+        onDismiss = onDismiss
+    )
 }
 
 /**
