@@ -268,7 +268,7 @@ fun TaskTrackerScreen(
                             onStop = { viewModel.stopTask(session) },
                             onPauseResume = { viewModel.pauseResumeTask(session) },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
-                            onAutocompleteSelect = { n, g, typeId -> viewModel.updateSessionNameAndGroup(session.groupId, n, g, typeId) },
+                            onAutocompleteSelect = { name, kind, typeId -> viewModel.applyRecentSuggestion(session.groupId, name, kind, typeId) },
                             onTaskTypeSelect = { typeId -> viewModel.applyTaskTypeSuggestion(session.groupId, typeId) },
                             // Explicit pick, unlike the autofill path above: label only, no Kind
                             // prefill -- the user is correcting the type, not restarting the task.
@@ -818,7 +818,7 @@ private fun SegmentRow(
 
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, TaskKind, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -878,7 +878,7 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                                         onClick = {
                                             editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
                                             focusManager.clearFocus(); keyboardController?.hide()
-                                            onAutocompleteSelect(suggestion.label, suggestion.groupId, suggestion.typeId)
+                                            onAutocompleteSelect(suggestion.label, suggestion.kind, suggestion.typeId)
                                         }
                                     )
                                 }

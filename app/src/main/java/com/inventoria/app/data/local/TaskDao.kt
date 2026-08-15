@@ -2,7 +2,6 @@ package com.inventoria.app.data.local
 
 import androidx.room.*
 import com.inventoria.app.data.model.Task
-import com.inventoria.app.data.model.TaskKind
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -36,12 +35,6 @@ interface TaskDao {
     @Query("SELECT * FROM Task WHERE groupId = :groupId AND isDeleted = 0")
     suspend fun getTasksByGroupId(groupId: String): List<Task>
 
-    @Query("SELECT groupId FROM Task WHERE name = :name AND isDeleted = 0 LIMIT 1")
-    suspend fun getGroupIdByName(name: String): String?
-
-    @Query("SELECT kind FROM Task WHERE groupId = :groupId AND isDeleted = 0 LIMIT 1")
-    suspend fun getKindByGroupId(groupId: String): TaskKind?
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: Task)
 
@@ -71,21 +64,6 @@ interface TaskDao {
 
     @Query("UPDATE Task SET name = :newName, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun updateSessionName(groupId: String, newName: String, timestamp: Long)
-
-    @Query("UPDATE Task SET name = :newName, groupId = :newGroupId, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :oldGroupId")
-    suspend fun updateSessionNameAndGroupId(oldGroupId: String, newName: String, newGroupId: String, timestamp: Long)
-
-    @Query("UPDATE Task SET kind = :newKind, isKindCustom = 0, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
-    suspend fun updateSessionKindAndResetCustom(groupId: String, newKind: TaskKind, timestamp: Long)
-
-    @Transaction
-    suspend fun joinGroupAtomically(oldGroupId: String, newName: String, newGroupId: String, timestamp: Long) {
-        val targetKind = getKindByGroupId(newGroupId)
-        updateSessionNameAndGroupId(oldGroupId, newName, newGroupId, timestamp)
-        if (targetKind != null) {
-            updateSessionKindAndResetCustom(newGroupId, targetKind, timestamp + 1)
-        }
-    }
 
     @Transaction
     suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, score: Int, timestamp: Long) {

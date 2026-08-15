@@ -150,8 +150,6 @@ class TaskTrackerViewModel @Inject constructor(
     private var isBound = false
     private var taskCounter = 1
 
-    private val originalTaskStates = mutableMapOf<String, Pair<String, TaskKind>>()
-
     // Every segment that has actually finished (isRunning = false), whether its parent session
     // is still active (paused, might resume later) or fully stopped. Metrics previously only
     // read from _completedSessions (fully-stopped sessions only), so an already-worked, already-
@@ -382,9 +380,6 @@ class TaskTrackerViewModel @Inject constructor(
         _completedSessions.value = completed
 
         tasks.forEach { task ->
-            if (task.isRunning && !originalTaskStates.containsKey(task.id)) {
-                originalTaskStates[task.id] = task.groupId to task.kind
-            }
             if (task.name.startsWith("Task ")) {
                 task.name.substringAfter("Task ").toIntOrNull()?.let { num -> if (num >= taskCounter) taskCounter = num + 1 }
             }
@@ -614,33 +609,28 @@ class TaskTrackerViewModel @Inject constructor(
     fun updateSessionName(groupId: String, newName: String) {
         viewModelScope.launch {
             _isLoading.value = true
-            val runningTask = _activeSessions.value.find { it.groupId == groupId }?.activeSegment?.task
-            if (runningTask != null && (newName.isBlank() || newName.startsWith("Task "))) {
-                originalTaskStates[runningTask.id]?.let { (origId, origKind) ->
-                    repository.updateSessionNameAndGroupId(groupId, newName, origId)
-                    repository.updateSessionKind(origId, origKind)
-                } ?: repository.updateSessionName(groupId, newName)
-            } else { repository.updateSessionName(groupId, newName) }
+            repository.updateSessionName(groupId, newName)
             _isLoading.value = false
         }
     }
 
-    /** Autofill picked a previously-used name: join that name's group, and inherit whichever type
-     * the name has settled on ([modalTypeIdFor]) when it has one.
+    /** Autofill picked a previously-used name: take on that name's wording, its kind, and whichever
+     * type it has settled on ([modalTypeIdFor]).
      *
-     * The type is stamped BEFORE the join, against the old group id, and that ordering matters: a
-     * moment later these tasks share [newGroupId] with the entire history of that name, so writing
-     * the type by group id then would retype every past task in it -- silently rewriting history,
-     * and skewing the very per-name vote this suggestion was derived from. Nothing in the join
-     * touches taskTypeId, so the stamp survives it.
+     * This is what's left of the old merge-by-name once the identity half is gone. Picking a known
+     * name used to move this session into that name's group, which is where it inherited the kind
+     * from; now the three inherited values are written onto THIS session and its group id never
+     * changes. Same convenience, none of the history rewriting -- see TaskRepository's
+     * updateSessionName for why that mattered.
      *
      * A null [typeId] leaves the type alone rather than clearing it: "this name has no majority
      * type yet" is not a reason to discard a type the user set by hand. */
-    fun updateSessionNameAndGroup(oldGroupId: String, newName: String, newGroupId: String, typeId: String? = null) {
+    fun applyRecentSuggestion(groupId: String, newName: String, kind: TaskKind, typeId: String?) {
         viewModelScope.launch {
             _isLoading.value = true
-            if (typeId != null) repository.updateSessionTaskType(oldGroupId, typeId)
-            repository.updateSessionNameAndGroupId(oldGroupId, newName, newGroupId)
+            repository.updateSessionName(groupId, newName)
+            repository.updateSessionKind(groupId, kind)
+            if (typeId != null) repository.updateSessionTaskType(groupId, typeId)
             _isLoading.value = false
         }
     }

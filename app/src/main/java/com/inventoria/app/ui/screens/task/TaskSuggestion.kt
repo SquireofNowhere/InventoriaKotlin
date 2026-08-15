@@ -43,17 +43,18 @@ sealed interface TaskSuggestion {
     ) : TaskSuggestion
 
     /**
-     * A previously-used task name. Carries its own group and kind, as before, plus whichever type
-     * that *name* has settled on -- see [modalTypeIdFor]. [typeId] is null for a name with no
-     * majority type yet, which is every name in a history recorded before Task Types existed;
-     * those simply autofill without a type until enough newly-typed instances outvote them.
+     * A previously-used task name, and the kind and type that name has been carrying. Picking one
+     * copies those three values onto the current session; it deliberately does NOT carry a group
+     * id, because picking a name is no longer allowed to move a session into another session's
+     * group -- see TaskRepository.updateSessionName.
      *
-     * [typeName] is that type's display name, resolved at build time purely so the dropdown row
-     * can show it without re-resolving; [typeId] is what actually gets stamped.
+     * [typeId] is null for a name with no majority type yet ([modalTypeIdFor]), which is every name
+     * in a history recorded before Task Types existed; those autofill without a type until enough
+     * newly-typed instances outvote them. [typeName] is that type's display name, resolved at build
+     * time purely so the dropdown row can show it; [typeId] is what gets stamped.
      */
     data class Recent(
         override val label: String,
-        val groupId: String,
         val kind: TaskKind,
         val typeId: String?,
         val typeName: String?
@@ -106,13 +107,12 @@ fun buildTaskSuggestions(
         .groupBy { it.name.trim().lowercase() }
         .values
         .map { sameName ->
-            // Label/group/kind still come from the first occurrence, exactly as the old
-            // distinctBy did; only the type is a whole-history calculation.
+            // Label/kind still come from the first occurrence, exactly as the old distinctBy did;
+            // only the type is a whole-history calculation.
             val first = sameName.first()
             val typeId = modalTypeIdFor(sameName)
             TaskSuggestion.Recent(
                 label = first.name.trim(),
-                groupId = first.groupId,
                 kind = first.kind,
                 typeId = typeId,
                 typeName = typeId?.let { id -> taskTypes.firstOrNull { it.id == id }?.name }

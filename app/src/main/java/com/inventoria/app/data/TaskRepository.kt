@@ -99,22 +99,20 @@ class TaskRepository @Inject constructor(
         updateTask(task.copy(startTime = start, endTime = end, duration = duration, score = score))
     }
 
+    /** Renames this session and nothing else.
+     *
+     * Until v2.12 a rename that collided with an existing name silently merged this session INTO
+     * that name's group, so groupId meant "session" and "everything ever called this" by turns.
+     * That collapsed every sitting of a repeated name into one card, let a rename retroactively
+     * rewrite the kind and type of months of history, and made the streak counter (which counts
+     * distinct groupIds) see a name you return to daily as a single session. A groupId is now one
+     * session, permanently; the useful half of the old merge -- inheriting a known name's kind and
+     * type -- lives on in the autofill path instead, where it applies to THIS session only. */
     suspend fun updateSessionName(groupId: String, newName: String) {
-        val existingGroupId = taskDao.getGroupIdByName(newName)
-        if (existingGroupId != null && existingGroupId != groupId) {
-            val timestamp = getNextTimestamp()
-            taskDao.joinGroupAtomically(groupId, newName, existingGroupId, timestamp)
-        } else {
-            val tasks = taskDao.getTasksByGroupId(groupId)
-            val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
-            val timestamp = getNextTimestamp(maxT)
-            taskDao.updateSessionName(groupId, newName, timestamp)
-        }
-    }
-
-    suspend fun updateSessionNameAndGroupId(oldGroupId: String, newName: String, newGroupId: String) {
-        val timestamp = getNextTimestamp()
-        taskDao.joinGroupAtomically(oldGroupId, newName, newGroupId, timestamp)
+        val tasks = taskDao.getTasksByGroupId(groupId)
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        val timestamp = getNextTimestamp(maxT)
+        taskDao.updateSessionName(groupId, newName, timestamp)
     }
 
     /** Retypes a whole session. Unlike updateSessionKind below, no score recomputation is needed:
@@ -175,7 +173,13 @@ class TaskRepository @Inject constructor(
         taskDao.endSession(groupId, timestamp)
     }
 
-    suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, kind: TaskKind) {
+    /** The Kind is read from the stored row rather than taken from the caller: callers hold a
+     * RunningTaskUI snapshot, and a Kind edited from the card between the last flow emission and
+     * the tap on Stop would otherwise freeze a score computed against the Kind it *used* to have,
+     * leaving the row's own kind and score disagreeing forever. [fallbackKind] only covers a row
+     * that has since vanished. */
+    suspend fun stopTaskAndSession(taskId: String, groupId: String, endTime: Long, duration: Long, fallbackKind: TaskKind) {
+        val kind = taskDao.getTaskById(taskId)?.kind ?: fallbackKind
         val score = computeFrozenScore(kind, duration)
         val timestamp = getNextTimestamp()
         taskDao.stopTaskAndSession(taskId, groupId, endTime, duration, score, timestamp)
