@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -38,6 +39,30 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Todos : Screen("todos", "Todos", Icons.Default.Checklist)
     object Map : Screen("map", "Map", Icons.Default.Map)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+}
+
+/**
+ * Switch to a bottom-nav/rail tab. Every jump to a tab route must go through here, including
+ * ones triggered from inside a screen (e.g. the Todo list's "View on Tasks" arrow) rather than
+ * from a tab tap.
+ *
+ * A plain navigate() to a tab route pushes it *on top of* the current tab instead of replacing
+ * it, which quietly corrupts the save/restore state the nav bar relies on. Going Todos -> arrow
+ * -> Tasks left the stack as [start, Todos, Tasks]; the next Todos tab tap popped both with
+ * saveState, and NavController keys a saved sub-stack by its bottom-most entry, so it recorded
+ * "Todos -> [Todos, Tasks]". The same tap's restoreState then replayed that pair and landed the
+ * user back on Tasks -- and since the restore rebuilds the same stack, every later tap repeated
+ * it, making the Todos tab permanently unreachable.
+ */
+private fun NavController.switchToTab(route: String) {
+    // saveState/restoreState remembers each tab's scroll position etc.
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,17 +110,10 @@ fun InventoriaApp() {
                         },
                         selected = selected,
                         onClick = {
-                            // saveState/restoreState remembers each tab's scroll position etc.
-                            // This is safe now that item_location_map (the one screen that used
-                            // to cause tab-switch confusion) is a separate, non-tab-switchable
-                            // route with its own back button -- see its composable() below.
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                            // Safe now that item_location_map (the one screen that used to cause
+                            // tab-switch confusion) is a separate, non-tab-switchable route with
+                            // its own back button -- see its composable() below.
+                            navController.switchToTab(screen.route)
                         }
                     )
                 }
@@ -123,15 +141,7 @@ fun InventoriaApp() {
                                 },
                                 selected = selected,
                                 alwaysShowLabel = alwaysShowLabels,
-                                onClick = {
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
+                                onClick = { navController.switchToTab(screen.route) }
                             )
                         }
                     }
@@ -147,7 +157,10 @@ fun InventoriaApp() {
                 val viewModel: DashboardViewModel = hiltViewModel()
                 DashboardScreen(
                     viewModel = viewModel,
-                    onNavigateToInventory = { navController.navigate(Screen.Inventory.route) },
+                    // Jumps to the Inventory tab proper, so it goes through switchToTab like a
+                    // tab tap -- a plain push here would stack duplicate Inventory entries and
+                    // drop the tab's saved scroll state.
+                    onNavigateToInventory = { navController.switchToTab(Screen.Inventory.route) },
                     onNavigateToAddItem = { navController.navigate("add_item") },
                     onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id") }
                 )
@@ -283,7 +296,8 @@ fun InventoriaApp() {
                 TodoScreen(
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToTasks = { navController.navigate(Screen.Tasks.route) }
+                    // "View on Tasks" is a tab switch, not a drill-down -- must not plain-push.
+                    onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
                 )
             }
 
