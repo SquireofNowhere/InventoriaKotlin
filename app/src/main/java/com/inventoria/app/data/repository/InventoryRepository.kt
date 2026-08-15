@@ -6,6 +6,7 @@ import android.util.Log
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.ItemLinkDao
 import com.inventoria.app.data.model.InventoryItem
@@ -24,6 +25,7 @@ class InventoryRepository @Inject constructor(
     private val inventoryDao: InventoryDao,
     private val itemLinkDao: ItemLinkDao,
     private val syncRepository: FirebaseSyncRepository,
+    private val taskTypeRepository: TaskTypeRepository,
     private val authRepository: FirebaseAuthRepository,
     private val storageRepository: FirebaseStorageRepository,
     @ApplicationContext private val context: Context
@@ -42,6 +44,11 @@ class InventoryRepository @Inject constructor(
                 Log.d("InventoryRepository", "Firebase sync initialized successfully")
             } catch (e: Exception) {
                 Log.e("InventoryRepository", "Failed to initialize Firebase sync", e)
+            } finally {
+                // Seeded after the initial pull so an existing account's own task types land
+                // first and suppress seeding. In a finally block rather than the try, so an
+                // offline or local-only user -- whose sync above throws -- still gets defaults.
+                taskTypeRepository.seedDefaultsIfNeeded()
             }
         }
 

@@ -8,6 +8,7 @@ import com.inventoria.app.data.model.InventoryCollectionItem
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.data.model.ItemLink
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 
 @Database(
@@ -17,9 +18,10 @@ import com.inventoria.app.data.model.Todo
         InventoryCollection::class,
         InventoryCollectionItem::class,
         ItemLink::class,
-        Todo::class
+        Todo::class,
+        TaskType::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -29,6 +31,7 @@ abstract class InventoryDatabase : RoomDatabase() {
     abstract fun collectionDao(): CollectionDao
     abstract fun itemLinkDao(): ItemLinkDao
     abstract fun todoDao(): TodoDao
+    abstract fun taskTypeDao(): TaskTypeDao
 
     companion object {
         const val DATABASE_NAME = "inventoria_database"

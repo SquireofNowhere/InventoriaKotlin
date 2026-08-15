@@ -39,6 +39,10 @@ class SettingsRepository @Inject constructor(
     private val PROCRASTINATION_TASK_ENABLED = booleanPreferencesKey("procrastination_task_enabled")
     private val PROCRASTINATION_TASK_KINDS = stringSetPreferencesKey("procrastination_task_kinds")
     private val PROCRASTINATION_PENALTY_AMOUNT = intPreferencesKey("procrastination_penalty_amount")
+    // Set once the default TaskTypes have been seeded, so deleting every type doesn't resurrect
+    // them on next launch. Device-local by design; cross-device double-seeding is instead made
+    // harmless by the deterministic ids in TaskType.kt.
+    private val TASK_TYPES_SEEDED = booleanPreferencesKey("task_types_seeded")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -67,6 +71,11 @@ class SettingsRepository @Inject constructor(
     fun isProcrastinationTaskEnabled(): Flow<Boolean> = context.dataStore.data.map { it[PROCRASTINATION_TASK_ENABLED] ?: false }
     fun getProcrastinationTaskKinds(): Flow<Set<String>> = context.dataStore.data.map { it[PROCRASTINATION_TASK_KINDS] ?: emptySet() }
     fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
+    fun hasSeededTaskTypes(): Flow<Boolean> = context.dataStore.data.map { it[TASK_TYPES_SEEDED] ?: false }
+
+    suspend fun setTaskTypesSeeded() {
+        context.dataStore.edit { it[TASK_TYPES_SEEDED] = true }
+    }
 
     suspend fun toggleDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[IS_DARK_MODE] = enabled }

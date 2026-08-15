@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -39,7 +40,8 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToTaskTypes: () -> Unit
 ) {
     val context = LocalContext.current
     val isDarkMode by viewModel.isDarkMode.collectAsState()
@@ -125,6 +127,12 @@ fun SettingsScreen(
             )
 
             SettingsCategoryHeader("Tasks")
+            SettingsNavigationRow(
+                title = "Task Types",
+                subtitle = "Group tasks by activity -- \"Eating with V\" and \"Eating out\" can share the type \"Eating\" while keeping their own kinds",
+                icon = Icons.Default.Category,
+                onClick = onNavigateToTaskTypes
+            )
             SettingsToggleRow(
                 title = "Track Interruptions (Inner Tasks)",
                 subtitle = "When pausing a task, start a linked inner task so you know exactly what interrupted you when you resume",
@@ -795,6 +803,40 @@ fun SettingsToggleRow(
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+}
+
+/** Same shape as SettingsToggleRow, but drills into a sub-screen instead of flipping a switch --
+ * used where a setting needs more room than a single row (see TaskTypesScreen). */
+@Composable
+fun SettingsNavigationRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskType
+import com.inventoria.app.data.model.TaskTypeStats
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.util.formatSimpleDate
@@ -125,6 +127,8 @@ fun TaskTrackerScreen(
     val totalScore by viewModel.totalScoreToday.collectAsState()
     val personalScore by viewModel.personalScoreToday.collectAsState()
     val socialScore by viewModel.socialScoreToday.collectAsState()
+    val taskTypes by viewModel.taskTypes.collectAsState()
+    val taskTypeStats by viewModel.taskTypeStats.collectAsState()
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }
@@ -147,10 +151,10 @@ fun TaskTrackerScreen(
         }
     }
 
-    val taskSuggestions = remember(activeSessions, completedSessions) {
-        val allTasks = activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) } + completedSessions.flatten()
-        allTasks.filter { it.name.isNotBlank() && !it.name.startsWith("Task ") && it.name.lowercase() != "untitled" && !it.isDeleted }
-            .distinctBy { it.name.trim().lowercase() }.map { Triple(it.name.trim(), it.groupId, it.kind) }
+    // Raw pool for autofill; the type/recent tiering and filtering happens per-field in
+    // buildTaskSuggestions, since each field has its own query text.
+    val suggestionSourceTasks = remember(activeSessions, completedSessions) {
+        activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) } + completedSessions.flatten()
     }
 
     val activeSessionTree = remember(activeSessions) { buildActiveSessionTree(activeSessions) }
@@ -254,7 +258,9 @@ fun TaskTrackerScreen(
                         ActiveSessionCard(
                             session = session,
                             currentTime = currentTime,
-                            suggestions = taskSuggestions,
+                            suggestionSourceTasks = suggestionSourceTasks,
+                            taskTypes = taskTypes,
+                            taskTypeStats = taskTypeStats,
                             isFlowModeEnabled = isFlowModeEnabled,
                             depth = entry.depth,
                             parentName = entry.parentName,
@@ -262,6 +268,7 @@ fun TaskTrackerScreen(
                             onPauseResume = { viewModel.pauseResumeTask(session) },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
                             onAutocompleteSelect = { n, g -> viewModel.updateSessionNameAndGroup(session.groupId, n, g) },
+                            onTaskTypeSelect = { typeId -> viewModel.applyTaskTypeSuggestion(session.groupId, typeId) },
                             onUpdateKind = { kind ->
                                 // Only the segment actually shown in this card -- the running
                                 // one, or the most recent paused one if nothing's running --
@@ -379,6 +386,7 @@ fun TaskTrackerScreen(
         }
         var countsForStreak by remember(innerTask.id) { mutableStateOf(innerTask.countsForStreak) }
         var interruptionKind by remember(innerTask.id) { mutableStateOf(innerTask.kind) }
+        var interruptionTypeId by remember(innerTask.id) { mutableStateOf(innerTask.taskTypeId) }
         var isNameFocused by remember(innerTask.id) { mutableStateOf(false) }
         var dropdownDismissedByUser by remember(innerTask.id) { mutableStateOf(false) }
         val innerTaskFocusRequester = remember { FocusRequester() }
@@ -389,11 +397,9 @@ fun TaskTrackerScreen(
             innerTaskKeyboardController?.show()
         }
         LaunchedEffect(interruptionName.text) { dropdownDismissedByUser = false }
-        val filteredInnerTaskSuggestions = remember(interruptionName.text, isNameFocused, dropdownDismissedByUser) {
-            if (!isNameFocused || dropdownDismissedByUser || interruptionName.text.isBlank()) emptyList()
-            else taskSuggestions.filter {
-                it.first.contains(interruptionName.text, ignoreCase = true) && !it.first.equals(interruptionName.text, ignoreCase = true)
-            }.take(5)
+        val filteredInnerTaskSuggestions = remember(interruptionName.text, isNameFocused, dropdownDismissedByUser, taskTypes, taskTypeStats, suggestionSourceTasks) {
+            if (!isNameFocused || dropdownDismissedByUser) emptyList()
+            else buildTaskSuggestions(interruptionName.text, taskTypes, taskTypeStats, suggestionSourceTasks)
         }
         AlertDialog(
             onDismissRequest = { viewModel.dismissInnerTaskRenameDialog() },
@@ -424,14 +430,25 @@ fun TaskTrackerScreen(
                             modifier = Modifier.fillMaxWidth(0.8f)
                         ) {
                             filteredInnerTaskSuggestions.forEach { suggestion ->
-                                DropdownMenuItem(
-                                    text = { Text(suggestion.first) },
-                                    onClick = {
-                                        interruptionName = androidx.compose.ui.text.input.TextFieldValue(suggestion.first, androidx.compose.ui.text.TextRange(suggestion.first.length))
-                                        interruptionKind = suggestion.third
-                                        dropdownDismissedByUser = true
-                                    }
-                                )
+                                when (suggestion) {
+                                    is TaskSuggestion.Type -> DropdownMenuItem(
+                                        text = { TaskTypeSuggestionLabel(suggestion) },
+                                        onClick = {
+                                            interruptionName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
+                                            interruptionTypeId = suggestion.typeId
+                                            suggestion.mostUsedKind?.let { interruptionKind = it }
+                                            dropdownDismissedByUser = true
+                                        }
+                                    )
+                                    is TaskSuggestion.Recent -> DropdownMenuItem(
+                                        text = { Text(suggestion.label) },
+                                        onClick = {
+                                            interruptionName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
+                                            interruptionKind = suggestion.kind
+                                            dropdownDismissedByUser = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -451,7 +468,7 @@ fun TaskTrackerScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak, interruptionKind) }) {
+                TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak, interruptionKind, interruptionTypeId) }) {
                     Text("Save")
                 }
             }
@@ -776,7 +793,7 @@ private fun SegmentRow(
 
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: List<Triple<String, String, TaskKind>>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onTaskTypeSelect: (String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -787,7 +804,7 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: Li
     val totalTimeToday = todaySegmentsDuration + todayActiveElapsed
     val percentage = calculatePercentageOfDay(totalTimeToday, todayStart)
     
-    val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser) { if (!isFocused || dropdownDismissedByUser || editableName.text.isBlank()) emptyList() else suggestions.filter { it.first.contains(editableName.text, ignoreCase = true) && !it.first.equals(editableName.text, ignoreCase = true) }.take(5) }; val taskColor = Color(refTask.kind.colorValue)
+    val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser, taskTypes, taskTypeStats, suggestionSourceTasks) { if (!isFocused || dropdownDismissedByUser) emptyList() else buildTaskSuggestions(editableName.text, taskTypes, taskTypeStats, suggestionSourceTasks) }; val taskColor = Color(refTask.kind.colorValue)
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(session.groupId, activeSegment?.task?.id) { if (sessionName.startsWith("Task ") && activeSegment?.task?.isRunning == true) { delay(100); focusRequester.requestFocus(); keyboardController?.show() } }
     Card(modifier = Modifier.fillMaxWidth().padding(start = (depth * 20).dp), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))) {
@@ -807,7 +824,31 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestions: Li
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
                         BasicTextField(value = editableName, onValueChange = { editableName = it }, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { focusState -> isFocused = focusState.isFocused; if (!focusState.isFocused && editableName.text != sessionName) onUpdateName(editableName.text) }, textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }), singleLine = true)
-                        DropdownMenu(expanded = filteredSuggestions.isNotEmpty(), onDismissRequest = { dropdownDismissedByUser = true }, properties = PopupProperties(focusable = false), modifier = Modifier.fillMaxWidth(0.8f)) { filteredSuggestions.forEach { suggestion -> DropdownMenuItem(text = { Text(suggestion.first) }, onClick = { editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.first, androidx.compose.ui.text.TextRange(suggestion.first.length)); focusManager.clearFocus(); keyboardController?.hide(); onAutocompleteSelect(suggestion.first, suggestion.second) }) } }
+                        DropdownMenu(expanded = filteredSuggestions.isNotEmpty(), onDismissRequest = { dropdownDismissedByUser = true }, properties = PopupProperties(focusable = false), modifier = Modifier.fillMaxWidth(0.8f)) {
+                            filteredSuggestions.forEach { suggestion ->
+                                when (suggestion) {
+                                    is TaskSuggestion.Type -> DropdownMenuItem(
+                                        text = { TaskTypeSuggestionLabel(suggestion) },
+                                        onClick = {
+                                            // Types keep the keyboard up: the type is the broad
+                                            // activity and the user is expected to carry on typing
+                                            // the specific name ("Eating" -> "Eating with V").
+                                            editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
+                                            dropdownDismissedByUser = true
+                                            onTaskTypeSelect(suggestion.typeId)
+                                        }
+                                    )
+                                    is TaskSuggestion.Recent -> DropdownMenuItem(
+                                        text = { Text(suggestion.label) },
+                                        onClick = {
+                                            editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
+                                            focusManager.clearFocus(); keyboardController?.hide()
+                                            onAutocompleteSelect(suggestion.label, suggestion.groupId)
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                     Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                 }

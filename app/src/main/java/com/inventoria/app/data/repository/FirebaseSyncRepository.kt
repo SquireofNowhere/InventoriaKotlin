@@ -19,6 +19,7 @@ class FirebaseSyncRepository @Inject constructor(
     private val collectionDao: CollectionDao,
     private val itemLinkDao: ItemLinkDao,
     private val todoDao: TodoDao,
+    private val taskTypeDao: TaskTypeDao,
     private val firebaseDatabase: FirebaseDatabase,
     private val authRepository: FirebaseAuthRepository,
     private val settingsRepository: SettingsRepository
@@ -108,6 +109,14 @@ class FirebaseSyncRepository @Inject constructor(
             localFlow = todoDao.getDirtyTodosFlow(),
             pushAction = { ref, todos -> pushTodosToFirebase(ref, todos) },
             pullAction = { snapshot -> pullTodosFromFirebase(snapshot) }
+        ))
+
+        // Sync Task Types
+        syncJobs.add(setupNodeSync(
+            nodeRef = rootRef.child("task_types"),
+            localFlow = taskTypeDao.getDirtyTaskTypesFlow(),
+            pushAction = { ref, taskTypes -> pushTaskTypesToFirebase(ref, taskTypes) },
+            pullAction = { snapshot -> pullTaskTypesFromFirebase(snapshot) }
         ))
 
         syncJobs.add(setupSettingsSync(rootRef.child("settings")))
@@ -402,6 +411,41 @@ class FirebaseSyncRepository @Inject constructor(
         }
     }
 
+    private suspend fun pushTaskTypesToFirebase(ref: DatabaseReference, taskTypes: List<TaskType>) {
+        if (taskTypes.isEmpty()) return
+        try {
+            val updates = taskTypes.associate { it.id to it }
+            ref.updateChildren(updates).await()
+            taskTypeDao.markTaskTypesClean(taskTypes.map { it.id })
+        } catch (e: Exception) {
+            Log.e(TAG, "Push task types failed", e)
+        }
+    }
+
+    private suspend fun pullTaskTypesFromFirebase(snapshot: DataSnapshot) {
+        try {
+            syncIgnoreCount.incrementAndGet()
+            val cloudTaskTypes = snapshot.children.mapNotNull { it.getValue(TaskType::class.java) }
+
+            // Only overwrite local if cloud version is newer
+            val taskTypesToInsert = cloudTaskTypes.filter { cloudTaskType ->
+                val localTaskType = taskTypeDao.getTaskTypeById(cloudTaskType.id)
+                localTaskType == null || cloudTaskType.updatedAt > localTaskType.updatedAt
+            }
+
+            if (taskTypesToInsert.isNotEmpty()) {
+                taskTypeDao.insertTaskTypes(taskTypesToInsert)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Pull task types failed", e)
+        } finally {
+            withContext(NonCancellable) {
+                delay(1000)
+                syncIgnoreCount.decrementAndGet()
+            }
+        }
+    }
+
     fun triggerFullSync() {
         Log.d(TAG, "Manual sync triggered")
         val ref = userRef ?: return
@@ -417,7 +461,8 @@ class FirebaseSyncRepository @Inject constructor(
                         async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
                         async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsForSyncList()) },
                         async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsForSyncList()) },
-                        async { pushTodosToFirebase(ref.child("todos"), todoDao.getAllTodosForSyncList()) }
+                        async { pushTodosToFirebase(ref.child("todos"), todoDao.getAllTodosForSyncList()) },
+                        async { pushTaskTypesToFirebase(ref.child("task_types"), taskTypeDao.getAllTaskTypesForSyncList()) }
                     ).awaitAll()
                 }
                 
@@ -446,7 +491,8 @@ class FirebaseSyncRepository @Inject constructor(
                     async { pullTasksFromFirebase(ref.child("tasks").get().await()) },
                     async { pullCollectionsFromFirebase(ref.child("collections").get().await()) },
                     async { pullCollectionItemsFromFirebase(ref.child("collection_items").get().await()) },
-                    async { pullTodosFromFirebase(ref.child("todos").get().await()) }
+                    async { pullTodosFromFirebase(ref.child("todos").get().await()) },
+                    async { pullTaskTypesFromFirebase(ref.child("task_types").get().await()) }
                 ).awaitAll()
 
                 // 2. Then push local changes (in parallel)
@@ -456,7 +502,8 @@ class FirebaseSyncRepository @Inject constructor(
                     async { pushTasksToFirebase(ref.child("tasks"), taskDao.getDirtyTasksList()) },
                     async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getDirtyCollectionsList()) },
                     async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getDirtyCollectionItemsList()) },
-                    async { pushTodosToFirebase(ref.child("todos"), todoDao.getDirtyTodosList()) }
+                    async { pushTodosToFirebase(ref.child("todos"), todoDao.getDirtyTodosList()) },
+                    async { pushTaskTypesToFirebase(ref.child("task_types"), taskTypeDao.getDirtyTaskTypesList()) }
                 ).awaitAll()
             }
 

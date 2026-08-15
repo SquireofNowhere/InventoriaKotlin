@@ -45,6 +45,7 @@ class TaskRepository @Inject constructor(
     private fun hasMeaningfulChanges(old: Task, new: Task): Boolean {
         return old.name != new.name ||
                 old.groupId != new.groupId ||
+                old.taskTypeId != new.taskTypeId ||
                 old.kind != new.kind ||
                 old.startTime != new.startTime ||
                 old.endTime != new.endTime ||
@@ -112,6 +113,18 @@ class TaskRepository @Inject constructor(
     suspend fun updateSessionNameAndGroupId(oldGroupId: String, newName: String, newGroupId: String) {
         val timestamp = getNextTimestamp()
         taskDao.joinGroupAtomically(oldGroupId, newName, newGroupId, timestamp)
+    }
+
+    /** Retypes a whole session. Unlike updateSessionKind below, no score recomputation is needed:
+     * the type is a grouping label only and never enters computeFrozenScore. */
+    suspend fun updateSessionTaskType(groupId: String, newTaskTypeId: String?) {
+        val tasks = taskDao.getTasksByGroupId(groupId)
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        var timestamp = getNextTimestamp(maxT)
+        tasks.forEach { task ->
+            taskDao.updateTask(task.copy(taskTypeId = newTaskTypeId, updatedAt = timestamp, isDirty = true))
+            timestamp += 1
+        }
     }
 
     /** Deliberate whole-session recategorization (the "Session Category" picker in

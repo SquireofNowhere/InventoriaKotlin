@@ -9,6 +9,7 @@ import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.InventoryDatabase
 import com.inventoria.app.data.local.ItemLinkDao
 import com.inventoria.app.data.local.TaskDao
+import com.inventoria.app.data.local.TaskTypeDao
 import com.inventoria.app.data.local.TodoDao
 import dagger.Module
 import dagger.Provides
@@ -31,6 +32,29 @@ object DatabaseModule {
         }
     }
     
+    /**
+     * Task Types (v13). Purely additive, so it gets a real migration rather than falling through
+     * to fallbackToDestructiveMigration() below -- that fallback wipes the local database, which
+     * is recoverable for signed-in users (data re-pulls from Firebase) but silently destroys
+     * everything for local-only ones.
+     */
+    private val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS TaskType (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    isDeleted INTEGER NOT NULL DEFAULT 0,
+                    updatedAt INTEGER NOT NULL,
+                    isDirty INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            db.execSQL("ALTER TABLE Task ADD COLUMN taskTypeId TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideInventoryDatabase(
@@ -41,7 +65,7 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_3_4, MIGRATION_12_13)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -74,5 +98,11 @@ object DatabaseModule {
     @Singleton
     fun provideTodoDao(database: InventoryDatabase): TodoDao {
         return database.todoDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTaskTypeDao(database: InventoryDatabase): TaskTypeDao {
+        return database.taskTypeDao()
     }
 }

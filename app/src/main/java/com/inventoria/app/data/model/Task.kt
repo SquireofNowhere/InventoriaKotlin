@@ -10,6 +10,10 @@ data class Task(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: String = "",
     @get:PropertyName("groupId") @set:PropertyName("groupId") var groupId: String = "",
     @get:PropertyName("name") @set:PropertyName("name") var name: String = "",
+    // The activity this task is an instance of -- see TaskType. Null means "no type"; the name
+    // stays specific ("Eating with V") while the type ("Eating") groups differently-named,
+    // differently-scored tasks together. Referenced by id so renames propagate to history.
+    @get:PropertyName("taskTypeId") @set:PropertyName("taskTypeId") var taskTypeId: String? = null,
     @get:PropertyName("kind") @set:PropertyName("kind") var kind: TaskKind = TaskKind.GRAPHITE,
     @get:PropertyName("startTime") @set:PropertyName("startTime") var startTime: Long = 0L,
     @get:PropertyName("endTime") @set:PropertyName("endTime") var endTime: Long? = null,

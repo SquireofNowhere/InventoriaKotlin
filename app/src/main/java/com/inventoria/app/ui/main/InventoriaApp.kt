@@ -313,6 +313,17 @@ fun InventoriaApp() {
                 val viewModel: SettingsViewModel = hiltViewModel()
                 SettingsScreen(
                     viewModel = viewModel,
+                    onNavigateBack = { navController.popBackStack() },
+                    // A drill-down with its own back button, like task_history/productivity_stats
+                    // -- deliberately not a tab route, so switchToTab is not involved.
+                    onNavigateToTaskTypes = { navController.navigate("task_types") }
+                )
+            }
+
+            composable("task_types") {
+                val viewModel: TaskTypesViewModel = hiltViewModel()
+                TaskTypesScreen(
+                    viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

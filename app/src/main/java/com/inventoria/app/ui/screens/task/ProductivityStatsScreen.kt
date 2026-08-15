@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskTypeStats
 import com.inventoria.app.ui.theme.Success
 import java.text.SimpleDateFormat
 import java.util.*
@@ -38,7 +39,8 @@ fun ProductivityStatsScreen(
     val personalScore by viewModel.personalScoreLifetime.collectAsState()
     val socialScore by viewModel.socialScoreLifetime.collectAsState()
     val totalScore by viewModel.totalScoreLifetime.collectAsState()
-    
+    val taskTypeStats by viewModel.taskTypeStats.collectAsState()
+
     var selectedTab by remember { mutableIntStateOf(0) }
     var selectedKindForDetail by remember { mutableStateOf<TaskKind?>(null) }
 
@@ -77,6 +79,11 @@ fun ProductivityStatsScreen(
                     onClick = { selectedTab = 1 },
                     text = { Text("Ledger") }
                 )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = { Text("By Type") }
+                )
             }
 
             when (selectedTab) {
@@ -85,6 +92,7 @@ fun ProductivityStatsScreen(
                     onKindClick = { selectedKindForDetail = it }
                 )
                 1 -> TaskLedgerTab(completedTasks = allTasks)
+                2 -> ByTypeTab(stats = taskTypeStats)
             }
         }
     }
@@ -186,6 +194,100 @@ private fun ImpactBreakdownTab(
         ) {
             items(breakdown) { (kind, score) ->
                 StatItemRow(kind = kind, score = score, onClick = { onKindClick(kind) })
+            }
+        }
+    }
+}
+
+/**
+ * Averaged view of each Task Type. Sorted best-average first, with types that have no tasks yet
+ * pushed to the bottom -- they carry a null average and would otherwise sort as if neutral.
+ */
+@Composable
+private fun ByTypeTab(stats: Map<String, TaskTypeStats>) {
+    val rows = remember(stats) {
+        stats.values.sortedWith(
+            compareByDescending<TaskTypeStats> { it.taskCount > 0 }
+                .thenByDescending { it.averagePoints ?: 0.0 }
+                .thenBy { it.name.lowercase() }
+        )
+    }
+
+    if (rows.isEmpty()) {
+        EmptyStatsView("No task types yet.")
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(rows, key = { it.typeId }) { row -> TaskTypeStatRow(stats = row) }
+        }
+    }
+}
+
+@Composable
+private fun TaskTypeStatRow(stats: TaskTypeStats) {
+    val accent = stats.mostUsedKind?.let { Color(it.colorValue) }
+        ?: MaterialTheme.colorScheme.onSurfaceVariant
+    val avg = stats.averagePoints
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(accent.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                val icon = when {
+                    avg == null -> Icons.Default.BarChart
+                    avg > 0 -> Icons.Default.TrendingUp
+                    avg < 0 -> Icons.Default.TrendingDown
+                    else -> Icons.Default.BarChart
+                }
+                Icon(icon, contentDescription = null, tint = accent)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(stats.name, fontWeight = FontWeight.Bold)
+                Text(
+                    text = buildString {
+                        append(if (stats.taskCount == 1) "1 task" else "${stats.taskCount} tasks")
+                        stats.mostUsedKind?.let { append(" - mostly ${it.displayName}") }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = stats.averageLabel,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = when {
+                        avg == null -> MaterialTheme.colorScheme.onSurfaceVariant
+                        avg > 0 -> MaterialTheme.colorScheme.primary
+                        avg < 0 -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                Text(
+                    "avg",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -312,7 +414,9 @@ private fun LedgerHeader() {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("Activity", modifier = Modifier.weight(1.3f), style = MaterialTheme.typography.labelSmall)
-        Text("Type", modifier = Modifier.weight(0.8f), style = MaterialTheme.typography.labelSmall)
+        // "Kind", not "Type" -- Task Type is now a separate concept (see TaskType.kt) and the two
+        // must not read as the same column.
+        Text("Kind", modifier = Modifier.weight(0.8f), style = MaterialTheme.typography.labelSmall)
         Text("Impact", modifier = Modifier.weight(0.6f), style = MaterialTheme.typography.labelSmall)
         Text("Balance", modifier = Modifier.weight(0.7f), style = MaterialTheme.typography.labelSmall)
     }

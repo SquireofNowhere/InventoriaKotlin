@@ -13,6 +13,9 @@ import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskType
+import com.inventoria.app.data.model.TaskTypeStats
+import com.inventoria.app.data.model.computeTaskTypeStats
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
@@ -58,6 +61,7 @@ data class ProcrastinationSettings(
 class TaskTrackerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: TaskRepository,
+    private val taskTypeRepository: com.inventoria.app.data.TaskTypeRepository,
     private val todoRepository: TodoRepository,
     private val calendarRepository: CalendarRepository,
     private val settingsRepository: SettingsRepository,
@@ -156,6 +160,17 @@ class TaskTrackerViewModel @Inject constructor(
     val allFinishedTasks: StateFlow<List<Task>> = combine(_activeSessions, _completedSessions) { active, completed ->
         completed.flatten() + active.flatMap { it.segments }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val taskTypes: StateFlow<List<TaskType>> = taskTypeRepository.getVisibleTaskTypes()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ONE shared aggregate pass, deliberately not a stat-per-flow -- see computeTaskTypeStats.
+    // Everything that needs per-type numbers (the autofill's kind prefill, the Task Types manager
+    // rows, the By Type stats tab) reads this same map rather than re-scanning the task list.
+    val taskTypeStats: StateFlow<Map<String, TaskTypeStats>> =
+        combine(taskTypes, allFinishedTasks) { types, tasks ->
+            computeTaskTypeStats(types, tasks.filter { !it.isDeleted })
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Read only for scoring below -- the Todos screen itself owns the full Todo UI/StateFlow set
     // (TodoViewModel). Kept private since nothing outside scoring needs the raw list here.
@@ -499,10 +514,10 @@ class TaskTrackerViewModel @Inject constructor(
         return task
     }
 
-    fun renameInnerTask(task: Task, name: String, countsForStreak: Boolean, kind: TaskKind) {
+    fun renameInnerTask(task: Task, name: String, countsForStreak: Boolean, kind: TaskKind, taskTypeId: String? = null) {
         _pendingInnerTaskRename.value = null
         val finalName = name.ifBlank { task.name }
-        if (finalName == task.name && countsForStreak == task.countsForStreak && kind == task.kind) return
+        if (finalName == task.name && countsForStreak == task.countsForStreak && kind == task.kind && taskTypeId == task.taskTypeId) return
         viewModelScope.launch {
             repository.updateTask(
                 task.copy(
@@ -510,7 +525,8 @@ class TaskTrackerViewModel @Inject constructor(
                     isNameCustom = finalName != task.name,
                     countsForStreak = countsForStreak,
                     kind = kind,
-                    isKindCustom = kind != task.kind
+                    isKindCustom = kind != task.kind,
+                    taskTypeId = taskTypeId
                 )
             )
         }
@@ -606,6 +622,22 @@ class TaskTrackerViewModel @Inject constructor(
             _isLoading.value = true
             repository.updateSessionNameAndGroupId(oldGroupId, newName, newGroupId)
             _isLoading.value = false
+        }
+    }
+
+    fun updateSessionTaskType(groupId: String, newTaskTypeId: String?) {
+        viewModelScope.launch { repository.updateSessionTaskType(groupId, newTaskTypeId) }
+    }
+
+    /** Autofill picked a Task Type: stamp the type on the session and, when that type has history
+     * to learn from, pre-set the Kind to whichever one the user most often files it under. The
+     * Kind stays freely editable afterward -- this is a starting point, not a lock. */
+    fun applyTaskTypeSuggestion(groupId: String, typeId: String) {
+        viewModelScope.launch {
+            repository.updateSessionTaskType(groupId, typeId)
+            taskTypeStats.value[typeId]?.mostUsedKind?.let { kind ->
+                repository.updateSessionKind(groupId, kind)
+            }
         }
     }
 
