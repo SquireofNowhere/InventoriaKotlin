@@ -31,6 +31,29 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
+/**
+ * Every term that goes into one category's score for today, kept separate instead of pre-summed so
+ * the Productivity screen can show the arithmetic rather than just its result.
+ *
+ * [dampeningAbsorbed] is the points the diminishing curve swallowed -- the gap between what the
+ * day's time-tracking earned on paper and what it was allowed to contribute. Note this is a
+ * *today* concept only: lifetime totals are the plain historical sum and are never dampened.
+ */
+data class CategoryScoreBreakdown(
+    val category: TaskCategory,
+    val trackedTaskCount: Int,
+    val rawTracked: Int,
+    val dampenedTracked: Int,
+    val todoPoints: Int,
+    val overduePenalty: Int,
+    val todoProcrastinationPenalty: Int,
+    val taskProcrastinationPenalty: Int
+) {
+    val dampeningAbsorbed: Int get() = rawTracked - dampenedTracked
+    val total: Int get() =
+        dampenedTracked + todoPoints - overduePenalty - todoProcrastinationPenalty - taskProcrastinationPenalty
+}
+
 data class TaskSessionUI(
     val groupId: String,
     val segments: List<Task>,
@@ -236,7 +259,10 @@ class TaskTrackerViewModel @Inject constructor(
      * procrastination penalties are derived live here, the same way overduePenalty already is,
      * rather than baked into a stored field -- so changing the settings later doesn't leave
      * already-completed items' contribution silently stale. */
-    private fun categoryScoreToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory, settings: ProcrastinationSettings): Int {
+    private fun categoryScoreToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory, settings: ProcrastinationSettings): Int =
+        categoryBreakdownToday(tasks, todoList, category, settings).total
+
+    private fun categoryBreakdownToday(tasks: List<Task>, todoList: List<Todo>, category: TaskCategory, settings: ProcrastinationSettings): CategoryScoreBreakdown {
         val todayStart = getTodayStart()
         val todayEnd = todayStart + 86_400_000L
         // Overlap check, not a startTime filter -- a task starting before midnight and ending
@@ -269,8 +295,29 @@ class TaskTrackerViewModel @Inject constructor(
                 }
                 .sumOf { settings.penaltyAmount }
         } else 0
-        return dampen(rawTracked) + todoPoints - overduePenalty - todoProcrastinationPenalty - taskProcrastinationPenalty
+        return CategoryScoreBreakdown(
+            category = category,
+            trackedTaskCount = tasks.count {
+                (it.endTime ?: Long.MAX_VALUE) > todayStart && it.startTime < todayEnd && it.kind.category == category
+            },
+            rawTracked = rawTracked,
+            dampenedTracked = dampen(rawTracked),
+            todoPoints = todoPoints,
+            overduePenalty = overduePenalty,
+            todoProcrastinationPenalty = todoProcrastinationPenalty,
+            taskProcrastinationPenalty = taskProcrastinationPenalty
+        )
     }
+
+    /** Today's score with every term of [categoryBreakdownToday] left visible, for the Productivity
+     * screen's Today tab. Built from the same function the score flows themselves use, so the
+     * explanation can't drift from the number it explains. */
+    val scoreBreakdownToday: StateFlow<List<CategoryScoreBreakdown>> =
+        combine(allFinishedTasks, todos, procrastinationSettings) { tasks, todoList, settings ->
+            listOf(TaskCategory.PERSONAL, TaskCategory.SOCIAL).map {
+                categoryBreakdownToday(tasks, todoList, it, settings)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val personalScoreToday: StateFlow<Int> = combine(allFinishedTasks, todos, procrastinationSettings) { tasks, todoList, settings ->
         categoryScoreToday(tasks, todoList, TaskCategory.PERSONAL, settings)

@@ -1,6 +1,7 @@
 package com.inventoria.app.ui.screens.task
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,6 +26,7 @@ import com.inventoria.app.data.model.TaskTypeStats
 import com.inventoria.app.ui.theme.Success
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +43,7 @@ fun ProductivityStatsScreen(
     val socialScore by viewModel.socialScoreLifetime.collectAsState()
     val totalScore by viewModel.totalScoreLifetime.collectAsState()
     val taskTypeStats by viewModel.taskTypeStats.collectAsState()
+    val scoreBreakdown by viewModel.scoreBreakdownToday.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var selectedKindForDetail by remember { mutableStateOf<TaskKind?>(null) }
@@ -84,6 +88,11 @@ fun ProductivityStatsScreen(
                     onClick = { selectedTab = 2 },
                     text = { Text("By Type") }
                 )
+                Tab(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    text = { Text("Today") }
+                )
             }
 
             when (selectedTab) {
@@ -93,6 +102,10 @@ fun ProductivityStatsScreen(
                 )
                 1 -> TaskLedgerTab(completedTasks = allTasks)
                 2 -> ByTypeTab(stats = taskTypeStats)
+                3 -> TodayScoringTab(
+                    breakdowns = scoreBreakdown,
+                    dampen = { raw -> viewModel.previewDampen(raw) }
+                )
             }
         }
     }
@@ -290,6 +303,193 @@ private fun TaskTypeStatRow(stats: TaskTypeStats) {
                 )
             }
         }
+    }
+}
+
+/**
+ * Today's score with the arithmetic left showing, because the number on the Tasks screen is the
+ * output of five terms and one non-obvious curve, and nothing anywhere explained the gap between
+ * "I earned 1200 points of Peacock today" and "my Personal score says +5".
+ *
+ * Deliberately scoped to today: dampening is an aggregation-time rule applied to a single day's
+ * tracked total, so there is no dampened lifetime figure to show, and the card above this one is
+ * the plain historical sum.
+ */
+@Composable
+private fun TodayScoringTab(
+    breakdowns: List<CategoryScoreBreakdown>,
+    dampen: (Int) -> Int
+) {
+    if (breakdowns.isEmpty()) {
+        EmptyStatsView("Nothing scored today yet.")
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { DampeningCurveCard(breakdowns = breakdowns, dampen = dampen) }
+        items(breakdowns, key = { it.category.name }) { breakdown ->
+            CategoryBreakdownCard(breakdown)
+        }
+        item {
+            Text(
+                text = "Completed Todos bypass dampening and add their full value. Overdue and " +
+                    "procrastination penalties are subtracted after it. Lifetime totals above are " +
+                    "the plain historical sum -- only a single day's tracked total is dampened.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** The diminishing curve itself, with each category's raw total marked on it -- the shape is the
+ * explanation, so it's drawn by sampling the real [dampen] rather than an approximation of it. */
+@Composable
+private fun DampeningCurveCard(
+    breakdowns: List<CategoryScoreBreakdown>,
+    dampen: (Int) -> Int
+) {
+    val maxRaw = breakdowns.maxOfOrNull { abs(it.rawTracked) } ?: 0
+    // Always show enough curve for the flattening to be visible, even on a quiet day.
+    val axisMax = maxOf(60, maxRaw + 10)
+    val ceiling = 5f
+    val curveColor = MaterialTheme.colorScheme.primary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val markerColor = MaterialTheme.colorScheme.error
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Dampening Curve", fontWeight = FontWeight.Bold)
+            Text(
+                text = "Raw tracked points (horizontal) against what they contribute (vertical). " +
+                    "Approaches ${ceiling.toInt()} without reaching it, so more effort always " +
+                    "scores more -- just less and less.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+            ) {
+                val w = size.width
+                val h = size.height
+                drawLine(gridColor, Offset(0f, h), Offset(w, h), strokeWidth = 2f)
+                // The ceiling the curve is asymptotic to.
+                drawLine(gridColor, Offset(0f, 0f), Offset(w, 0f), strokeWidth = 2f)
+
+                val steps = 60
+                var previous: Offset? = null
+                for (i in 0..steps) {
+                    val raw = axisMax * i / steps
+                    val x = w * i / steps
+                    val y = h - (dampen(raw) / ceiling).coerceIn(0f, 1f) * h
+                    val point = Offset(x, y)
+                    previous?.let { drawLine(curveColor, it, point, strokeWidth = 4f) }
+                    previous = point
+                }
+
+                breakdowns.forEach { breakdown ->
+                    val raw = abs(breakdown.rawTracked)
+                    if (raw > 0) {
+                        val x = w * raw / axisMax
+                        val y = h - (abs(breakdown.dampenedTracked) / ceiling).coerceIn(0f, 1f) * h
+                        drawLine(markerColor.copy(alpha = 0.5f), Offset(x, h), Offset(x, y), strokeWidth = 2f)
+                        drawCircle(markerColor, radius = 6f, center = Offset(x, y))
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "0 to $axisMax raw pts",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategoryBreakdownCard(breakdown: CategoryScoreBreakdown) {
+    val label = breakdown.category.name.lowercase().replaceFirstChar { it.uppercase() }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = if (breakdown.total >= 0) "+${breakdown.total}" else breakdown.total.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (breakdown.total >= 0) Success else MaterialTheme.colorScheme.error
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            ScoreTermRow(
+                "Tracked, raw",
+                breakdown.rawTracked,
+                detail = "${breakdown.trackedTaskCount} task${if (breakdown.trackedTaskCount == 1) "" else "s"}"
+            )
+            ScoreTermRow("After dampening", breakdown.dampenedTracked, emphasis = true)
+            if (breakdown.dampeningAbsorbed != 0) {
+                Text(
+                    text = "Dampening absorbed ${abs(breakdown.dampeningAbsorbed)} pts",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (breakdown.todoPoints != 0) ScoreTermRow("Completed todos", breakdown.todoPoints)
+            if (breakdown.overduePenalty != 0) ScoreTermRow("Overdue todos", -breakdown.overduePenalty)
+            if (breakdown.todoProcrastinationPenalty != 0) {
+                ScoreTermRow("Todo procrastination", -breakdown.todoProcrastinationPenalty)
+            }
+            if (breakdown.taskProcrastinationPenalty != 0) {
+                ScoreTermRow("Task procrastination", -breakdown.taskProcrastinationPenalty)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScoreTermRow(label: String, value: Int, detail: String? = null, emphasis: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (detail != null) "$label ($detail)" else label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = if (value >= 0) "+$value" else value.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (emphasis) FontWeight.Bold else FontWeight.Normal,
+            color = when {
+                value > 0 -> Success
+                value < 0 -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
 
