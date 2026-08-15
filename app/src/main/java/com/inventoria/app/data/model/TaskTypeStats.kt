@@ -65,6 +65,26 @@ fun modalTypeIdFor(tasksWithSameName: List<Task>): String? =
         ?.key
 
 /**
+ * The Kind a name usually carries: the most common one across every task with that name, ties
+ * going to whichever was used most recently.
+ *
+ * Not "the last one" -- autofill used to hand back the most recent task's Kind, so one experiment
+ * ("testing" retagged to a -1 kind once) became the Kind every future autofill of that name
+ * inherited. The mode is what the Type tier already offers via [TaskTypeStats.mostUsedKind]; this
+ * gives the name tier the same behaviour.
+ */
+fun modalKindFor(tasksWithSameName: List<Task>): TaskKind? =
+    tasksWithSameName
+        .groupBy { it.kind }
+        .entries
+        .sortedWith(
+            compareByDescending<Map.Entry<TaskKind, List<Task>>> { it.value.size }
+                .thenByDescending { entry -> entry.value.maxOf { it.startTime } }
+        )
+        .firstOrNull()
+        ?.key
+
+/**
  * Builds stats for every type in a SINGLE pass over [tasks].
  *
  * Deliberately one shared computation rather than a stat-per-flow: TaskTrackerViewModel already

@@ -18,6 +18,7 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TaskTypeStats
+import com.inventoria.app.data.model.modalKindFor
 import com.inventoria.app.data.model.modalTypeIdFor
 
 /**
@@ -107,13 +108,13 @@ fun buildTaskSuggestions(
         .groupBy { it.name.trim().lowercase() }
         .values
         .map { sameName ->
-            // Label/kind still come from the first occurrence, exactly as the old distinctBy did;
-            // only the type is a whole-history calculation.
+            // Only the label comes from the first occurrence; kind and type are both
+            // whole-history calculations, so one odd retag doesn't become the name's identity.
             val first = sameName.first()
             val typeId = modalTypeIdFor(sameName)
             TaskSuggestion.Recent(
                 label = first.name.trim(),
-                kind = first.kind,
+                kind = modalKindFor(sameName) ?: first.kind,
                 typeId = typeId,
                 typeName = typeId?.let { id -> taskTypes.firstOrNull { it.id == id }?.name }
             )

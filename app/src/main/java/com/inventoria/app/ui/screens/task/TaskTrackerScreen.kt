@@ -904,7 +904,13 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
     val totalTimeToday = todaySegmentsDuration + todayActiveElapsed
     val percentage = calculatePercentageOfDay(totalTimeToday, todayStart)
     
-    val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser, taskTypes, taskTypeStats, suggestionSourceTasks) { if (!isFocused || dropdownDismissedByUser) emptyList() else buildTaskSuggestions(editableName.text, taskTypes, taskTypeStats, suggestionSourceTasks) }; val taskColor = Color(refTask.kind.colorValue)
+    val sessionName = session.segments.firstOrNull { !it.isNameCustom }?.name ?: activeSegment?.task?.name ?: session.segments.firstOrNull()?.name ?: "Untitled"; var editableName by remember(sessionName) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(sessionName, if (sessionName.startsWith("Task ")) androidx.compose.ui.text.TextRange(0, sessionName.length) else androidx.compose.ui.text.TextRange(sessionName.length))) }; var isFocused by remember { mutableStateOf(false) }; var dropdownDismissedByUser by remember { mutableStateOf(false) };
+    // Picking a suggestion clears focus, which fires the field's own save-on-blur. That made two
+    // writers race for the same name off one tap -- and the blur handler reads the text field
+    // state as of the last composition, so it could still be mid-typing ("tes") while the pick
+    // wrote the full label ("testing"), with whichever landed second winning. The pick is the
+    // authoritative write; this makes the blur that immediately follows it stand down.
+    var suggestionJustApplied by remember { mutableStateOf(false) }; LaunchedEffect(editableName.text) { dropdownDismissedByUser = false }; val filteredSuggestions = remember(editableName.text, isFocused, dropdownDismissedByUser, taskTypes, taskTypeStats, suggestionSourceTasks) { if (!isFocused || dropdownDismissedByUser) emptyList() else buildTaskSuggestions(editableName.text, taskTypes, taskTypeStats, suggestionSourceTasks) }; val taskColor = Color(refTask.kind.colorValue)
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(session.groupId, activeSegment?.task?.id) { if (sessionName.startsWith("Task ") && activeSegment?.task?.isRunning == true) { delay(100); focusRequester.requestFocus(); keyboardController?.show() } }
     Card(modifier = Modifier.fillMaxWidth().padding(start = (depth * 20).dp), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = taskColor.copy(alpha = 0.2f))) {
@@ -933,7 +939,7 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                 }
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
-                        BasicTextField(value = editableName, onValueChange = { editableName = it }, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { focusState -> isFocused = focusState.isFocused; if (!focusState.isFocused && editableName.text != sessionName) onUpdateName(editableName.text) }, textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }), singleLine = true)
+                        BasicTextField(value = editableName, onValueChange = { editableName = it }, modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { focusState -> isFocused = focusState.isFocused; if (!focusState.isFocused) { if (suggestionJustApplied) suggestionJustApplied = false else if (editableName.text != sessionName) onUpdateName(editableName.text) } }, textStyle = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold), cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }), singleLine = true)
                         DropdownMenu(expanded = filteredSuggestions.isNotEmpty(), onDismissRequest = { dropdownDismissedByUser = true }, properties = PopupProperties(focusable = false), modifier = Modifier.fillMaxWidth(0.8f)) {
                             filteredSuggestions.forEach { suggestion ->
                                 when (suggestion) {
@@ -952,8 +958,13 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                                         text = { RecentSuggestionLabel(suggestion) },
                                         onClick = {
                                             editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
-                                            focusManager.clearFocus(); keyboardController?.hide()
+                                            // Write first, then blur: the blur below stands down
+                                            // (see suggestionJustApplied) so this is the only
+                                            // write, and it carries the full label rather than
+                                            // whatever the field happened to hold.
                                             onAutocompleteSelect(suggestion.label, suggestion.kind, suggestion.typeId)
+                                            suggestionJustApplied = true
+                                            focusManager.clearFocus(); keyboardController?.hide()
                                         }
                                     )
                                 }
