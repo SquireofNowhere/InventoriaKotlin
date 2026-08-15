@@ -94,12 +94,6 @@ class TodoRepository @Inject constructor(
         visit(id)
     }
 
-    suspend fun setActiveSessionGroupId(id: String, groupId: String?) {
-        val existing = todoDao.getTodoById(id) ?: return
-        val timestamp = getNextTimestamp(existing.updatedAt)
-        todoDao.updateTodo(existing.copy(activeSessionGroupId = groupId, updatedAt = timestamp, isDirty = true))
-    }
-
     suspend fun softDeleteTodo(id: String) {
         val existing = todoDao.getTodoById(id)
         val timestamp = getNextTimestamp(existing?.updatedAt ?: 0L)

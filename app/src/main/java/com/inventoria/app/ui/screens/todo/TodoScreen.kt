@@ -117,6 +117,7 @@ fun TodoScreen(
     val selectedTodoId by viewModel.selectedTodoId.collectAsState()
     val taskTypes by viewModel.taskTypes.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
+    val todoIdsWithActiveSession by viewModel.todoIdsWithActiveSession.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
     // Wall-clock minute, re-read once a minute, so a due time on a today todo flips to its
     // "past due" styling on its own instead of waiting for some unrelated recomposition.
@@ -206,6 +207,7 @@ fun TodoScreen(
                                 todayStart = todayStart,
                                 nowMinuteOfDay = nowMinuteOfDay,
                                 taskTypeNames = taskTypeNames,
+                                hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
                                 isDragged = draggedTodoId == entry.todo.id,
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
@@ -243,6 +245,7 @@ fun TodoScreen(
                                 todayStart = todayStart,
                                 nowMinuteOfDay = nowMinuteOfDay,
                                 taskTypeNames = taskTypeNames,
+                                hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
                                 isDragged = draggedTodoId == entry.todo.id,
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
@@ -388,6 +391,7 @@ private fun TodoRow(
     todayStart: Long,
     nowMinuteOfDay: Int,
     taskTypeNames: Map<String, String>,
+    hasActiveSession: Boolean,
     isDragged: Boolean,
     isHoverTarget: Boolean,
     isSelected: Boolean,
@@ -532,7 +536,7 @@ private fun TodoRow(
                 }
                 TaskKindChip(kind = todo.kind, modifier = Modifier.scale(0.85f))
                 if (todo.state != TodoState.COMPLETE) {
-                    if (todo.activeSessionGroupId == null) {
+                    if (!hasActiveSession) {
                         IconButton(onClick = onStart) {
                             Icon(Icons.Default.PlayArrow, contentDescription = "Start Tracking", tint = MaterialTheme.colorScheme.primary)
                         }

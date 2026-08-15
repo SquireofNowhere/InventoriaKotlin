@@ -46,8 +46,14 @@ data class Todo(
     // Only meaningful (non-null) while state == COMPLETE.
     @get:PropertyName("completedAt") @set:PropertyName("completedAt") var completedAt: Long? = null,
     @get:PropertyName("createdAt") @set:PropertyName("createdAt") var createdAt: Long = System.currentTimeMillis(),
-    // Set while a Task started from this todo's Start button is running/paused; cleared once its
-    // session stops and the user answers the completion check-in (whichever way).
+    // VESTIGIAL as of v2.12 -- nothing reads or writes this any more. "Is a session running for
+    // this todo" is derived from the tasks themselves (TodoViewModel.todoIdsWithActiveSession),
+    // because a stored pointer could not stay right: it survived a session being deleted rather
+    // than stopped, stranding the todo as permanently in-progress with no Start button, and it
+    // made two independently-synced entities each responsible for half of one fact.
+    // The column stays only because dropping it needs a full Todo table rebuild (SQLite cannot
+    // reliably DROP COLUMN across the API levels this app supports) -- old rows keep whatever
+    // value they last had, and it is simply ignored.
     @get:PropertyName("activeSessionGroupId") @set:PropertyName("activeSessionGroupId") var activeSessionGroupId: String? = null,
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),

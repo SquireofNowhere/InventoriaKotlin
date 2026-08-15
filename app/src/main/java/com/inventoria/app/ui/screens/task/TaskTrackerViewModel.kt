@@ -571,10 +571,11 @@ class TaskTrackerViewModel @Inject constructor(
             } ?: run { repository.endSession(session.groupId) }
             _isLoading.value = false
 
-            // A session started from a Todo's Start button just ended -- free the todo up to be
-            // Start-ed again, and ask whether that actually finished the todo or it's still open.
+            // A session started from a Todo's Start button just ended -- ask whether that actually
+            // finished the todo or it's still open. Nothing needs freeing up first: the todo's
+            // "in progress" state is derived from its tasks (TodoViewModel.todoIdsWithActiveSession),
+            // and the session stopping is itself what releases it.
             if (originTodoId != null) {
-                todoRepository.setActiveSessionGroupId(originTodoId, null)
                 todoRepository.getTodoById(originTodoId)?.let { _pendingTodoCompletionCheckIn.value = it }
             }
 

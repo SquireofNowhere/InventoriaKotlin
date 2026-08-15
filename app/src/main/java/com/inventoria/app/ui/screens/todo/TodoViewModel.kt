@@ -78,6 +78,21 @@ class TodoViewModel @Inject constructor(
         .map { types -> types.associate { it.id to it.name } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    /** Which todos currently have a tracked session running (or paused, but not yet stopped).
+     *
+     * Derived from the tasks themselves rather than read off a Todo.activeSessionGroupId written
+     * at start and cleared at stop. That stored pointer had no way to be right in every case: it
+     * survived a session being *deleted* rather than stopped, stranding the todo as permanently
+     * "in progress" with no Start button, and it made two separately-synced entities responsible
+     * for one fact, each converging last-write-wins on its own. The task rows are the fact; a
+     * deleted session simply stops matching. */
+    val todoIdsWithActiveSession: StateFlow<Set<String>> = taskRepository.getVisibleTasks()
+        .map { tasks ->
+            tasks.filter { it.isSessionActive }.mapNotNull { it.originTodoId }.toSet()
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     val undatedTodoEntries: StateFlow<List<TodoTreeEntry>> = todos
         .map { list ->
             val byId = list.associateBy { it.id }
@@ -186,8 +201,9 @@ class TodoViewModel @Inject constructor(
      * majority yet -- the same rule the Tasks screen's autofill applies, so starting "Eating with
      * V" from a todo lands on the same type as typing it into the tracker would.
      *
-     * Read once here rather than held as a StateFlow: it is only needed at the instant a task is
-     * started, and the Todos screen has no other reason to subscribe to the whole task table. */
+     * Read once here rather than off [todoIdsWithActiveSession]'s upstream: this is needed at the
+     * instant a task is started, and a one-shot read is right whether or not anything is currently
+     * subscribed to that flow. */
     private suspend fun learnedTypeIdForName(name: String): String? {
         val target = name.trim().lowercase()
         if (target.isBlank()) return null
@@ -200,8 +216,13 @@ class TodoViewModel @Inject constructor(
      * Task.originTodoId so the completion check-in can find its way back to this todo once the
      * session stops (see TaskTrackerViewModel.stopTask()). */
     fun startTaskFromTodo(todo: Todo) {
-        if (todo.activeSessionGroupId != null) return
         viewModelScope.launch {
+            // Checked against the table rather than the (subscription-dependent, one-emission-
+            // behind) derived flow, so a double tap before the first emission can't open a second
+            // session for the same todo.
+            val alreadyRunning = taskRepository.getVisibleTasksList()
+                .any { it.originTodoId == todo.id && it.isSessionActive }
+            if (alreadyRunning) return@launch
             val groupId = UUID.randomUUID().toString()
             val task = Task(
                 id = UUID.randomUUID().toString(),
@@ -214,7 +235,6 @@ class TodoViewModel @Inject constructor(
                 originTodoId = todo.id
             )
             taskRepository.insertTask(task)
-            todoRepository.setActiveSessionGroupId(todo.id, groupId)
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
             else { context.startService(intent) }
