@@ -41,13 +41,46 @@ sealed interface TaskSuggestion {
         val taskCount: Int
     ) : TaskSuggestion
 
-    /** A previously-used task name. Carries its own group and kind, as before. */
+    /**
+     * A previously-used task name. Carries its own group and kind, as before, plus whichever type
+     * that *name* has settled on -- see [modalTypeIdFor]. [typeId] is null for a name with no
+     * majority type yet, which is every name in a history recorded before Task Types existed;
+     * those simply autofill without a type until enough newly-typed instances outvote them.
+     *
+     * [typeName] is that type's display name, resolved at build time purely so the dropdown row
+     * can show it without re-resolving; [typeId] is what actually gets stamped.
+     */
     data class Recent(
         override val label: String,
         val groupId: String,
-        val kind: TaskKind
+        val kind: TaskKind,
+        val typeId: String?,
+        val typeName: String?
     ) : TaskSuggestion
 }
+
+/**
+ * The type a name has settled on: the most common taskTypeId across every task carrying that name.
+ *
+ * Untyped tasks vote too, deliberately. A name with a long pre-Task-Types history therefore keeps
+ * autofilling with no type until enough newly-typed instances outnumber the untyped ones -- the
+ * type has to be *earned* rather than flipped by a single tap. The flip side is that a brand new
+ * name gets its type immediately: one task, one vote, done.
+ *
+ * Ties go to a real type over "untyped", then to whichever was used most recently -- so the moment
+ * a name draws level it starts suggesting something, rather than sitting on null forever.
+ */
+fun modalTypeIdFor(tasksWithSameName: List<Task>): String? =
+    tasksWithSameName
+        .groupBy { it.taskTypeId }
+        .entries
+        .sortedWith(
+            compareByDescending<Map.Entry<String?, List<Task>>> { it.value.size }
+                .thenByDescending { it.key != null }
+                .thenByDescending { entry -> entry.value.maxOf { it.startTime } }
+        )
+        .firstOrNull()
+        ?.key
 
 /**
  * Types first, then recent names -- the point of the feature is to reach for the activity before
@@ -80,6 +113,9 @@ fun buildTaskSuggestions(
         .sortedByDescending { it.taskCount }
         .take(limit)
 
+    // Grouped rather than distinctBy'd so each name's whole history is on hand for the type vote.
+    // Every filter here is name-based, so a name is either wholly in or wholly out -- the group is
+    // that name's complete history, not just the part that happened to match first.
     val recents = allTasks
         .filter {
             !it.isDeleted &&
@@ -89,8 +125,21 @@ fun buildTaskSuggestions(
                 it.name.contains(query, ignoreCase = true) &&
                 !it.name.equals(query, ignoreCase = true)
         }
-        .distinctBy { it.name.trim().lowercase() }
-        .map { TaskSuggestion.Recent(it.name.trim(), it.groupId, it.kind) }
+        .groupBy { it.name.trim().lowercase() }
+        .values
+        .map { sameName ->
+            // Label/group/kind still come from the first occurrence, exactly as the old
+            // distinctBy did; only the type is a whole-history calculation.
+            val first = sameName.first()
+            val typeId = modalTypeIdFor(sameName)
+            TaskSuggestion.Recent(
+                label = first.name.trim(),
+                groupId = first.groupId,
+                kind = first.kind,
+                typeId = typeId,
+                typeName = typeId?.let { id -> taskTypes.firstOrNull { it.id == id }?.name }
+            )
+        }
         .take(limit)
 
     return types + recents
@@ -101,6 +150,33 @@ fun buildTaskSuggestions(
  * leading icon, bold label, and the Kind it will prefill. Without this the two tiers look
  * identical and the ordering alone doesn't communicate that one stamps a type and one doesn't.
  */
+/**
+ * Renders a Recent row with the type that name has settled on trailing it, so the type a pick is
+ * about to stamp is visible before the tap rather than only afterwards on the card. Names with no
+ * majority type yet render exactly as they always did -- a bare label.
+ */
+@Composable
+fun RecentSuggestionLabel(suggestion: TaskSuggestion.Recent) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(suggestion.label)
+        suggestion.typeName?.let { name ->
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Default.Category,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(2.dp))
+            Text(
+                text = name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 @Composable
 fun TaskTypeSuggestionLabel(suggestion: TaskSuggestion.Type) {
     Row(verticalAlignment = Alignment.CenterVertically) {

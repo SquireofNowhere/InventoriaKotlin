@@ -268,7 +268,7 @@ fun TaskTrackerScreen(
                             onStop = { viewModel.stopTask(session) },
                             onPauseResume = { viewModel.pauseResumeTask(session) },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
-                            onAutocompleteSelect = { n, g -> viewModel.updateSessionNameAndGroup(session.groupId, n, g) },
+                            onAutocompleteSelect = { n, g, typeId -> viewModel.updateSessionNameAndGroup(session.groupId, n, g, typeId) },
                             onTaskTypeSelect = { typeId -> viewModel.applyTaskTypeSuggestion(session.groupId, typeId) },
                             // Explicit pick, unlike the autofill path above: label only, no Kind
                             // prefill -- the user is correcting the type, not restarting the task.
@@ -450,10 +450,13 @@ fun TaskTrackerScreen(
                                         }
                                     )
                                     is TaskSuggestion.Recent -> DropdownMenuItem(
-                                        text = { Text(suggestion.label) },
+                                        text = { RecentSuggestionLabel(suggestion) },
                                         onClick = {
                                             interruptionName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
                                             interruptionKind = suggestion.kind
+                                            // Same rule as the session path: inherit the name's
+                                            // settled type when it has one, never clear on null.
+                                            suggestion.typeId?.let { interruptionTypeId = it }
                                             dropdownDismissedByUser = true
                                         }
                                     )
@@ -815,7 +818,7 @@ private fun SegmentRow(
 
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -871,11 +874,11 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                                         }
                                     )
                                     is TaskSuggestion.Recent -> DropdownMenuItem(
-                                        text = { Text(suggestion.label) },
+                                        text = { RecentSuggestionLabel(suggestion) },
                                         onClick = {
                                             editableName = androidx.compose.ui.text.input.TextFieldValue(suggestion.label, androidx.compose.ui.text.TextRange(suggestion.label.length))
                                             focusManager.clearFocus(); keyboardController?.hide()
-                                            onAutocompleteSelect(suggestion.label, suggestion.groupId)
+                                            onAutocompleteSelect(suggestion.label, suggestion.groupId, suggestion.typeId)
                                         }
                                     )
                                 }

@@ -625,9 +625,21 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    fun updateSessionNameAndGroup(oldGroupId: String, newName: String, newGroupId: String) {
+    /** Autofill picked a previously-used name: join that name's group, and inherit whichever type
+     * the name has settled on ([modalTypeIdFor]) when it has one.
+     *
+     * The type is stamped BEFORE the join, against the old group id, and that ordering matters: a
+     * moment later these tasks share [newGroupId] with the entire history of that name, so writing
+     * the type by group id then would retype every past task in it -- silently rewriting history,
+     * and skewing the very per-name vote this suggestion was derived from. Nothing in the join
+     * touches taskTypeId, so the stamp survives it.
+     *
+     * A null [typeId] leaves the type alone rather than clearing it: "this name has no majority
+     * type yet" is not a reason to discard a type the user set by hand. */
+    fun updateSessionNameAndGroup(oldGroupId: String, newName: String, newGroupId: String, typeId: String? = null) {
         viewModelScope.launch {
             _isLoading.value = true
+            if (typeId != null) repository.updateSessionTaskType(oldGroupId, typeId)
             repository.updateSessionNameAndGroupId(oldGroupId, newName, newGroupId)
             _isLoading.value = false
         }
