@@ -57,7 +57,16 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Modern Material 3 UI**: Clean, responsive interface with Dark Mode support and dynamic theming.
 
 ## 🚀 Upcoming Features (TODO)
-*   **Productivity Pie Chart**: Add a circular visualization to the daily productivity card in the Tasks screen. This chart should outline the full 24 hours of the day and visually represent how time was spent across different task kinds.
+*   **Revisit Daily Productivity Pie Chart**: `ProductivityPieChart` is already implemented (24h ring in the Daily Overview dialog) — needs another pass/review, since it hasn't been reconsidered since it first landed.
+*   **Interruption Task Grouping Choice**: Let the user choose how interruption ("Inner") tasks are grouped when displayed — e.g. nested under the task they paused, grouped by kind, or shown ungrouped — similar to the existing grouping-choice pattern used for inventory (`GroupOption`).
+*   **Interruption Task Hierarchy**: Support nested interruptions (an interruption task can itself be interrupted), with the chain displayed as a proper hierarchy rather than a flat list.
+*   **Flow Mode Stop Button Exception**: In Flow Mode, the active session card normally shows "Stop & Continue" instead of the plain Stop button. When the active task is an interruption ("Inner" task), it should keep the regular Stop button instead of "Stop & Continue".
+*   **Task History Display Toggle**: Add a toggle on the Task History screen to switch between the current session-grouped view and a flat list of individual tasks by their start/end time.
+*   **Scoring Nerf for Timed Tasks**: Daily score inflates too fast under the current flat-per-task scoring (e.g. ~1200 points with only 60% of the day elapsed). Timed/tracked tasks should score off duration with a heavy multiplier (something like `duration * 0.0002`) instead of the flat `kind.productivityValue`. Tasks should only get their full, natural `kind.productivityValue` if they're **Todo Tasks** (see above) rather than time-tracked sessions.
+*   **Local Data Migration Prompt on Sign-In**: When a user signs into Google while they have local-only inventory and tasks (e.g. from using the app before authenticating), prompt them to migrate that local data up into their new Firebase-synced account instead of silently orphaning it.
+*   **Todo Tasks**: Add real to-do list items distinct from tracked tasks/sessions.
+    *   **Start Button**: Each todo has a "Start" button that kicks off an actual tracked task from it.
+    *   **Completion Check-In**: Prompt the user on a todo to confirm whether it's complete or still ongoing.
 
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
