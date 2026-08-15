@@ -6,9 +6,12 @@ import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskType
+import com.inventoria.app.data.model.modalTypeIdFor
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
@@ -59,11 +62,21 @@ class TodoViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val todoRepository: TodoRepository,
     private val taskRepository: TaskRepository,
+    private val taskTypeRepository: TaskTypeRepository,
     private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
     val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** For the edit dialog's type picker and the type label on rows. Same visible-only list the
+     * Tasks screen uses, so a soft-deleted type shows as unset in both places. */
+    val taskTypes: StateFlow<List<TaskType>> = taskTypeRepository.getVisibleTaskTypes()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val taskTypeNamesById: StateFlow<Map<String, String>> = taskTypes
+        .map { types -> types.associate { it.id to it.name } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val undatedTodoEntries: StateFlow<List<TodoTreeEntry>> = todos
         .map { list ->
@@ -135,19 +148,19 @@ class TodoViewModel @Inject constructor(
         _isAddingNew.value = true
     }
 
-    fun addTodo(title: String, kind: TaskKind, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
+    fun addTodo(title: String, kind: TaskKind, taskTypeId: String?, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
         viewModelScope.launch {
             todoRepository.insertTodo(
-                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority)
+                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, taskTypeId = taskTypeId, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority)
             )
         }
         _isAddingNew.value = false
     }
 
-    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
+    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, taskTypeId: String?, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         // A time without a date would be unreachable in the UI and would sort/display as a due
@@ -155,7 +168,7 @@ class TodoViewModel @Inject constructor(
         // enforced here rather than trusted from the dialog.
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
         viewModelScope.launch {
-            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority))
+            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, taskTypeId = taskTypeId, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority))
         }
         _pendingEditTodo.value = null
     }
@@ -167,6 +180,19 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch {
             todoRepository.setStateWithCascade(todo.id, complete = todo.state != TodoState.COMPLETE)
         }
+    }
+
+    /** Whatever type tasks named [name] have settled on, or null if that name is new or has no
+     * majority yet -- the same rule the Tasks screen's autofill applies, so starting "Eating with
+     * V" from a todo lands on the same type as typing it into the tracker would.
+     *
+     * Read once here rather than held as a StateFlow: it is only needed at the instant a task is
+     * started, and the Todos screen has no other reason to subscribe to the whole task table. */
+    private suspend fun learnedTypeIdForName(name: String): String? {
+        val target = name.trim().lowercase()
+        if (target.isBlank()) return null
+        val sameName = taskRepository.getVisibleTasksList().filter { it.name.trim().lowercase() == target }
+        return if (sameName.isEmpty()) null else modalTypeIdFor(sameName)
     }
 
     /** Kicks off a real tracked session from this todo -- same shape as
@@ -182,6 +208,7 @@ class TodoViewModel @Inject constructor(
                 groupId = groupId,
                 name = todo.title,
                 kind = todo.kind,
+                taskTypeId = todo.taskTypeId ?: learnedTypeIdForName(todo.title),
                 isRunning = true,
                 startTime = System.currentTimeMillis(),
                 originTodoId = todo.id

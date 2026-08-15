@@ -18,6 +18,7 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TaskTypeStats
+import com.inventoria.app.data.model.modalTypeIdFor
 
 /**
  * One row in a name-field autofill dropdown.
@@ -58,29 +59,6 @@ sealed interface TaskSuggestion {
         val typeName: String?
     ) : TaskSuggestion
 }
-
-/**
- * The type a name has settled on: the most common taskTypeId across every task carrying that name.
- *
- * Untyped tasks vote too, deliberately. A name with a long pre-Task-Types history therefore keeps
- * autofilling with no type until enough newly-typed instances outnumber the untyped ones -- the
- * type has to be *earned* rather than flipped by a single tap. The flip side is that a brand new
- * name gets its type immediately: one task, one vote, done.
- *
- * Ties go to a real type over "untyped", then to whichever was used most recently -- so the moment
- * a name draws level it starts suggesting something, rather than sitting on null forever.
- */
-fun modalTypeIdFor(tasksWithSameName: List<Task>): String? =
-    tasksWithSameName
-        .groupBy { it.taskTypeId }
-        .entries
-        .sortedWith(
-            compareByDescending<Map.Entry<String?, List<Task>>> { it.value.size }
-                .thenByDescending { it.key != null }
-                .thenByDescending { entry -> entry.value.maxOf { it.startTime } }
-        )
-        .firstOrNull()
-        ?.key
 
 /**
  * Types first, then recent names -- the point of the feature is to reach for the activity before

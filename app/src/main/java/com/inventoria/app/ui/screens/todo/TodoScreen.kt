@@ -47,11 +47,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
+import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
+import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.TodoPriorityChip
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
 import com.inventoria.app.util.formatMinuteOfDay
@@ -112,6 +115,8 @@ fun TodoScreen(
     val isAddingNew by viewModel.isAddingNew.collectAsState()
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val selectedTodoId by viewModel.selectedTodoId.collectAsState()
+    val taskTypes by viewModel.taskTypes.collectAsState()
+    val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
     // Wall-clock minute, re-read once a minute, so a due time on a today todo flips to its
     // "past due" styling on its own instead of waiting for some unrelated recomposition.
@@ -200,6 +205,7 @@ fun TodoScreen(
                                 entry = entry,
                                 todayStart = todayStart,
                                 nowMinuteOfDay = nowMinuteOfDay,
+                                taskTypeNames = taskTypeNames,
                                 isDragged = draggedTodoId == entry.todo.id,
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
@@ -236,6 +242,7 @@ fun TodoScreen(
                                 entry = entry,
                                 todayStart = todayStart,
                                 nowMinuteOfDay = nowMinuteOfDay,
+                                taskTypeNames = taskTypeNames,
                                 isDragged = draggedTodoId == entry.todo.id,
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
@@ -302,6 +309,8 @@ fun TodoScreen(
         TodoEditDialog(
             initialTitle = "",
             initialKind = TaskKind.GRAPHITE,
+            initialTaskTypeId = null,
+            taskTypes = taskTypes,
             initialDeadline = null,
             initialDeadlineMinuteOfDay = null,
             initialParentId = selectedTodoId,
@@ -309,8 +318,8 @@ fun TodoScreen(
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline, deadlineMinuteOfDay, parentId, priority ->
-                viewModel.addTodo(title, kind, deadline, deadlineMinuteOfDay, parentId, priority)
+            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority ->
+                viewModel.addTodo(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority)
             }
         )
     }
@@ -320,6 +329,8 @@ fun TodoScreen(
         TodoEditDialog(
             initialTitle = todo.title,
             initialKind = todo.kind,
+            initialTaskTypeId = todo.taskTypeId,
+            taskTypes = taskTypes,
             initialDeadline = todo.deadline,
             initialDeadlineMinuteOfDay = todo.deadlineMinuteOfDay,
             initialParentId = todo.parentTodoId,
@@ -327,8 +338,8 @@ fun TodoScreen(
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline, deadlineMinuteOfDay, parentId, priority ->
-                viewModel.saveEditedTodo(todo, title, kind, deadline, deadlineMinuteOfDay, parentId, priority)
+            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority ->
+                viewModel.saveEditedTodo(todo, title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority)
             }
         )
     }
@@ -376,6 +387,7 @@ private fun TodoRow(
     entry: TodoTreeEntry,
     todayStart: Long,
     nowMinuteOfDay: Int,
+    taskTypeNames: Map<String, String>,
     isDragged: Boolean,
     isHoverTarget: Boolean,
     isSelected: Boolean,
@@ -483,6 +495,8 @@ private fun TodoRow(
                         .clickable(onClick = onClick)
                         .padding(vertical = 8.dp)
                 ) {
+                    val typeName = todo.taskTypeId?.let { taskTypeNames[it] }
+                    if (typeName != null) TaskTypeLabel(typeName)
                     Text(
                         text = todo.title,
                         style = MaterialTheme.typography.bodyLarge,
@@ -544,6 +558,8 @@ private fun TodoRow(
 private fun TodoEditDialog(
     initialTitle: String,
     initialKind: TaskKind,
+    initialTaskTypeId: String?,
+    taskTypes: List<TaskType>,
     initialDeadline: Long?,
     initialDeadlineMinuteOfDay: Int?,
     initialParentId: String?,
@@ -551,10 +567,11 @@ private fun TodoEditDialog(
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind, Long?, Int?, String?, TodoPriority?) -> Unit
+    onSave: (String, TaskKind, String?, Long?, Int?, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var kind by remember { mutableStateOf(initialKind) }
+    var taskTypeId by remember { mutableStateOf(initialTaskTypeId) }
     var deadline by remember { mutableStateOf(initialDeadline) }
     var deadlineMinuteOfDay by remember { mutableStateOf(initialDeadlineMinuteOfDay) }
     var parentId by remember { mutableStateOf(initialParentId) }
@@ -575,6 +592,13 @@ private fun TodoEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 TaskKindDropdownMenu(selectedKind = kind, onKindSelected = { kind = it })
+                // Carried onto the task when this todo is started. Left unset, the task falls back
+                // to whatever type this title has already settled on over in the tracker.
+                TaskTypeDropdownMenu(
+                    selectedTypeId = taskTypeId,
+                    taskTypes = taskTypes,
+                    onTypeSelected = { taskTypeId = it }
+                )
                 TodoPriorityDropdownMenu(selectedPriority = priority, onPrioritySelected = { priority = it })
                 Row(
                     modifier = Modifier
@@ -639,7 +663,7 @@ private fun TodoEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, kind, deadline, deadlineMinuteOfDay, parentId, priority) }, enabled = title.isNotBlank()) {
+            TextButton(onClick = { onSave(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority) }, enabled = title.isNotBlank()) {
                 Text("Save")
             }
         },

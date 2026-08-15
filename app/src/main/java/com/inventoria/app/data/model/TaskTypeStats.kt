@@ -38,6 +38,33 @@ data class TaskTypeStats(
 }
 
 /**
+ * The type a *name* has settled on: the most common taskTypeId across every task carrying that
+ * name. Pass one name's whole history.
+ *
+ * Untyped tasks vote too, deliberately. A name with a long pre-Task-Types history therefore keeps
+ * resolving to no type until enough newly-typed instances outnumber the untyped ones -- the type
+ * has to be *earned* rather than flipped by a single tap. The flip side is that a brand new name
+ * gets its type immediately: one task, one vote, done.
+ *
+ * Ties go to a real type over "untyped", then to whichever was used most recently, so the moment a
+ * name draws level it starts suggesting something rather than sitting on null forever.
+ *
+ * Lives here rather than next to the autofill that first used it because it is domain logic, not a
+ * UI concern -- the Todos screen reads it too, to seed a type for a task started from a todo.
+ */
+fun modalTypeIdFor(tasksWithSameName: List<Task>): String? =
+    tasksWithSameName
+        .groupBy { it.taskTypeId }
+        .entries
+        .sortedWith(
+            compareByDescending<Map.Entry<String?, List<Task>>> { it.value.size }
+                .thenByDescending { it.key != null }
+                .thenByDescending { entry -> entry.value.maxOf { it.startTime } }
+        )
+        .firstOrNull()
+        ?.key
+
+/**
  * Builds stats for every type in a SINGLE pass over [tasks].
  *
  * Deliberately one shared computation rather than a stat-per-flow: TaskTrackerViewModel already

@@ -24,6 +24,11 @@ data class Todo(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: String = "",
     @get:PropertyName("title") @set:PropertyName("title") var title: String = "",
     @get:PropertyName("kind") @set:PropertyName("kind") var kind: TaskKind = TaskKind.GRAPHITE,
+    // The activity this todo is an instance of, same tier as Task.taskTypeId -- carried onto the
+    // task when one is started from here, so work run out of the Todos screen lands typed instead
+    // of voting "untyped" against its own name (see modalTypeIdFor). Null falls back to whatever
+    // that name has already settled on.
+    @get:PropertyName("taskTypeId") @set:PropertyName("taskTypeId") var taskTypeId: String? = null,
     // Date-only (start-of-day millis); null means no deadline, never overdue, never penalized.
     @get:PropertyName("deadline") @set:PropertyName("deadline") var deadline: Long? = null,
     // Optional time-of-day for that deadline, as minutes since midnight (0..1439); null means an

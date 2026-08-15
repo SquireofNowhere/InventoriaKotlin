@@ -62,6 +62,13 @@ object DatabaseModule {
         }
     }
 
+    /** Task Type on Todos (v15). Additive, same reasoning as v13 above. */
+    private val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE Todo ADD COLUMN taskTypeId TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideInventoryDatabase(
@@ -72,7 +79,7 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_3_4, MIGRATION_12_13, MIGRATION_13_14)
+            .addMigrations(MIGRATION_3_4, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
             .fallbackToDestructiveMigration()
             .build()
     }

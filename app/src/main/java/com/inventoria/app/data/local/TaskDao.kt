@@ -25,6 +25,11 @@ interface TaskDao {
     @Query("SELECT * FROM Task WHERE isDeleted = 0 ORDER BY startTime DESC")
     fun getVisibleTasks(): Flow<List<Task>>
 
+    /** One-shot equivalent of [getVisibleTasks], for callers that need the history once at the
+     * moment of an action rather than a standing subscription to the whole table. */
+    @Query("SELECT * FROM Task WHERE isDeleted = 0 ORDER BY startTime DESC")
+    suspend fun getVisibleTasksList(): List<Task>
+
     @Query("SELECT * FROM Task WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: String): Task?
 

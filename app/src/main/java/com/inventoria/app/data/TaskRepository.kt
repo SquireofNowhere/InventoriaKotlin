@@ -64,6 +64,8 @@ class TaskRepository @Inject constructor(
 
     fun getVisibleTasks(): Flow<List<Task>> = taskDao.getVisibleTasks()
 
+    suspend fun getVisibleTasksList(): List<Task> = taskDao.getVisibleTasksList()
+
     suspend fun insertTask(task: Task) {
         val timestamp = getNextTimestamp(task.updatedAt)
         taskDao.insertTask(task.copy(updatedAt = timestamp, isDirty = true))
