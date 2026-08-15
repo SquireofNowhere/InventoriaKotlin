@@ -32,14 +32,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun formatTimeOfDay(timestamp: Long): String =
+internal fun formatTimeOfDay(timestamp: Long): String =
     SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 
 /** For a list of time-gutter rows in the order they're displayed, returns which ones should
  * actually show their clock time -- false whenever it's identical to the immediately preceding
  * row's (e.g. an interruption starting the instant its parent gets paused, landing on the same
  * minute), so the gutter doesn't print the same "08:45" twice in a row. */
-private fun <T> showTimeFlagsById(items: List<T>, idAndStartTime: (T) -> Pair<String, Long>): Map<String, Boolean> {
+internal fun <T> showTimeFlagsById(items: List<T>, idAndStartTime: (T) -> Pair<String, Long>): Map<String, Boolean> {
     val flags = mutableMapOf<String, Boolean>()
     var lastLabel: String? = null
     items.forEach { item ->
@@ -279,7 +279,7 @@ fun TaskHistoryScreen(
  * 24-hour timeline bar showing roughly when in the day things happened -- the "day tracker on
  * a calendar" look, condensed into one row per day. */
 @Composable
-private fun DayTimelineHeader(dayStart: Long, tasksThatDay: List<Task>) {
+internal fun DayTimelineHeader(dayStart: Long, tasksThatDay: List<Task>) {
     val totalDuration = tasksThatDay.sumOf { it.duration }
     Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
         Row(
@@ -316,7 +316,7 @@ private fun DayTimelineHeader(dayStart: Long, tasksThatDay: List<Task>) {
 /** A thin bar spanning midnight-to-midnight, with a colored segment (in the task's Kind color)
  * for each task positioned and sized proportionally to when it happened during the day. */
 @Composable
-private fun DayMiniTimeline(dayStart: Long, tasksThatDay: List<Task>) {
+internal fun DayMiniTimeline(dayStart: Long, tasksThatDay: List<Task>) {
     val trackColor = MaterialTheme.colorScheme.surfaceVariant
     Canvas(
         modifier = Modifier
@@ -343,7 +343,7 @@ private fun DayMiniTimeline(dayStart: Long, tasksThatDay: List<Task>) {
 /** One history row with a clock-time gutter on the left (like a calendar day view) leading into
  * the existing task card, so a flat/day-grouped list reads as a timeline rather than a bare feed. */
 @Composable
-private fun TimelineTaskRow(
+internal fun TimelineTaskRow(
     task: Task,
     isSelected: Boolean,
     taskTypeNames: Map<String, String>,

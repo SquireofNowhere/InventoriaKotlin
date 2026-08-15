@@ -100,6 +100,13 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setTaskHistoryFlatView(enabled) }
     }
 
+    val isRecentSessionsFlatView: StateFlow<Boolean> = settingsRepository.isRecentSessionsFlatView()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setRecentSessionsFlatView(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setRecentSessionsFlatView(enabled) }
+    }
+
     // Task History's flat mode: every individual completed segment, regardless of which session
     // it belongs to, ordered purely by when it happened rather than grouped under its session.
     val flatCompletedTasks: StateFlow<List<Task>> = _completedSessions.map { sessions ->

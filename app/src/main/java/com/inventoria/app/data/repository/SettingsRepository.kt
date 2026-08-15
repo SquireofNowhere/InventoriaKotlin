@@ -34,6 +34,9 @@ class SettingsRepository @Inject constructor(
     private val INNER_TASK_ENABLED = booleanPreferencesKey("inner_task_enabled")
     private val INNER_TASK_PROMPT_SHOWN = booleanPreferencesKey("inner_task_prompt_shown")
     private val TASK_HISTORY_FLAT_VIEW = booleanPreferencesKey("task_history_flat_view")
+    // Separate key from the History screen's: the two lists answer different questions (what
+    // happened today vs the whole record), so a view choice in one shouldn't flip the other.
+    private val RECENT_SESSIONS_FLAT_VIEW = booleanPreferencesKey("recent_sessions_flat_view")
     private val PROCRASTINATION_TODO_ENABLED = booleanPreferencesKey("procrastination_todo_enabled")
     private val PROCRASTINATION_TODO_CUTOFF = stringPreferencesKey("procrastination_todo_cutoff")
     private val PROCRASTINATION_TASK_ENABLED = booleanPreferencesKey("procrastination_task_enabled")
@@ -66,6 +69,7 @@ class SettingsRepository @Inject constructor(
     fun isInnerTaskEnabled(): Flow<Boolean> = context.dataStore.data.map { it[INNER_TASK_ENABLED] ?: false }
     fun hasSeenInnerTaskPrompt(): Flow<Boolean> = context.dataStore.data.map { it[INNER_TASK_PROMPT_SHOWN] ?: false }
     fun isTaskHistoryFlatView(): Flow<Boolean> = context.dataStore.data.map { it[TASK_HISTORY_FLAT_VIEW] ?: false }
+    fun isRecentSessionsFlatView(): Flow<Boolean> = context.dataStore.data.map { it[RECENT_SESSIONS_FLAT_VIEW] ?: false }
     fun isProcrastinationTodoEnabled(): Flow<Boolean> = context.dataStore.data.map { it[PROCRASTINATION_TODO_ENABLED] ?: false }
     fun getProcrastinationTodoCutoff(): Flow<String> = context.dataStore.data.map { it[PROCRASTINATION_TODO_CUTOFF] ?: "B1" }
     fun isProcrastinationTaskEnabled(): Flow<Boolean> = context.dataStore.data.map { it[PROCRASTINATION_TASK_ENABLED] ?: false }
@@ -153,6 +157,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setTaskHistoryFlatView(enabled: Boolean) {
         context.dataStore.edit { it[TASK_HISTORY_FLAT_VIEW] = enabled }
+    }
+
+    suspend fun setRecentSessionsFlatView(enabled: Boolean) {
+        context.dataStore.edit { it[RECENT_SESSIONS_FLAT_VIEW] = enabled }
     }
 
     suspend fun setProcrastinationTodoEnabled(enabled: Boolean) {

@@ -55,6 +55,7 @@ import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TaskTypeStats
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
+import com.inventoria.app.util.bucketByDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
@@ -130,6 +131,7 @@ fun TaskTrackerScreen(
     val taskTypes by viewModel.taskTypes.collectAsState()
     val taskTypeStats by viewModel.taskTypeStats.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
+    val isRecentFlatView by viewModel.isRecentSessionsFlatView.collectAsState()
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }
@@ -149,6 +151,34 @@ fun TaskTrackerScreen(
         selectedTaskId?.let { id ->
             activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) }.find { it.id == id }
                 ?: completedSessions.flatten().find { it.id == id }
+        }
+    }
+
+    // "Recent" is the last 24h, keyed off each session's most recent segment so a session that
+    // started yesterday but ran into today still counts. Bucketed by day exactly like the History
+    // screen (that window can straddle midnight), and dayStats is computed from individual
+    // segments even in grouped view, since a session's segments can land on different days.
+    val recentSessions = remember(completedSessions, currentTime) {
+        completedSessions.filter { session ->
+            session.maxByOrNull { it.startTime }?.let { currentTime - it.startTime < 86_400_000 } == true
+        }
+    }
+    val recentFlatTasks = remember(recentSessions) {
+        recentSessions.flatten().sortedByDescending { it.startTime }
+    }
+    val recentFlatDayBuckets = remember(recentFlatTasks) { bucketByDay(recentFlatTasks) { getStartOfDay(it.startTime) } }
+    val recentDayStats = remember(recentFlatDayBuckets) { recentFlatDayBuckets.associate { it.dayStart to it.items } }
+    val recentSessionDayBuckets = remember(recentSessions) {
+        bucketByDay(recentSessions.filter { it.isNotEmpty() }) { getStartOfDay(it.first().startTime) }
+    }
+    val recentFlatShowTimeByDay = remember(recentFlatDayBuckets) {
+        recentFlatDayBuckets.associate { day -> day.dayStart to showTimeFlagsById(day.items) { it.id to it.startTime } }
+    }
+    // Only single-segment sessions get a clock gutter -- CompletedSessionCard has nowhere to put
+    // one -- so the dedup chain only tracks those, same as the History screen.
+    val recentSessionShowTimeByDay = remember(recentSessionDayBuckets) {
+        recentSessionDayBuckets.associate { day ->
+            day.dayStart to showTimeFlagsById(day.items.filter { it.size == 1 }) { it.first().id to it.first().startTime }
         }
     }
 
@@ -286,37 +316,82 @@ fun TaskTrackerScreen(
                         )
                     }
                 }
-                if (completedSessions.isNotEmpty()) {
-                    item { Text("Recent Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) }
-                    val recentSessions = completedSessions.filter { it.maxByOrNull { t -> t.startTime }?.let { t -> currentTime - t.startTime < 86400000 } == true }
-                    items(recentSessions) { session ->
-                        if (session.size > 1) {
-                            CompletedSessionCard(
-                                segments = session,
-                                currentTime = currentTime,
-                                selectedTaskIds = selectedTaskIds,
-                                taskTypeNames = taskTypeNames,
-                                onClick = { selectedSessionGroupId = session.first().groupId },
-                                onDelete = { viewModel.deleteSession(session.first().groupId) },
-                                onSegmentLongClick = { viewModel.toggleTaskSelection(it.id) },
-                                onSegmentClick = { 
-                                    if (isSelectionMode) viewModel.toggleTaskSelection(it.id) 
-                                    else selectedTaskId = it.id 
-                                },
-                                onSegmentDelete = { viewModel.deleteSegment(it) },
-                                onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
-                            )
-                        } else {
-                            val task = session.first()
-                            SingleTaskItemCard(
-                                task = task, isSelected = task.id in selectedTaskIds,
-                                taskTypeNames = taskTypeNames,
-                                onClick = { if (isSelectionMode) viewModel.toggleTaskSelection(task.id) else selectedTaskId = task.id },
-                                onLongClick = { viewModel.toggleTaskSelection(task.id) },
-                                onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
-                                onDelete = { viewModel.deleteSegment(task) },
-                                onAddToCalendar = { addToGoogleCalendar(context, task) }
-                            )
+                if (recentSessions.isNotEmpty()) {
+                    item {
+                        // Same two views the History screen offers, over the last 24h instead of
+                        // the whole record: sessions as cards, or every segment in the order it
+                        // actually happened. The choice persists under its own key.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Recent Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            IconButton(onClick = { viewModel.setRecentSessionsFlatView(!isRecentFlatView) }) {
+                                Icon(
+                                    if (isRecentFlatView) Icons.Default.ViewAgenda else Icons.AutoMirrored.Filled.List,
+                                    contentDescription = if (isRecentFlatView) "Switch to Grouped View" else "Switch to Flat View",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (isRecentFlatView) {
+                        recentFlatDayBuckets.forEach { day ->
+                            item(key = "recent_day_${day.dayStart}") { DayTimelineHeader(day.dayStart, day.items) }
+                            val showTimeById = recentFlatShowTimeByDay[day.dayStart] ?: emptyMap()
+                            items(day.items, key = { "recent_flat_${it.id}" }) { task ->
+                                TimelineTaskRow(
+                                    task = task,
+                                    isSelected = task.id in selectedTaskIds,
+                                    taskTypeNames = taskTypeNames,
+                                    showTime = showTimeById[task.id] != false,
+                                    onClick = { if (isSelectionMode) viewModel.toggleTaskSelection(task.id) else selectedTaskId = task.id },
+                                    onLongClick = { viewModel.toggleTaskSelection(task.id) },
+                                    onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
+                                    onDelete = { viewModel.deleteSegment(task) },
+                                    onAddToCalendar = { addToGoogleCalendar(context, task) }
+                                )
+                            }
+                        }
+                    } else {
+                        recentSessionDayBuckets.forEach { day ->
+                            item(key = "recent_sday_${day.dayStart}") {
+                                DayTimelineHeader(day.dayStart, recentDayStats[day.dayStart] ?: emptyList())
+                            }
+                            val showTimeById = recentSessionShowTimeByDay[day.dayStart] ?: emptyMap()
+                            items(day.items, key = { "recent_session_${it.first().id}" }) { session ->
+                                if (session.size > 1) {
+                                    CompletedSessionCard(
+                                        segments = session,
+                                        currentTime = currentTime,
+                                        selectedTaskIds = selectedTaskIds,
+                                        taskTypeNames = taskTypeNames,
+                                        onClick = { selectedSessionGroupId = session.first().groupId },
+                                        onDelete = { viewModel.deleteSession(session.first().groupId) },
+                                        onSegmentLongClick = { viewModel.toggleTaskSelection(it.id) },
+                                        onSegmentClick = {
+                                            if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
+                                            else selectedTaskId = it.id
+                                        },
+                                        onSegmentDelete = { viewModel.deleteSegment(it) },
+                                        onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
+                                    )
+                                } else {
+                                    val task = session.first()
+                                    TimelineTaskRow(
+                                        task = task,
+                                        isSelected = task.id in selectedTaskIds,
+                                        taskTypeNames = taskTypeNames,
+                                        showTime = showTimeById[task.id] != false,
+                                        onClick = { if (isSelectionMode) viewModel.toggleTaskSelection(task.id) else selectedTaskId = task.id },
+                                        onLongClick = { viewModel.toggleTaskSelection(task.id) },
+                                        onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
+                                        onDelete = { viewModel.deleteSegment(task) },
+                                        onAddToCalendar = { addToGoogleCalendar(context, task) }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
