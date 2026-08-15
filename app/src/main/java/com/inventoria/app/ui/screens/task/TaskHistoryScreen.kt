@@ -64,11 +64,13 @@ fun TaskHistoryScreen(
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val taskTypes by viewModel.taskTypes.collectAsState()
+    val activityGroups by viewModel.completedActivityGroups.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
     val context = LocalContext.current
 
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    var pendingActivityDelete by remember { mutableStateOf<ActivityGroup?>(null) }
 
     val currentSelectedSession = remember(selectedSessionGroupId, completedSessions) {
         selectedSessionGroupId?.let { groupId ->
@@ -92,10 +94,11 @@ fun TaskHistoryScreen(
     val dayStats = remember(flatDayBuckets) {
         flatDayBuckets.associate { it.dayStart to it.items }
     }
-    // A multi-day session is bucketed under the day of its most recent segment -- it's rendered
-    // as one card either way, so it has to live under a single day header.
-    val sessionDayBuckets = remember(completedSessions) {
-        bucketByDay(completedSessions.filter { it.isNotEmpty() }) { session -> getStartOfDay(session.first().startTime) }
+    // Grouped view is by activity (same name + same type), not by session -- the same rule the
+    // Tasks screen's toggle uses. A group spanning days is bucketed under its most recent sitting,
+    // since it renders as one card and has to live under a single day header.
+    val activityDayBuckets = remember(activityGroups) {
+        bucketByDay(activityGroups) { getStartOfDay(it.mostRecentStartTime) }
     }
 
     // Per-day "should this row show its clock time" lookups, keyed by day then by task id --
@@ -107,9 +110,11 @@ fun TaskHistoryScreen(
     // Only single-segment sessions show a time gutter (CompletedSessionCard has no spot for
     // one), so the dedup chain only tracks those, skipping multi-segment sessions entirely
     // rather than comparing against a label nobody can see.
-    val sessionShowTimeByDay = remember(sessionDayBuckets) {
-        sessionDayBuckets.associate { day ->
-            day.dayStart to showTimeFlagsById(day.items.filter { it.size == 1 }) { it.first().id to it.first().startTime }
+    val activityShowTimeByDay = remember(activityDayBuckets) {
+        activityDayBuckets.associate { day ->
+            day.dayStart to showTimeFlagsById(day.items.filter { it.segments.size == 1 }) {
+                it.segments.first().id to it.segments.first().startTime
+            }
         }
     }
 
@@ -155,7 +160,7 @@ fun TaskHistoryScreen(
             }
         }
     ) { padding ->
-        val isEmpty = if (isFlatView) flatDayBuckets.isEmpty() else sessionDayBuckets.isEmpty()
+        val isEmpty = if (isFlatView) flatDayBuckets.isEmpty() else activityDayBuckets.isEmpty()
         if (isEmpty) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("No tasks recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -196,20 +201,24 @@ fun TaskHistoryScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                sessionDayBuckets.forEach { day ->
+                activityDayBuckets.forEach { day ->
                     item(key = "day_${day.dayStart}") {
                         DayTimelineHeader(day.dayStart, dayStats[day.dayStart] ?: emptyList())
                     }
-                    val showTimeById = sessionShowTimeByDay[day.dayStart] ?: emptyMap()
-                    items(day.items, key = { it.first().groupId }) { session ->
-                        if (session.size > 1) {
+                    val showTimeById = activityShowTimeByDay[day.dayStart] ?: emptyMap()
+                    items(day.items, key = { "activity_${it.key.name}_${it.key.taskTypeId}" }) { group ->
+                        if (group.segments.size > 1) {
                             CompletedSessionCard(
-                                segments = session,
+                                segments = group.segments,
                                 currentTime = currentTime,
                                 selectedTaskIds = selectedTaskIds,
                                 taskTypeNames = taskTypeNames,
-                                onClick = { selectedSessionGroupId = session.first().groupId },
-                                onDelete = { viewModel.deleteSession(session.first().groupId) },
+                                sessionCount = group.sessionCount,
+                                onClick = { selectedSessionGroupId = group.groupIds.first() },
+                                onDelete = {
+                                    if (group.sessionCount > 1) pendingActivityDelete = group
+                                    else viewModel.deleteSession(group.groupIds.first())
+                                },
                                 onSegmentClick = {
                                     if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
                                     else selectedTaskId = it.id
@@ -219,7 +228,7 @@ fun TaskHistoryScreen(
                                 onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
                             )
                         } else {
-                            val task = session.first()
+                            val task = group.segments.first()
                             TimelineTaskRow(
                                 task = task,
                                 isSelected = task.id in selectedTaskIds,
@@ -240,6 +249,20 @@ fun TaskHistoryScreen(
                 }
             }
         }
+    }
+
+    pendingActivityDelete?.let { group ->
+        EditScopeDialog(
+            title = "Delete \"${group.displayName}\"?",
+            message = "This card covers ${group.sessionCount} separate sittings. Deleting all of " +
+                "them removes every segment from each one.",
+            allLabel = "Delete all ${group.sessionCount}",
+            oneLabel = "Delete the most recent only",
+            destructive = true,
+            onAll = { viewModel.deleteSessions(group.groupIds) },
+            onOne = { viewModel.deleteSession(group.groupIds.first()) },
+            onDismiss = { pendingActivityDelete = null }
+        )
     }
 
     currentSelectedSession?.let { segments ->

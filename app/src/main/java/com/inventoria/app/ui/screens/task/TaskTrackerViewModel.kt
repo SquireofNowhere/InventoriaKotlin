@@ -54,6 +54,39 @@ data class CategoryScoreBreakdown(
         dampenedTracked + todoPoints - overduePenalty - todoProcrastinationPenalty - taskProcrastinationPenalty
 }
 
+/**
+ * What makes two sittings "the same thing": the name and the type, with the Kind deliberately
+ * excluded -- lunch at home and lunch out are one activity scored differently, and forcing the
+ * Kind to match would split them apart again (which is what the old merge-by-name did).
+ *
+ * Compared case-insensitively on a trimmed name, matching how the autofill's own per-name
+ * calculations key themselves.
+ */
+data class ActivityKey(val name: String, val taskTypeId: String?)
+
+fun activityKeyOf(task: Task): ActivityKey = ActivityKey(task.name.trim().lowercase(), task.taskTypeId)
+
+/**
+ * Several completed sittings of one activity, presented as a single card.
+ *
+ * This is the grouping that groupId used to provide by merging sessions together, rebuilt as a
+ * read-time view: each sitting keeps its own groupId (so stop/pause/resume, deletion and the
+ * streak counter still see distinct sessions), and only the display joins them. A session's key
+ * comes from its first segment -- individual segments can be renamed one at a time from the task
+ * detail dialog, and the session's own identity shouldn't shift under it when that happens.
+ */
+data class ActivityGroup(
+    val key: ActivityKey,
+    val displayName: String,
+    /** One inner list per sitting, each already sorted newest segment first. */
+    val sessions: List<List<Task>>
+) {
+    val segments: List<Task> get() = sessions.flatten().sortedByDescending { it.startTime }
+    val sessionCount: Int get() = sessions.size
+    val groupIds: List<String> get() = sessions.mapNotNull { it.firstOrNull()?.groupId }.distinct()
+    val mostRecentStartTime: Long get() = sessions.maxOfOrNull { s -> s.maxOfOrNull { it.startTime } ?: 0L } ?: 0L
+}
+
 data class TaskSessionUI(
     val groupId: String,
     val segments: List<Task>,
@@ -96,6 +129,24 @@ class TaskTrackerViewModel @Inject constructor(
 
     private val _completedSessions = MutableStateFlow<List<List<Task>>>(emptyList())
     val completedSessions: StateFlow<List<List<Task>>> = _completedSessions.asStateFlow()
+
+    /** [completedSessions] rolled up by [ActivityKey], for the grouped view. Sessions keep their
+     * own identity underneath; this only decides what shares a card. */
+    val completedActivityGroups: StateFlow<List<ActivityGroup>> = _completedSessions
+        .map { sessions ->
+            sessions
+                .filter { it.isNotEmpty() }
+                .groupBy { activityKeyOf(it.first()) }
+                .map { (key, sameActivity) ->
+                    ActivityGroup(
+                        key = key,
+                        displayName = sameActivity.first().first().name,
+                        sessions = sameActivity.sortedByDescending { s -> s.maxOfOrNull { it.startTime } ?: 0L }
+                    )
+                }
+                .sortedByDescending { it.mostRecentStartTime }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -752,6 +803,12 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch {
             repository.updateTask(task.copy(savedToCalendar = isSaved, savedToCalendarAt = if (isSaved) System.currentTimeMillis() else null))
         }
+    }
+
+    /** Deletes every sitting behind one activity card. Only ever reached through the scope prompt
+     * -- a card that stands for several sessions must never delete them all on a single tap. */
+    fun deleteSessions(groupIds: List<String>) {
+        groupIds.forEach { deleteSession(it) }
     }
 
     fun deleteSession(groupId: String) {

@@ -132,6 +132,8 @@ fun TaskTrackerScreen(
     val taskTypeStats by viewModel.taskTypeStats.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val isRecentFlatView by viewModel.isRecentSessionsFlatView.collectAsState()
+    val activityGroups by viewModel.completedActivityGroups.collectAsState()
+    var pendingActivityDelete by remember { mutableStateOf<ActivityGroup?>(null) }
 
     val calendarPermissionState = rememberPermissionState(android.Manifest.permission.READ_CALENDAR)
     LaunchedEffect(calendarPermissionState.status.isGranted) { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() }
@@ -168,17 +170,25 @@ fun TaskTrackerScreen(
     }
     val recentFlatDayBuckets = remember(recentFlatTasks) { bucketByDay(recentFlatTasks) { getStartOfDay(it.startTime) } }
     val recentDayStats = remember(recentFlatDayBuckets) { recentFlatDayBuckets.associate { it.dayStart to it.items } }
-    val recentSessionDayBuckets = remember(recentSessions) {
-        bucketByDay(recentSessions.filter { it.isNotEmpty() }) { getStartOfDay(it.first().startTime) }
+    // Grouped view works in activities, not sessions: same name + same type share a card even
+    // across days, which is what the toggle is for. Bucketed under the day of the most recent
+    // sitting, the same way a multi-day session is.
+    val recentActivityGroups = remember(activityGroups, currentTime) {
+        activityGroups.filter { currentTime - it.mostRecentStartTime < 86_400_000 }
+    }
+    val recentActivityDayBuckets = remember(recentActivityGroups) {
+        bucketByDay(recentActivityGroups) { getStartOfDay(it.mostRecentStartTime) }
     }
     val recentFlatShowTimeByDay = remember(recentFlatDayBuckets) {
         recentFlatDayBuckets.associate { day -> day.dayStart to showTimeFlagsById(day.items) { it.id to it.startTime } }
     }
-    // Only single-segment sessions get a clock gutter -- CompletedSessionCard has nowhere to put
-    // one -- so the dedup chain only tracks those, same as the History screen.
-    val recentSessionShowTimeByDay = remember(recentSessionDayBuckets) {
-        recentSessionDayBuckets.associate { day ->
-            day.dayStart to showTimeFlagsById(day.items.filter { it.size == 1 }) { it.first().id to it.first().startTime }
+    // Only single-segment cards get a clock gutter -- CompletedSessionCard has nowhere to put one
+    // -- so the dedup chain only tracks those, same as the History screen.
+    val recentActivityShowTimeByDay = remember(recentActivityDayBuckets) {
+        recentActivityDayBuckets.associate { day ->
+            day.dayStart to showTimeFlagsById(day.items.filter { it.segments.size == 1 }) {
+                it.segments.first().id to it.segments.first().startTime
+            }
         }
     }
 
@@ -316,7 +326,7 @@ fun TaskTrackerScreen(
                         )
                     }
                 }
-                if (recentSessions.isNotEmpty()) {
+                if (recentSessions.isNotEmpty() || recentActivityGroups.isNotEmpty()) {
                     item {
                         // Same two views the History screen offers, over the last 24h instead of
                         // the whole record: sessions as cards, or every segment in the order it
@@ -355,20 +365,27 @@ fun TaskTrackerScreen(
                             }
                         }
                     } else {
-                        recentSessionDayBuckets.forEach { day ->
+                        recentActivityDayBuckets.forEach { day ->
                             item(key = "recent_sday_${day.dayStart}") {
                                 DayTimelineHeader(day.dayStart, recentDayStats[day.dayStart] ?: emptyList())
                             }
-                            val showTimeById = recentSessionShowTimeByDay[day.dayStart] ?: emptyMap()
-                            items(day.items, key = { "recent_session_${it.first().id}" }) { session ->
-                                if (session.size > 1) {
+                            val showTimeById = recentActivityShowTimeByDay[day.dayStart] ?: emptyMap()
+                            items(day.items, key = { "recent_activity_${it.key.name}_${it.key.taskTypeId}" }) { group ->
+                                // One sitting of one segment is still just a row; anything that
+                                // spans more than that earns a card, whether the "more" is extra
+                                // segments or extra sittings of the same activity.
+                                if (group.segments.size > 1) {
                                     CompletedSessionCard(
-                                        segments = session,
+                                        segments = group.segments,
                                         currentTime = currentTime,
                                         selectedTaskIds = selectedTaskIds,
                                         taskTypeNames = taskTypeNames,
-                                        onClick = { selectedSessionGroupId = session.first().groupId },
-                                        onDelete = { viewModel.deleteSession(session.first().groupId) },
+                                        sessionCount = group.sessionCount,
+                                        onClick = { selectedSessionGroupId = group.groupIds.first() },
+                                        onDelete = {
+                                            if (group.sessionCount > 1) pendingActivityDelete = group
+                                            else viewModel.deleteSession(group.groupIds.first())
+                                        },
                                         onSegmentLongClick = { viewModel.toggleTaskSelection(it.id) },
                                         onSegmentClick = {
                                             if (isSelectionMode) viewModel.toggleTaskSelection(it.id)
@@ -378,7 +395,7 @@ fun TaskTrackerScreen(
                                         onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
                                     )
                                 } else {
-                                    val task = session.first()
+                                    val task = group.segments.first()
                                     TimelineTaskRow(
                                         task = task,
                                         isSelected = task.id in selectedTaskIds,
@@ -443,6 +460,20 @@ fun TaskTrackerScreen(
             previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
             onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) },
             nextTaskName = viewModel.nextTaskName
+        )
+    }
+
+    pendingActivityDelete?.let { group ->
+        EditScopeDialog(
+            title = "Delete \"${group.displayName}\"?",
+            message = "This card covers ${group.sessionCount} separate sittings. Deleting all of " +
+                "them removes every segment from each one.",
+            allLabel = "Delete all ${group.sessionCount}",
+            oneLabel = "Delete the most recent only",
+            destructive = true,
+            onAll = { viewModel.deleteSessions(group.groupIds) },
+            onOne = { viewModel.deleteSession(group.groupIds.first()) },
+            onDismiss = { pendingActivityDelete = null }
         )
     }
 
@@ -719,6 +750,10 @@ fun CompletedSessionCard(
     currentTime: Long,
     selectedTaskIds: Set<String>,
     taskTypeNames: Map<String, String> = emptyMap(),
+    /** >1 when this card stands for several sittings of one activity rather than a single
+     * session -- see ActivityGroup. Shown in the meta line so a card covering a week of lunches
+     * can't be mistaken for one very long one. */
+    sessionCount: Int = 1,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onSegmentClick: (Task) -> Unit,
@@ -771,7 +806,8 @@ fun CompletedSessionCard(
                         Text(text = sessionName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Text(
-                        text = "${segments.size} segments • ${formatDetailedDuration(todayDuration)} • $percentage",
+                        text = (if (sessionCount > 1) "$sessionCount sittings • " else "") +
+                            "${segments.size} segments • ${formatDetailedDuration(todayDuration)} • $percentage",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -823,6 +859,41 @@ fun CompletedSessionCard(
             }
         }
     }
+}
+
+/**
+ * Three-way scope prompt for an action on a card that stands for several sittings: apply it to all
+ * of them, to this one only, or not at all.
+ *
+ * Exists because grouping sessions by activity means one tap can now reach work from other days.
+ * Nothing that spans sittings happens without passing through here.
+ */
+@Composable
+fun EditScopeDialog(
+    title: String,
+    message: String,
+    allLabel: String,
+    oneLabel: String,
+    destructive: Boolean = false,
+    onAll: () -> Unit,
+    onOne: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val accent = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = { onAll(); onDismiss() }) {
+                    Text(allLabel, color = accent, fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = { onOne(); onDismiss() }) { Text(oneLabel) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
