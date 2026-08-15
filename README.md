@@ -76,6 +76,7 @@ Modern Inventory & Task Tracking Management for Android. Built with Jetpack Comp
 *   **Interruption Task Grouping Choice**: Let the user choose how interruption ("Inner") tasks are grouped when displayed — e.g. nested under the task they paused, grouped by kind, or shown ungrouped — similar to the existing grouping-choice pattern used for inventory (`GroupOption`).
 *   **Interruption Task Hierarchy**: Support nested interruptions (an interruption task can itself be interrupted), with the chain displayed as a proper hierarchy rather than a flat list.
 *   **Local Data Migration Prompt on Sign-In**: When a user signs into Google while they have local-only (anonymous-account) inventory and tasks, prompt them to migrate that local data up into their new Firebase-synced account instead of silently orphaning it.
+*   **Shift App Focus to Task Management**: The app currently opens on the inventory-focused Dashboard (`NavHost`'s `startDestination = Screen.Dashboard.route` in `InventoriaApp.kt`). Re-orient what the user sees first toward task/todo management instead — a navigation/default-screen change, not a change to any underlying inventory or task mechanics.
 *   **Repeating Todos**: Let a todo repeat (daily, weekly, or some other interval) instead of being one-off — completing it should set up the next occurrence rather than the todo just being done forever.
 
 ## ⚙️ Known Optimization Opportunities
