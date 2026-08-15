@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskCategory
+import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.ui.theme.Success
 
@@ -104,6 +105,62 @@ fun TaskTypeLabel(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * Picker for a task's Type, anchored on the [TaskTypeLabel] itself -- same "the chip is the
+ * button" pattern [TaskKindDropdownMenu] uses, so the thing you read is the thing you tap.
+ *
+ * Shows "Set type" when there's nothing to display, which is the whole point of the control: until
+ * this existed a type could only be stamped by picking a Type row out of the name autocomplete, so
+ * a task that was named any other way could never be typed at all, and a wrong type could never be
+ * corrected. Selecting null clears it.
+ *
+ * A type that's been soft-deleted resolves to no name and so reads as "Set type" -- the id stays on
+ * the task either way, matching how the cards render it.
+ */
+@Composable
+fun TaskTypeDropdownMenu(
+    selectedTypeId: String?,
+    taskTypes: List<TaskType>,
+    onTypeSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = selectedTypeId?.let { id -> taskTypes.firstOrNull { it.id == id }?.name }
+
+    Box(modifier = modifier) {
+        TaskTypeLabel(
+            typeName = selectedName ?: "Set type",
+            modifier = if (enabled) Modifier.clickable { expanded = true } else Modifier
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        "No type",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                onClick = { onTypeSelected(null); expanded = false }
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            taskTypes.forEach { type ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = type.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (type.id == selectedTypeId) FontWeight.Bold else null
+                        )
+                    },
+                    onClick = { onTypeSelected(type.id); expanded = false }
+                )
+            }
+        }
     }
 }
 

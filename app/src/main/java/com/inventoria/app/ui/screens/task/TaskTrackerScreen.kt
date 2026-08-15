@@ -270,6 +270,9 @@ fun TaskTrackerScreen(
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
                             onAutocompleteSelect = { n, g -> viewModel.updateSessionNameAndGroup(session.groupId, n, g) },
                             onTaskTypeSelect = { typeId -> viewModel.applyTaskTypeSuggestion(session.groupId, typeId) },
+                            // Explicit pick, unlike the autofill path above: label only, no Kind
+                            // prefill -- the user is correcting the type, not restarting the task.
+                            onTaskTypeChange = { typeId -> viewModel.updateSessionTaskType(session.groupId, typeId) },
                             onUpdateKind = { kind ->
                                 // Only the segment actually shown in this card -- the running
                                 // one, or the most recent paused one if nothing's running --
@@ -340,9 +343,10 @@ fun TaskTrackerScreen(
 
     currentSelectedSession?.let { segments ->
         SessionDetailDialog(
-            segments = segments, onDismiss = { selectedSessionGroupId = null },
+            segments = segments, taskTypes = taskTypes, onDismiss = { selectedSessionGroupId = null },
             onUpdateSessionName = { viewModel.updateSessionName(segments.first().groupId, it) },
             onUpdateSessionKind = { viewModel.updateSessionKind(segments.first().groupId, it) },
+            onUpdateSessionTaskType = { viewModel.updateSessionTaskType(segments.first().groupId, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
             onFlatten = { viewModel.flattenSession(segments.first().groupId) },
             onNavigateToTaskDetail = { selectedTaskId = it }, // Bypassing route, using dialog
@@ -353,9 +357,11 @@ fun TaskTrackerScreen(
     currentSelectedTask?.let { task ->
         TaskDetailDialog(
             task = task,
+            taskTypes = taskTypes,
             onDismiss = { selectedTaskId = null },
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
+            onTaskTypeChange = { viewModel.updateCompletedTaskType(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
@@ -809,7 +815,7 @@ private fun SegmentRow(
 
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onTaskTypeSelect: (String) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, String) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -832,12 +838,16 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                     Text("Interrupting $parentName", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            // Resolved from the type list this card already receives for its autofill dropdown,
-            // so picking a type suggestion labels the running card immediately.
-            val activeTypeName = refTask.taskTypeId?.let { id -> taskTypes.firstOrNull { it.id == id }?.name }
-            if (activeTypeName != null) {
-                TaskTypeLabel(activeTypeName, modifier = Modifier.padding(bottom = 2.dp), iconSize = 14.dp)
-            }
+            // Doubles as the picker: reading and setting the type are the same control, off the
+            // type list this card already receives for its autofill dropdown (so picking a type
+            // suggestion relabels it immediately too). Session-scoped, the same scope the autofill
+            // path writes at -- an interruption is its own session, so it types independently.
+            TaskTypeDropdownMenu(
+                selectedTypeId = refTask.taskTypeId,
+                taskTypes = taskTypes,
+                onTypeSelected = onTaskTypeChange,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (refTask.originTodoId != null) {
                     Icon(Icons.Default.Checklist, contentDescription = "From a Todo", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
@@ -919,8 +929,9 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
 
 @Composable
 fun SessionDetailDialog(
-    segments: List<Task>, onDismiss: () -> Unit,
+    segments: List<Task>, taskTypes: List<TaskType>, onDismiss: () -> Unit,
     onUpdateSessionName: (String) -> Unit, onUpdateSessionKind: (TaskKind) -> Unit,
+    onUpdateSessionTaskType: (String?) -> Unit,
     onToggleCalendar: (Task) -> Unit,
     onFlatten: () -> Unit, onNavigateToTaskDetail: (String) -> Unit,
     onDeleteSegment: (Task) -> Unit
@@ -933,6 +944,10 @@ fun SessionDetailDialog(
             Column(modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value = sessionNameInput, onValueChange = { sessionNameInput = it }, label = { Text("Session Name") }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused && sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }))
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("Session Category: ", style = MaterialTheme.typography.bodySmall); TaskKindDropdownMenu(selectedKind = sessionRef.kind, onKindSelected = onUpdateSessionKind) }
+                // Whole-session, unlike TaskDetailDialog's per-segment picker: this dialog edits
+                // the session, so retyping here retypes every segment in it. Anchored on the first
+                // segment's type, which is what the card header summarises.
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("Session Type: ", style = MaterialTheme.typography.bodySmall); TaskTypeDropdownMenu(selectedTypeId = sessionRef.taskTypeId, taskTypes = taskTypes, onTypeSelected = onUpdateSessionTaskType) }
                 HorizontalDivider(); Text("Segments", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 segments.sortedByDescending { it.startTime }.forEach { segment ->
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onNavigateToTaskDetail(segment.id) }) {
@@ -966,7 +981,7 @@ fun SessionDetailDialog(
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind) -> Unit, nextTaskName: String) {
+fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onTaskTypeChange: (String?) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind) -> Unit, nextTaskName: String) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
     var showSplitDialog by remember { mutableStateOf(false) }
     
@@ -1021,7 +1036,18 @@ fun TaskDetailDialog(task: Task, onDismiss: () -> Unit, onSaveName: (String) -> 
         text = {
             Column(modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused && name != task.name && !isCalendarTask) onSaveName(name) }, enabled = !isCalendarTask, label = { Text("Task Name") }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }))
-                if (isCalendarTask) { Row(verticalAlignment = Alignment.CenterVertically) { Text("Type: ", style = MaterialTheme.typography.bodySmall); TaskKindChip(kind = task.kind) } } else { TaskKindDropdownMenu(selectedKind = task.kind, onKindSelected = onKindChange) }
+                if (isCalendarTask) { Row(verticalAlignment = Alignment.CenterVertically) { Text("Kind: ", style = MaterialTheme.typography.bodySmall); TaskKindChip(kind = task.kind) } } else { TaskKindDropdownMenu(selectedKind = task.kind, onKindSelected = onKindChange) }
+                // Calendar-sourced tasks are read-only mirrors of an external event, so their type
+                // is shown but not editable -- same treatment the name and Kind get above.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Type: ", style = MaterialTheme.typography.bodySmall)
+                    TaskTypeDropdownMenu(
+                        selectedTypeId = task.taskTypeId,
+                        taskTypes = taskTypes,
+                        onTypeSelected = onTaskTypeChange,
+                        enabled = !isCalendarTask
+                    )
+                }
                 HorizontalDivider()
                 
                 Text("Edit Duration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)

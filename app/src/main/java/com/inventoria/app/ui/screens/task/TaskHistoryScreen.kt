@@ -63,6 +63,7 @@ fun TaskHistoryScreen(
     val currentTime by rememberTick()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
+    val taskTypes by viewModel.taskTypes.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
     val context = LocalContext.current
 
@@ -244,9 +245,11 @@ fun TaskHistoryScreen(
     currentSelectedSession?.let { segments ->
         SessionDetailDialog(
             segments = segments,
+            taskTypes = taskTypes,
             onDismiss = { selectedSessionGroupId = null },
             onUpdateSessionName = { name -> viewModel.updateSessionName(segments.first().groupId, name) },
             onUpdateSessionKind = { kind -> viewModel.updateSessionKind(segments.first().groupId, kind) },
+            onUpdateSessionTaskType = { typeId -> viewModel.updateSessionTaskType(segments.first().groupId, typeId) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
             onFlatten = { viewModel.flattenSession(segments.first().groupId) },
             onNavigateToTaskDetail = { selectedTaskId = it },
@@ -257,9 +260,11 @@ fun TaskHistoryScreen(
     currentSelectedTask?.let { task ->
         TaskDetailDialog(
             task = task,
+            taskTypes = taskTypes,
             onDismiss = { selectedTaskId = null },
             onSaveName = { viewModel.updateCompletedTaskName(task, it) },
             onKindChange = { viewModel.updateCompletedTaskKind(task, it) },
+            onTaskTypeChange = { viewModel.updateCompletedTaskType(task, it) },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, it) },
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },

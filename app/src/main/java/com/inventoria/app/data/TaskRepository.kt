@@ -127,6 +127,15 @@ class TaskRepository @Inject constructor(
         }
     }
 
+    /** Retypes exactly one segment, mirroring updateSegmentKind's scope -- TaskDetailDialog edits a
+     * single finished segment, and retyping it shouldn't drag the rest of its session along. As
+     * with updateSessionTaskType, no score recomputation: the type never enters the scoring math. */
+    suspend fun updateSegmentTaskType(taskId: String, newTaskTypeId: String?) {
+        val task = taskDao.getTaskById(taskId) ?: return
+        val timestamp = getNextTimestamp(task.updatedAt)
+        taskDao.updateTask(task.copy(taskTypeId = newTaskTypeId, updatedAt = timestamp, isDirty = true))
+    }
+
     /** Deliberate whole-session recategorization (the "Session Category" picker in
      * SessionDetailDialog, used for both active and fully historical sessions). Recomputes
      * score per-segment rather than a single bulk SQL UPDATE, since each already-completed

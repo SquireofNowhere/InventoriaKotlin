@@ -678,6 +678,13 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch { repository.updateSegmentKind(task.id, newKind) }
     }
 
+    /** Segment-scoped, matching updateCompletedTaskKind above -- TaskDetailDialog is editing this
+     * one finished segment. The whole-session equivalent is updateSessionTaskType. */
+    fun updateCompletedTaskType(task: Task, newTaskTypeId: String?) {
+        if (task.id.startsWith("cal_")) return
+        viewModelScope.launch { repository.updateSegmentTaskType(task.id, newTaskTypeId) }
+    }
+
     fun updateSegmentTime(task: Task, start: Long, end: Long) {
         if (task.id.startsWith("cal_")) return
         viewModelScope.launch { repository.updateSegmentTime(task, start, end) }
