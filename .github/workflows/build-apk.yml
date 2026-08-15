@@ -1,10 +1,9 @@
 name: Build APK
 
+# Manual only -- deliberately no push trigger, so committing never spends CI time
+# building an APK. Run it on demand from the Actions tab, or:
+#   gh workflow run "Build APK" --ref <branch>
 on:
-  push:
-    branches:
-      - main
-      - unstable-work
   workflow_dispatch: {}
 
 jobs:
