@@ -26,6 +26,12 @@ data class Todo(
     @get:PropertyName("kind") @set:PropertyName("kind") var kind: TaskKind = TaskKind.GRAPHITE,
     // Date-only (start-of-day millis); null means no deadline, never overdue, never penalized.
     @get:PropertyName("deadline") @set:PropertyName("deadline") var deadline: Long? = null,
+    // Optional time-of-day for that deadline, as minutes since midnight (0..1439); null means an
+    // all-day deadline. Deliberately NOT folded into [deadline] itself: that field doubles as the
+    // day-section grouping key (TodoViewModel.buildTodoSections groups on it directly) and as the
+    // basis for the whole-days-overdue procrastination penalty, both of which only work while it
+    // stays exactly a start-of-day value. Meaningless (and always cleared) when deadline is null.
+    @get:PropertyName("deadlineMinuteOfDay") @set:PropertyName("deadlineMinuteOfDay") var deadlineMinuteOfDay: Int? = null,
     // Null means unprioritized -- always counts as procrastination if that penalty is enabled,
     // regardless of the configured cutoff tier.
     @get:PropertyName("priority") @set:PropertyName("priority") var priority: TodoPriority? = null,

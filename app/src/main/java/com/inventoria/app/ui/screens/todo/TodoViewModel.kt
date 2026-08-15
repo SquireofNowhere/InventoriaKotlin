@@ -135,22 +135,27 @@ class TodoViewModel @Inject constructor(
         _isAddingNew.value = true
     }
 
-    fun addTodo(title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?, priority: TodoPriority?) {
+    fun addTodo(title: String, kind: TaskKind, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
+        val time = deadlineMinuteOfDay.takeIf { deadline != null }
         viewModelScope.launch {
             todoRepository.insertTodo(
-                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, deadline = deadline, parentTodoId = parentTodoId, priority = priority)
+                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority)
             )
         }
         _isAddingNew.value = false
     }
 
-    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, deadline: Long?, parentTodoId: String?, priority: TodoPriority?) {
+    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
+        // A time without a date would be unreachable in the UI and would sort/display as a due
+        // time nothing is actually due at, so the "null deadline clears the time" invariant is
+        // enforced here rather than trusted from the dialog.
+        val time = deadlineMinuteOfDay.takeIf { deadline != null }
         viewModelScope.launch {
-            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, deadline = deadline, parentTodoId = parentTodoId, priority = priority))
+            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority))
         }
         _pendingEditTodo.value = null
     }
@@ -280,6 +285,12 @@ class TodoViewModel @Inject constructor(
         return null
     }
 
+    /** Within a day, todos carrying a deadline time come first in chronological order, all-day
+     * ones after them. sortedBy is stable, so everything untimed keeps the DAO's createdAt DESC
+     * order untouched, and so do timed todos sharing a minute. */
+    private fun sortedByDeadlineTime(todos: List<Todo>): List<Todo> =
+        todos.sortedBy { it.deadlineMinuteOfDay ?: Int.MAX_VALUE }
+
     private fun buildTodoSections(all: List<Todo>): List<TodoDaySection> {
         val todayStart = getStartOfDay(System.currentTimeMillis())
         val byId = all.associateBy { it.id }
@@ -301,7 +312,7 @@ class TodoViewModel @Inject constructor(
             sections.add(
                 TodoDaySection(
                     dayStart = todayStart,
-                    visibleTodos = buildTodoTree(todaySectionTodos, byId, childCounts),
+                    visibleTodos = buildTodoTree(sortedByDeadlineTime(todaySectionTodos), byId, childCounts),
                     totalDueCount = todayOwnTodos.size,
                     completedDueCount = todayOwnTodos.count { it.state == TodoState.COMPLETE }
                 )
@@ -310,7 +321,7 @@ class TodoViewModel @Inject constructor(
 
         // Upcoming days, soonest first.
         bySectionDay.keys.filter { it > todayStart }.sorted().forEach { day ->
-            val sectionTodos = bySectionDay[day]!!
+            val sectionTodos = sortedByDeadlineTime(bySectionDay[day]!!)
             val ownForDay = ownDueByDeadline[day] ?: emptyList()
             sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.state == TodoState.COMPLETE }))
         }
@@ -319,7 +330,7 @@ class TodoViewModel @Inject constructor(
         // children following them) already resolved to Today above via effectiveSectionDay, so
         // whatever's left here is exactly what's since been completed.
         bySectionDay.keys.filter { it < todayStart }.sortedDescending().forEach { day ->
-            val sectionTodos = bySectionDay[day]!!
+            val sectionTodos = sortedByDeadlineTime(bySectionDay[day]!!)
             val ownForDay = ownDueByDeadline[day] ?: emptyList()
             sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.state == TodoState.COMPLETE }))
         }

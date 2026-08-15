@@ -1,6 +1,7 @@
 package com.inventoria.app.ui.screens.todo
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,9 +54,11 @@ import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TodoPriorityChip
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
+import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
+import kotlinx.coroutines.delay
 import java.util.Calendar
 import kotlin.math.roundToInt
 
@@ -75,6 +79,26 @@ private fun showDatePicker(context: Context, initialTime: Long, onDateSelected: 
     ).show()
 }
 
+private fun currentMinuteOfDay(): Int = Calendar.getInstance().let {
+    it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
+}
+
+/** Deadline time-of-day picker, handing back minutes since midnight rather than a timestamp --
+ * the todo's date lives in its own field and must stay a start-of-day value. 24-hour, matching
+ * showDateTimePicker on the Task tracker. */
+private fun showTimePicker(context: Context, initialMinuteOfDay: Int?, onTimeSelected: (Int) -> Unit) {
+    val now = Calendar.getInstance()
+    val hour = initialMinuteOfDay?.let { it / 60 } ?: now.get(Calendar.HOUR_OF_DAY)
+    val minute = initialMinuteOfDay?.let { it % 60 } ?: 0
+    TimePickerDialog(
+        context,
+        { _, pickedHour, pickedMinute -> onTimeSelected(pickedHour * 60 + pickedMinute) },
+        hour,
+        minute,
+        true
+    ).show()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
@@ -89,6 +113,14 @@ fun TodoScreen(
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val selectedTodoId by viewModel.selectedTodoId.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
+    // Wall-clock minute, re-read once a minute, so a due time on a today todo flips to its
+    // "past due" styling on its own instead of waiting for some unrelated recomposition.
+    val nowMinuteOfDay by produceState(currentMinuteOfDay()) {
+        while (true) {
+            delay(60_000)
+            value = currentMinuteOfDay()
+        }
+    }
 
     // Drag-and-drop parenting: each row reports its own on-screen Y range here as it's laid out
     // (below), all in ROOT coordinates. Hover target detection is just "which range contains the
@@ -167,6 +199,7 @@ fun TodoScreen(
                             TodoRow(
                                 entry = entry,
                                 todayStart = todayStart,
+                                nowMinuteOfDay = nowMinuteOfDay,
                                 isDragged = draggedTodoId == entry.todo.id,
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
@@ -202,6 +235,7 @@ fun TodoScreen(
                             TodoRow(
                                 entry = entry,
                                 todayStart = todayStart,
+                                nowMinuteOfDay = nowMinuteOfDay,
                                 isDragged = draggedTodoId == entry.todo.id,
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
@@ -269,12 +303,15 @@ fun TodoScreen(
             initialTitle = "",
             initialKind = TaskKind.GRAPHITE,
             initialDeadline = null,
+            initialDeadlineMinuteOfDay = null,
             initialParentId = selectedTodoId,
             initialPriority = null,
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline, parentId, priority -> viewModel.addTodo(title, kind, deadline, parentId, priority) }
+            onSave = { title, kind, deadline, deadlineMinuteOfDay, parentId, priority ->
+                viewModel.addTodo(title, kind, deadline, deadlineMinuteOfDay, parentId, priority)
+            }
         )
     }
 
@@ -284,12 +321,15 @@ fun TodoScreen(
             initialTitle = todo.title,
             initialKind = todo.kind,
             initialDeadline = todo.deadline,
+            initialDeadlineMinuteOfDay = todo.deadlineMinuteOfDay,
             initialParentId = todo.parentTodoId,
             initialPriority = todo.priority,
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, deadline, parentId, priority -> viewModel.saveEditedTodo(todo, title, kind, deadline, parentId, priority) }
+            onSave = { title, kind, deadline, deadlineMinuteOfDay, parentId, priority ->
+                viewModel.saveEditedTodo(todo, title, kind, deadline, deadlineMinuteOfDay, parentId, priority)
+            }
         )
     }
 }
@@ -335,6 +375,7 @@ private fun TodoDayHeader(dayStart: Long, totalDue: Int, completedDue: Int) {
 private fun TodoRow(
     entry: TodoTreeEntry,
     todayStart: Long,
+    nowMinuteOfDay: Int,
     isDragged: Boolean,
     isHoverTarget: Boolean,
     isSelected: Boolean,
@@ -351,6 +392,11 @@ private fun TodoRow(
     val todo = entry.todo
     val isOverdue = todo.state != TodoState.COMPLETE && todo.deadline != null && todo.deadline!! < todayStart
     val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
+    // A time that's already passed only reads as late on the day it's actually due: earlier days
+    // are covered by the whole-days "Overdue by N days" line, and on later days the clock says
+    // nothing. Purely a display cue -- the procrastination penalty stays whole-days-only.
+    val isLateToday = todo.state != TodoState.COMPLETE && todo.deadline == todayStart &&
+        todo.deadlineMinuteOfDay != null && todo.deadlineMinuteOfDay!! < nowMinuteOfDay
     var iconRootTopLeft by remember { mutableStateOf(Offset.Zero) }
     // pointerInput(todo.id) below only re-executes its block when todo.id itself changes -- since
     // it doesn't change mid-drag, the block (and whatever it captures) stays frozen at whichever
@@ -443,6 +489,14 @@ private fun TodoRow(
                         textDecoration = if (entry.effectiveState == TodoState.COMPLETE) TextDecoration.LineThrough else null,
                         color = if (entry.effectiveState == TodoState.INCOMPLETE) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    todo.deadlineMinuteOfDay?.let { minuteOfDay ->
+                        Text(
+                            text = "Due ${formatMinuteOfDay(minuteOfDay)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isLateToday) FontWeight.Bold else null,
+                            color = if (isLateToday) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (isOverdue) {
                         Text(
                             text = "Overdue by $daysOverdue day${if (daysOverdue == 1) "" else "s"}",
@@ -491,16 +545,18 @@ private fun TodoEditDialog(
     initialTitle: String,
     initialKind: TaskKind,
     initialDeadline: Long?,
+    initialDeadlineMinuteOfDay: Int?,
     initialParentId: String?,
     initialPriority: TodoPriority?,
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind, Long?, String?, TodoPriority?) -> Unit
+    onSave: (String, TaskKind, Long?, Int?, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var kind by remember { mutableStateOf(initialKind) }
     var deadline by remember { mutableStateOf(initialDeadline) }
+    var deadlineMinuteOfDay by remember { mutableStateOf(initialDeadlineMinuteOfDay) }
     var parentId by remember { mutableStateOf(initialParentId) }
     var priority by remember { mutableStateOf(initialPriority) }
     val context = LocalContext.current
@@ -537,8 +593,34 @@ private fun TodoEditDialog(
                         Text(deadline?.let { formatSimpleDate(it) } ?: "No deadline")
                     }
                     if (deadline != null) {
-                        IconButton(onClick = { deadline = null }) {
+                        IconButton(onClick = { deadline = null; deadlineMinuteOfDay = null }) {
                             Icon(Icons.Default.Close, contentDescription = "Clear deadline", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                // A due time only means anything alongside a date, so this row only exists once
+                // one is set -- and clearing the date above takes the time with it.
+                if (deadline != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showTimePicker(context, deadlineMinuteOfDay) { picked ->
+                                    deadlineMinuteOfDay = picked
+                                }
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(deadlineMinuteOfDay?.let { formatMinuteOfDay(it) } ?: "No time (all day)")
+                        }
+                        if (deadlineMinuteOfDay != null) {
+                            IconButton(onClick = { deadlineMinuteOfDay = null }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear time", modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
                 }
@@ -557,7 +639,7 @@ private fun TodoEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, kind, deadline, parentId, priority) }, enabled = title.isNotBlank()) {
+            TextButton(onClick = { onSave(title, kind, deadline, deadlineMinuteOfDay, parentId, priority) }, enabled = title.isNotBlank()) {
                 Text("Save")
             }
         },

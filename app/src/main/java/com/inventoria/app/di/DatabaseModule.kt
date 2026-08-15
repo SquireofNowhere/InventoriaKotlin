@@ -55,6 +55,13 @@ object DatabaseModule {
         }
     }
 
+    /** Optional time-of-day on todo deadlines (v14). Additive, same reasoning as v13 above. */
+    private val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE Todo ADD COLUMN deadlineMinuteOfDay INTEGER")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideInventoryDatabase(
@@ -65,7 +72,7 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_3_4, MIGRATION_12_13)
+            .addMigrations(MIGRATION_3_4, MIGRATION_12_13, MIGRATION_13_14)
             .fallbackToDestructiveMigration()
             .build()
     }

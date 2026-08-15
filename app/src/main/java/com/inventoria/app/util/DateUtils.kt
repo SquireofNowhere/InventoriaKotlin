@@ -63,6 +63,11 @@ fun getDayLabel(timestamp: Long): String {
     }
 }
 
+/** Minutes-since-midnight (a Todo's optional deadline time) as "HH:mm" -- 24-hour, matching the
+ * TimePickerDialog the Task tracker already opens with is24HourView = true. */
+fun formatMinuteOfDay(minuteOfDay: Int): String =
+    String.format(Locale.getDefault(), "%02d:%02d", minuteOfDay / 60, minuteOfDay % 60)
+
 fun formatSimpleDate(timestamp: Long): String {
     val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     return sdf.format(Date(timestamp))
