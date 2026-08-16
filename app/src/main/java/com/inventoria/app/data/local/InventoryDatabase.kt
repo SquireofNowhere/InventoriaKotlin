@@ -27,6 +27,10 @@ import com.inventoria.app.data.model.Todo
     // compare a migration against, and a wrong ALTER TABLE only shows up as a crash on a real
     // device. Bumping the version below without adding a matching Migration in DatabaseModule now
     // fails at startup rather than silently wiping the database; see the comment there.
+    //
+    // The exported history starts at 15, because this flag was turned on at that version -- 12, 13
+    // and 14 have migrations but no schema to check them against. 15 -> 16 is the first bump that
+    // can actually be diffed.
     exportSchema = true
 )
 @TypeConverters(Converters::class)
