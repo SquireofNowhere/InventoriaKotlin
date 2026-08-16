@@ -45,7 +45,7 @@ object DatabaseModule {
      * why. Adding a real migration for one of these versions means removing it from this list in
      * the same edit -- and, since 4→5 through 11→12 do not exist, filling in the whole chain.
      */
-    private val LEGACY_UNMIGRATABLE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+    val LEGACY_UNMIGRATABLE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 
     /**
      * Task Types (v13). Purely additive, so it gets a real migration rather than being allowed to
@@ -83,6 +83,14 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
+     * drift apart -- a migration added to only one of them is exactly the mistake the test exists
+     * to catch. Declared after the migrations it references, since object properties initialize in
+     * declaration order.
+     */
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+
     @Provides
     @Singleton
     fun provideInventoryDatabase(
@@ -94,7 +102,9 @@ object DatabaseModule {
             InventoryDatabase.DATABASE_NAME
         )
             // Every version here must be absent from LEGACY_UNMIGRATABLE_VERSIONS -- see its KDoc.
-            .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+            // DatabaseMigrationConfigTest asserts that, so the invariant is now checked rather than
+            // just described.
+            .addMigrations(*ALL_MIGRATIONS)
             // Scoped to the versions listed above instead of a blanket fallback. Bump the database
             // version without writing the migration and this now throws
             // IllegalStateException("A migration from 15 to 16 was required but not found") on

@@ -68,6 +68,14 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets {
+        // MigrationTestHelper reads the exported schema from the *test* APK's assets, so the
+        // directory kapt writes to above has to be packaged into it. Without this the migration
+        // test fails with "Cannot find the schema file in the assets folder", which reads like a
+        // missing export rather than a missing source set.
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 kapt {
@@ -151,4 +159,5 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.room.testing)
 }
