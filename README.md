@@ -107,6 +107,17 @@ and they identify the Firebase project (see [SECURITY.md](SECURITY.md)):
 
 Then build as normal from Android Studio. `minSdk` 24, `compileSdk`/`targetSdk` 34, JDK 21.
 
+### Database schemas
+
+Room exports a JSON schema per database version to `app/schemas/`. **These are build outputs that
+must be committed** — they are the record of the schema at each version, and the only thing a
+migration can be checked against. After a build that bumps the database version, commit the new
+file alongside the migration.
+
+Changing the version in `InventoryDatabase` without adding a matching `Migration` in
+`DatabaseModule` now fails at startup instead of quietly recreating the database. That is
+deliberate: see the comments there.
+
 ## 🛠️ Tech Stack
 - **UI**: Jetpack Compose (Material 3)
 - **Database**: Room (Local), Firebase Realtime Database (Cloud Sync)

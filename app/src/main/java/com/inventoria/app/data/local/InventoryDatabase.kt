@@ -22,7 +22,12 @@ import com.inventoria.app.data.model.Todo
         TaskType::class
     ],
     version = 15,
-    exportSchema = false
+    // Exported to app/schemas/ and committed. Room writes one JSON file per version, which is what
+    // makes a migration reviewable in a diff and testable at all -- without it there is nothing to
+    // compare a migration against, and a wrong ALTER TABLE only shows up as a crash on a real
+    // device. Bumping the version below without adding a matching Migration in DatabaseModule now
+    // fails at startup rather than silently wiping the database; see the comment there.
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class InventoryDatabase : RoomDatabase() {

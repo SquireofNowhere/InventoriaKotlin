@@ -71,6 +71,12 @@ android {
 }
 
 kapt {
+    // Where Room writes the exported schema JSON (one file per database version). These are
+    // committed: they are the record of what the schema looked like at each version, and the only
+    // thing a migration test could verify against.
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
     correctErrorTypes = true
     javacOptions {
         option("--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED")

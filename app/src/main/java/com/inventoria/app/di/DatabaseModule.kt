@@ -22,6 +22,25 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
+    /**
+     * The versions a destructive rebuild is still allowed from.
+     *
+     * Only 12, 13 and 14 have a complete migration path up to the current version. Everything below
+     * that predates the migrations entirely -- MIGRATION_3_4 exists but 4→5 through 11→12 never
+     * did, so a database at any of those versions cannot be brought forward and has to be
+     * recreated.
+     *
+     * Naming them explicitly, rather than allowing a blanket fallback, is the whole point: a
+     * missing migration from a *future* version is then a loud crash at startup instead of a silent
+     * wipe. Losing local data is recoverable for a signed-in user (it re-pulls from Firebase) but
+     * total for a local-only one, which is far too quiet a failure to leave as the default for
+     * mistakes not yet made.
+     */
+    private val LEGACY_UNMIGRATABLE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+
+    /** Unreachable in practice -- a database at v3 has no route past v4, so it takes the
+     * destructive path above instead. Kept because it is the correct 3→4 step if the missing
+     * 4→5..11→12 links are ever filled in. */
     private val MIGRATION_3_4 = object : Migration(3, 4) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE InventoryItem ADD COLUMN isDirty INTEGER NOT NULL DEFAULT 0")
@@ -33,10 +52,9 @@ object DatabaseModule {
     }
     
     /**
-     * Task Types (v13). Purely additive, so it gets a real migration rather than falling through
-     * to fallbackToDestructiveMigration() below -- that fallback wipes the local database, which
-     * is recoverable for signed-in users (data re-pulls from Firebase) but silently destroys
-     * everything for local-only ones.
+     * Task Types (v13). Purely additive, so it gets a real migration rather than being allowed to
+     * fall through to a destructive rebuild -- which wipes the local database, recoverably for a
+     * signed-in user and totally for a local-only one.
      */
     private val MIGRATION_12_13 = object : Migration(12, 13) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -80,7 +98,16 @@ object DatabaseModule {
             InventoryDatabase.DATABASE_NAME
         )
             .addMigrations(MIGRATION_3_4, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
-            .fallbackToDestructiveMigration()
+            // Scoped to the versions listed above instead of a blanket fallback. Bump the database
+            // version without writing the migration and this now throws
+            // IllegalStateException("A migration from 15 to 16 was required but not found") on
+            // first launch -- which is the correct outcome, because the alternative is every user
+            // silently losing their local data and nobody finding out until someone notices their
+            // todos are gone.
+            .fallbackToDestructiveMigrationFrom(*LEGACY_UNMIGRATABLE_VERSIONS)
+            // Installing an older build over a newer one would otherwise crash outright. A
+            // downgrade only happens while developing, and recreating is the only sane response.
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
     
