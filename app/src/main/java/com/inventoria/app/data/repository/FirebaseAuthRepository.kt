@@ -9,13 +9,18 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,6 +33,24 @@ class FirebaseAuthRepository @Inject constructor(
     private val firebaseStorage: FirebaseStorage
 ) {
     private val TAG = "FirebaseAuthRepository"
+
+    companion object {
+        /** Codes are typed by hand off a screen, so they stay short. */
+        const val INVITE_CODE_LENGTH = 6
+        private const val INVITE_CODE_CLAIM_ATTEMPTS = 5
+
+        /** The only characters a code can contain -- and the only ones safe as a Realtime Database key. */
+        private val INVITE_CODE_CHARS = (('A'..'Z') + ('0'..'9')).toSet()
+
+        /**
+         * Uppercases and strips anything that isn't part of a code. Codes are pasted as often as
+         * typed, so stray whitespace and punctuation arrive routinely -- and `.`, `#`, `$`, `[`,
+         * `]` and `/` are illegal in a Realtime Database key, which made `child(code)` throw
+         * outright rather than simply not matching.
+         */
+        fun normalizeInviteCode(raw: String): String =
+            raw.uppercase().filter { it in INVITE_CODE_CHARS }
+    }
 
     val authStateFlow: Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth ->
@@ -93,17 +116,98 @@ class FirebaseAuthRepository @Inject constructor(
             Log.w(TAG, "Token refresh before generateInviteCode failed, proceeding anyway", e)
         }
 
-        // Generate a 6-character alphanumeric code
-        val chars = ('A'..'Z') + ('0'..'9')
-        val code = (1..6).map { chars.random() }.joinToString("")
+        val previousCode = getExistingInviteCode()
 
-        // 1. Map code to userId in a public invites node
-        firebaseDatabase.getReference("invites").child(code).setValue(userId).await()
-        
-        // 2. Store the code in the user's own record for reference
+        val code = claimUnusedInviteCode(userId)
+
+        // Store the code in the user's own record for reference
         firebaseDatabase.getReference("users").child(userId).child("my_invite_code").setValue(code).await()
-        
+
+        // The old code stayed live in `invites` forever otherwise, so a user who regenerated ended
+        // up with two working codes and no way to retire the first. Best-effort: failing to clean
+        // up an old code must not fail the new one, which is already claimed and recorded.
+        if (previousCode != null && previousCode != code) {
+            try {
+                firebaseDatabase.getReference("invites").child(previousCode).removeValue().await()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not retire previous invite code $previousCode", e)
+            }
+        }
+
         return code
+    }
+
+    /**
+     * Finds a code nobody else holds and claims it.
+     *
+     * This used to be a bare `setValue` on a random code. A collision is unlikely at
+     * [INVITE_CODE_LENGTH] characters, but it was silent and the wrong way round: the new owner
+     * simply overwrote the existing mapping, so everyone still holding the older user's code would
+     * have been handed a stranger's database, while that user's own screen went on showing a code
+     * that no longer pointed at them.
+     */
+    private suspend fun claimUnusedInviteCode(userId: String): String {
+        repeat(INVITE_CODE_CLAIM_ATTEMPTS) {
+            val code = (1..INVITE_CODE_LENGTH).map { INVITE_CODE_CHARS.random() }.joinToString("")
+            if (tryClaimInviteCode(code, userId)) return code
+            Log.w(TAG, "Invite code $code was already taken, retrying")
+        }
+        throw IllegalStateException("Couldn't find a free invite code. Please try again.")
+    }
+
+    /** Returns true if [code] was empty (or already ours) and now maps to [userId]. */
+    private suspend fun tryClaimInviteCode(code: String, userId: String): Boolean =
+        suspendCancellableCoroutine { continuation ->
+            firebaseDatabase.getReference("invites").child(code).runTransaction(
+                object : Transaction.Handler {
+                    override fun doTransaction(currentData: MutableData): Transaction.Result {
+                        val existing = currentData.getValue(String::class.java)
+                        // Re-claiming our own code is fine; anyone else's is the collision.
+                        if (existing != null && existing != userId) return Transaction.abort()
+                        currentData.value = userId
+                        return Transaction.success(currentData)
+                    }
+
+                    override fun onComplete(
+                        error: DatabaseError?,
+                        committed: Boolean,
+                        snapshot: DataSnapshot?
+                    ) {
+                        if (!continuation.isActive) return
+                        if (error != null) {
+                            continuation.resumeWithException(error.toException())
+                        } else {
+                            continuation.resume(committed)
+                        }
+                    }
+                }
+            )
+        }
+
+    /**
+     * Retires the current invite code so it stops working for anyone still holding it.
+     *
+     * [revokeSharedAccess] alone does not do this: it removes the joiner from `sharedWith`, but the
+     * code that let them add themselves is still live, so the same person can paste it again and
+     * re-link. Cutting someone off for good means rotating the code as well.
+     */
+    suspend fun revokeInviteCode(code: String): Result<Unit> {
+        val userId = getCurrentUserId() ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            // The `invites` entry is what actually grants access; my_invite_code is only the
+            // owner's own note of it. Once the first is gone the code is dead, so failing to tidy
+            // up the second must not report back that the code is still live.
+            firebaseDatabase.getReference("invites").child(code).removeValue().await()
+            try {
+                firebaseDatabase.getReference("users").child(userId).child("my_invite_code").removeValue().await()
+            } catch (e: Exception) {
+                Log.w(TAG, "Code $code retired, but clearing my_invite_code failed", e)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to revoke invite code", e)
+            Result.failure(e)
+        }
     }
 
     suspend fun getExistingInviteCode(): String? {
@@ -116,8 +220,9 @@ class FirebaseAuthRepository @Inject constructor(
         }
     }
 
+    /** [code] must already be through [normalizeInviteCode]; anything else is not a valid database key. */
     suspend fun getUserIdFromInviteCode(code: String): String? {
-        val snapshot = firebaseDatabase.getReference("invites").child(code.uppercase()).get().await()
+        val snapshot = firebaseDatabase.getReference("invites").child(code).get().await()
         return snapshot.getValue(String::class.java)
     }
 
@@ -134,7 +239,7 @@ class FirebaseAuthRepository @Inject constructor(
                 .child(targetUserId)
                 .child("sharedWith")
                 .child(currentUserId)
-                .setValue(inviteCode.uppercase())
+                .setValue(normalizeInviteCode(inviteCode))
                 .await()
             Result.success(Unit)
         } catch (e: Exception) {

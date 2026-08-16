@@ -98,8 +98,19 @@ class SettingsViewModel @Inject constructor(
     private val _generatedInviteCode = MutableStateFlow<String?>(null)
     val generatedInviteCode: StateFlow<String?> = _generatedInviteCode.asStateFlow()
 
+    /** Failures from *using* someone else's code, shown under the code entry field. */
     private val _inviteCodeError = MutableStateFlow<String?>(null)
     val inviteCodeError: StateFlow<String?> = _inviteCodeError.asStateFlow()
+
+    /**
+     * Failures from managing *your own* code -- generating, retiring, revoking a joiner.
+     *
+     * Separate from [inviteCodeError] because they shared one channel: a failed "Generate Invite
+     * Code" surfaced as the error text under "Enter Invite Code", blaming a field the user had not
+     * touched, and could only be cleared by typing into that unrelated field.
+     */
+    private val _inviteCodeGenerationError = MutableStateFlow<String?>(null)
+    val inviteCodeGenerationError: StateFlow<String?> = _inviteCodeGenerationError.asStateFlow()
 
     /**
      * Emitted once [deleteAccount] has finished wiping the device. The UI has to restart from the
@@ -267,25 +278,69 @@ class SettingsViewModel @Inject constructor(
         }
     }
     
-    fun setManualSyncId(syncId: String?) {
-        viewModelScope.launch {
-            settingsRepository.saveManualSyncId(syncId)
-        }
+    /** Disconnects from an external account and goes back to this device's own database. */
+    fun clearExternalSync() {
+        viewModelScope.launch { switchSyncTarget(null) }
+    }
+
+    /**
+     * Points the device at a different database, emptying Room on the way.
+     *
+     * Room is a cache of exactly one account, and saving the new id was previously the *whole*
+     * operation -- the old account's rows stayed, and the next full push (which sends every row,
+     * on every backgrounding) uploaded them into the new target. Joining an invite code therefore
+     * copied the joiner's entire inventory into the inviter's account, and disconnecting copied the
+     * inviter's back into the joiner's.
+     *
+     * Sync stops first so no listener is pushing while the tables are emptied, and the new target's
+     * data arrives from its own node as soon as the listeners come back up. Anything already synced
+     * survives in whichever cloud node owns it.
+     */
+    private suspend fun switchSyncTarget(syncId: String?) {
+        syncRepository.stopSync()
+        localDataRepository.clearSyncedData()
+        settingsRepository.saveManualSyncId(syncId)
     }
 
     fun revokeSharedAccess(joinerUid: String) {
         viewModelScope.launch {
-            authRepository.revokeSharedAccess(joinerUid)
+            val result = authRepository.revokeSharedAccess(joinerUid)
+            if (result.isFailure) {
+                _inviteCodeGenerationError.value =
+                    "Couldn't revoke that connection: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+            }
+        }
+    }
+
+    /**
+     * Retires the current code. Revoking a person leaves the code they used still working, so
+     * without this there is no way to actually cut off someone who kept it -- they simply paste it
+     * again.
+     */
+    fun revokeInviteCode() {
+        viewModelScope.launch {
+            _inviteCodeGenerationError.value = null
+            // The displayed code, not a fresh read: a failed read would look like "no code to
+            // retire" and the UI would clear a code that is still live on the server.
+            val code = _generatedInviteCode.value ?: return@launch
+            val result = authRepository.revokeInviteCode(code)
+            if (result.isSuccess) {
+                _generatedInviteCode.value = null
+            } else {
+                _inviteCodeGenerationError.value =
+                    "Couldn't retire the code: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+            }
         }
     }
 
     fun createInviteCode() {
         viewModelScope.launch {
+            _inviteCodeGenerationError.value = null
             try {
                 val code = authRepository.generateInviteCode()
                 _generatedInviteCode.value = code
             } catch (e: Exception) {
-                _inviteCodeError.value = e.message
+                _inviteCodeGenerationError.value = e.message ?: "Couldn't create an invite code"
             }
         }
     }
@@ -300,17 +355,33 @@ class SettingsViewModel @Inject constructor(
                 _inviteCodeError.value = "Sign out of your Google account first — local, Google, and external-sync are separate states and shouldn't overlap."
                 return@launch
             }
+            val normalized = FirebaseAuthRepository.normalizeInviteCode(code)
+            if (normalized.length != FirebaseAuthRepository.INVITE_CODE_LENGTH) {
+                _inviteCodeError.value =
+                    "An invite code is ${FirebaseAuthRepository.INVITE_CODE_LENGTH} letters and numbers."
+                return@launch
+            }
             try {
-                val targetUserId = authRepository.getUserIdFromInviteCode(code)
-                if (targetUserId != null) {
-                    // Inform the backend/owner that we want to link
-                    // We pass the code itself so the backend rules can verify it
-                    authRepository.linkToUser(targetUserId, code)
-                    // Set local sync ID to the owner's ID
-                    settingsRepository.saveManualSyncId(targetUserId)
-                } else {
+                val targetUserId = authRepository.getUserIdFromInviteCode(normalized)
+                if (targetUserId == null) {
                     _inviteCodeError.value = "Invalid or expired invite code"
+                    return@launch
                 }
+                if (targetUserId == authRepository.getCurrentUserId()) {
+                    _inviteCodeError.value = "That's your own invite code — this device is already on that database."
+                    return@launch
+                }
+                // The result used to be discarded, and manualSyncId was saved regardless. When the
+                // rules refused the link -- a retired code, a revoked user -- the device still
+                // switched to a database it had no permission to read, and every sync from then on
+                // failed while the UI cheerfully reported "Synced to an External Account".
+                val link = authRepository.linkToUser(targetUserId, normalized)
+                if (link.isFailure) {
+                    _inviteCodeError.value =
+                        "That account wouldn't accept the link — the code may have been retired. (${link.exceptionOrNull()?.message ?: "permission denied"})"
+                    return@launch
+                }
+                switchSyncTarget(targetUserId)
             } catch (e: Exception) {
                 _inviteCodeError.value = "Error: ${e.message}"
             }
@@ -319,6 +390,10 @@ class SettingsViewModel @Inject constructor(
 
     fun clearInviteCodeError() {
         _inviteCodeError.value = null
+    }
+
+    fun clearInviteCodeGenerationError() {
+        _inviteCodeGenerationError.value = null
     }
 
     /** Firebase's live answer, for guards that must not act on a cached flow value. */

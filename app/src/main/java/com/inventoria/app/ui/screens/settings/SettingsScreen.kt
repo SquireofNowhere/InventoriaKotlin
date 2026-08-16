@@ -33,6 +33,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
@@ -63,6 +64,7 @@ fun SettingsScreen(
     val manualSyncId by viewModel.manualSyncId.collectAsState()
     val generatedInviteCode by viewModel.generatedInviteCode.collectAsState()
     val inviteCodeError by viewModel.inviteCodeError.collectAsState()
+    val inviteCodeGenerationError by viewModel.inviteCodeGenerationError.collectAsState()
     val sharedWithUsers by viewModel.sharedWithUsers.collectAsState()
     val innerTaskEnabled by viewModel.innerTaskEnabled.collectAsState()
     val procrastinationTodoEnabled by viewModel.procrastinationTodoEnabled.collectAsState()
@@ -190,6 +192,7 @@ fun SettingsScreen(
                 currentUserId = currentUserId,
                 generatedInviteCode = generatedInviteCode,
                 inviteCodeError = inviteCodeError,
+                inviteCodeGenerationError = inviteCodeGenerationError,
                 sharedWithUsers = sharedWithUsers,
                 onUsernameChange = { viewModel.updateCustomUsername(it) },
                 onSignInClick = {
@@ -199,9 +202,11 @@ fun SettingsScreen(
                 onDismissAuthError = { viewModel.clearAuthState() },
                 onDeleteAccountClick = { viewModel.deleteAccount() },
                 onGenerateInviteCode = { viewModel.createInviteCode() },
+                onRevokeInviteCode = { viewModel.revokeInviteCode() },
                 onUseInviteCode = { viewModel.useInviteCode(it) },
-                onClearSync = { viewModel.setManualSyncId(null) },
+                onClearSync = { viewModel.clearExternalSync() },
                 onClearError = { viewModel.clearInviteCodeError() },
+                onClearGenerationError = { viewModel.clearInviteCodeGenerationError() },
                 onRevokeAccess = { viewModel.revokeSharedAccess(it) }
             )
 
@@ -543,6 +548,28 @@ private fun deleteAccountCopy(authState: AuthState, manualSyncId: String?): Dele
     )
 }
 
+/** Shared confirm for the two actions that replace this device's database with another one's. */
+@Composable
+private fun SyncSwitchDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(confirmLabel, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
 private data class SyncStatusVisuals(
     val icon: ImageVector,
     val title: String,
@@ -560,6 +587,7 @@ fun AccountSection(
     currentUserId: String?,
     generatedInviteCode: String?,
     inviteCodeError: String?,
+    inviteCodeGenerationError: String?,
     sharedWithUsers: Map<String, String>,
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
@@ -567,15 +595,48 @@ fun AccountSection(
     onDismissAuthError: () -> Unit,
     onDeleteAccountClick: () -> Unit,
     onGenerateInviteCode: () -> Unit,
+    onRevokeInviteCode: () -> Unit,
     onUseInviteCode: (String) -> Unit,
     onClearSync: () -> Unit,
     onClearError: () -> Unit,
+    onClearGenerationError: () -> Unit,
     onRevokeAccess: (String) -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
     val deleteCopy = deleteAccountCopy(authState = authState, manualSyncId = manualSyncId)
+
+    // Both sync switches now empty this device's database first (see switchSyncTarget), so both
+    // need saying out loud rather than happening on one tap.
+    var pendingJoinCode by remember { mutableStateOf<String?>(null) }
+    var showClearSyncDialog by remember { mutableStateOf(false) }
+
+    pendingJoinCode?.let { code ->
+        SyncSwitchDialog(
+            title = "Join This Database?",
+            body = "This device will stop using its own database and read the account behind code $code instead. Its local copy is replaced by theirs.\n\nYour own data is not deleted — it stays in your account and comes back if you disconnect later.",
+            confirmLabel = "Join",
+            onConfirm = {
+                onUseInviteCode(code)
+                pendingJoinCode = null
+            },
+            onDismiss = { pendingJoinCode = null }
+        )
+    }
+
+    if (showClearSyncDialog) {
+        SyncSwitchDialog(
+            title = "Disconnect From External Account?",
+            body = "This device goes back to your own database. The local copy of the external account's data is cleared — it stays in their account, untouched.\n\nYour own data comes back from your account.",
+            confirmLabel = "Disconnect",
+            onConfirm = {
+                onClearSync()
+                showClearSyncDialog = false
+            },
+            onDismiss = { showClearSyncDialog = false }
+        )
+    }
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -765,8 +826,31 @@ fun AccountSection(
                                 Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
                             }
                         },
-                        supportingText = { Text("Give this code to others to let them sync to your data") }
+                        supportingText = { Text("Anyone with this code can join your database until you retire it") }
                     )
+
+                    TextButton(
+                        onClick = onRevokeInviteCode,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Retire This Code", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+
+                // Its own channel, so a failure here can no longer appear as an error on the
+                // unrelated "Enter Invite Code" field below.
+                if (inviteCodeGenerationError != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            inviteCodeGenerationError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onClearGenerationError) { Text("Dismiss") }
+                    }
                 }
 
                 Text(
@@ -800,6 +884,11 @@ fun AccountSection(
                             }
                         }
                     }
+                    Text(
+                        "Revoking removes someone from this list, but the code they used still works — retire the code above to stop them rejoining with it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -818,7 +907,12 @@ fun AccountSection(
                 OutlinedTextField(
                     value = codeInput,
                     onValueChange = {
-                        codeInput = it.uppercase()
+                        // Normalized as it is typed rather than only uppercased: codes get pasted
+                        // with stray spaces and punctuation, and characters like "." or "/" are
+                        // illegal in a database key, which made the lookup throw rather than simply
+                        // not match. Capped so the confirm icon means "this is a whole code".
+                        codeInput = FirebaseAuthRepository.normalizeInviteCode(it)
+                            .take(FirebaseAuthRepository.INVITE_CODE_LENGTH)
                         if (inviteCodeError != null) onClearError()
                     },
                     label = { Text("Enter Invite Code") },
@@ -833,8 +927,8 @@ fun AccountSection(
                         }
                     },
                     trailingIcon = {
-                        if (codeInput.length >= 6) {
-                            IconButton(onClick = { onUseInviteCode(codeInput) }) {
+                        if (codeInput.length == FirebaseAuthRepository.INVITE_CODE_LENGTH) {
+                            IconButton(onClick = { pendingJoinCode = codeInput }) {
                                 Icon(Icons.Default.Sync, contentDescription = "Sync")
                             }
                         }
@@ -844,7 +938,7 @@ fun AccountSection(
 
             if (manualSyncId != null) {
                 Button(
-                    onClick = onClearSync,
+                    onClick = { showClearSyncDialog = true },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,

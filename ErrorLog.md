@@ -606,4 +606,28 @@ Three causes with one shape: the UI was reading a copy of the auth state rather 
 
 ---
 
+## 🐞 38. Joining an Invite Code Uploaded Your Whole Inventory Into the Inviter's Account
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Review of the invite code flow, prompted by the account work in #36 and #37. Six defects, one of them a silent cross-account data leak.
+
+### 🔍 Root Cause
+1. **Switching sync target never cleared Room.** `useInviteCode` saved `manualSyncId` and that was the whole operation. Room is a cache of exactly one account, and `triggerFullSync()` pushes *every* row (`getAllItemsForSyncList()`, not the dirty subset) to whatever `userRef` points at — and `MainActivity.onStop()` calls it on every backgrounding. So joining a code copied the joiner's entire inventory, tasks and todos into the inviter's account the moment the app was backgrounded, and disconnecting afterwards copied the inviter's data back into the joiner's.
+2. **`linkToUser`'s result was discarded.** `manualSyncId` was saved regardless of whether the link write succeeded. When the rules refused it — retired code, revoked user — the device still switched to a database it had no permission to read, and every sync from then on failed while the banner reported "Synced to an External Account".
+3. **Invite codes were claimed with a bare `setValue`.** A collision silently repointed an existing owner's code at the new owner: everyone holding the older code would have been handed a stranger's database, while that owner's screen went on showing a code that no longer pointed at them. Regenerating also left the previous code live forever, with no way to retire it.
+4. **Revoke did not revoke.** `revokeSharedAccess` removes the joiner from `sharedWith`, but the code they used stays valid, so the same person pastes it again and re-links. There was no way to retire a code at all.
+5. **One error channel for two actions.** A failed "Generate Invite Code" surfaced as the error text under the unrelated "Enter Invite Code" field, and could only be cleared by typing into that field.
+6. **Input was uppercased but not validated.** The confirm icon appeared at `length >= 6`, and `.`, `#`, `$`, `[`, `]`, `/` are illegal Realtime Database keys — so a pasted code containing one made `child(code)` throw rather than simply not match. Nothing rejected your own code either, which parked the device in the external-sync state pointed at itself.
+
+### 🛠️ Final Fix
+- `SettingsViewModel.switchSyncTarget()` is now the single path for changing databases: stop sync, `LocalDataRepository.clearSyncedData()`, then save the new id. Both joining and disconnecting go through it, and both now confirm first, since the device's local copy is replaced either way. Nothing already synced is lost — each account's data stays in its own cloud node and is pulled back when the device points at it again.
+- `linkToUser`'s `Result` is checked; the sync target only changes if the link was actually accepted.
+- Codes are claimed with a `runTransaction` that aborts if the slot belongs to someone else, retrying up to five candidates. Generating also retires the previous code (best-effort — failing to clean up an old code must not fail the new one).
+- New `revokeInviteCode(code)`, surfaced as "Retire This Code", plus a line under the joiner list saying outright that revoking a person does not invalidate the code they used.
+- `inviteCodeGenerationError` is its own channel with its own Dismiss, separate from the code-entry error.
+- `normalizeInviteCode()` in `FirebaseAuthRepository` is the one definition of what a code may contain; the entry field normalizes as you type and caps at `INVITE_CODE_LENGTH`, the confirm icon requires a whole code, and using your own code is rejected by uid.
+
+---
+
 *Last Updated: 2026-08-16*

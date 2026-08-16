@@ -28,16 +28,35 @@ class LocalDataRepository @Inject constructor(
     private val TAG = "LocalDataRepository"
 
     /**
-     * Callers must stop sync first ([FirebaseSyncRepository.stopSync]) -- a live listener holding
-     * the outgoing account's node would otherwise be racing this.
+     * Drops the synced entities, leaving preferences alone.
+     *
+     * Room holds exactly one account's data at a time, so changing which database this device syncs
+     * to has to start from empty. Carrying the old rows across a switch meant the very next
+     * [FirebaseSyncRepository.triggerFullSync] -- which pushes *every* row, not just the dirty ones,
+     * and runs on every backgrounding -- uploaded them into the new target: joining someone's invite
+     * code silently copied your whole inventory into their account, and clearing the connection
+     * afterwards copied theirs into yours.
+     *
+     * Nothing is lost that has already synced: each account's data stays in its own cloud node and
+     * is pulled back when this device points at it again.
      */
-    suspend fun wipeAllLocalData() {
+    suspend fun clearSyncedData() {
         withContext(Dispatchers.IO) {
             // Truncates every table but keeps the schema, so the singleton database instance the
             // rest of the app is already holding stays usable and its flows just re-emit empty. It
             // blocks and runs its own transaction, hence the IO dispatcher.
             database.clearAllTables()
+            Log.d(TAG, "Local database cleared")
+        }
+    }
 
+    /**
+     * Callers must stop sync first ([FirebaseSyncRepository.stopSync]) -- a live listener holding
+     * the outgoing account's node would otherwise be racing this.
+     */
+    suspend fun wipeAllLocalData() {
+        clearSyncedData()
+        withContext(Dispatchers.IO) {
             settingsRepository.clearAll()
 
             // Camera captures land here before being attached to an item (see AddEditItemViewModel);
