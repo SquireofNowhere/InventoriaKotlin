@@ -98,6 +98,10 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.tooling)
+    // ui-tooling-preview above is only the @Preview annotation; the renderer that actually draws
+    // previews in Android Studio lives here and is debug-only. Added for the Help section's
+    // diagrams, which are hand-built Compose drawings with no other way to eyeball them.
+    debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.compose.material.icons.extended)
 
     // Navigation

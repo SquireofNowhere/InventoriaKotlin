@@ -23,6 +23,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.inventoria.app.ui.screens.clock.ClockScreen
 import com.inventoria.app.ui.screens.clock.ClockViewModel
+import com.inventoria.app.ui.screens.help.HelpArticleScreen
+import com.inventoria.app.ui.screens.help.HelpCategoryScreen
+import com.inventoria.app.ui.screens.help.HelpIndexScreen
 import com.inventoria.app.ui.screens.collections.*
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
 import com.inventoria.app.ui.screens.dashboard.DashboardViewModel
@@ -327,7 +330,42 @@ fun InventoriaApp() {
                     onNavigateBack = { navController.popBackStack() },
                     // A drill-down with its own back button, like task_history/productivity_stats
                     // -- deliberately not a tab route, so switchToTab is not involved.
-                    onNavigateToTaskTypes = { navController.navigate("task_types") }
+                    onNavigateToTaskTypes = { navController.navigate("task_types") },
+                    onNavigateToHelp = { navController.navigate("help") }
+                )
+            }
+
+            // The manual. Static route first, matching the collection/create-before-collection/{id}
+            // ordering this NavHost already relies on.
+            composable("help") {
+                HelpIndexScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenCategory = { navController.navigate("help/category/$it") },
+                    onOpenArticle = { navController.navigate("help/article/$it") }
+                )
+            }
+
+            composable(
+                route = "help/category/{categoryId}",
+                arguments = listOf(navArgument("categoryId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                HelpCategoryScreen(
+                    categoryId = backStackEntry.arguments?.getString("categoryId").orEmpty(),
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenArticle = { navController.navigate("help/article/$it") }
+                )
+            }
+
+            composable(
+                route = "help/article/{articleId}",
+                arguments = listOf(navArgument("articleId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                HelpArticleScreen(
+                    articleId = backStackEntry.arguments?.getString("articleId").orEmpty(),
+                    onNavigateBack = { navController.popBackStack() },
+                    // A plain push, so following a chain of related guides and then going back
+                    // retraces your reading order.
+                    onOpenArticle = { navController.navigate("help/article/$it") }
                 )
             }
 

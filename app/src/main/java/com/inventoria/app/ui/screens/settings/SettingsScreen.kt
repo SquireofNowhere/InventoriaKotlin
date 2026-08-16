@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,7 +42,8 @@ import java.util.Locale
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToTaskTypes: () -> Unit
+    onNavigateToTaskTypes: () -> Unit,
+    onNavigateToHelp: () -> Unit
 ) {
     val context = LocalContext.current
     val isDarkMode by viewModel.isDarkMode.collectAsState()
@@ -182,6 +184,16 @@ fun SettingsScreen(
                 onClearSync = { viewModel.setManualSyncId(null) },
                 onClearError = { viewModel.clearInviteCodeError() },
                 onRevokeAccess = { viewModel.revokeSharedAccess(it) }
+            )
+
+            // Sits directly above About, in the same "about the app" band at the bottom -- putting
+            // it at the top would push actual settings below the fold.
+            SettingsCategoryHeader("Help")
+            SettingsNavigationRow(
+                title = "How To",
+                subtitle = "Step-by-step guides for every feature, with diagrams",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                onClick = onNavigateToHelp
             )
 
             SettingsCategoryHeader("About")

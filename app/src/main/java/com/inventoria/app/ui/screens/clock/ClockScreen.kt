@@ -123,8 +123,8 @@ fun ClockScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
-                    // Scrolls rather than wraps: FlowRow is still opt-in experimental, and a row
-                    // of six short chips is fine to swipe on a phone.
+                    // Scrolls rather than wraps: six short chips read fine as one swipeable row,
+                    // and the presets are ordered, so keeping them on one line preserves that.
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
