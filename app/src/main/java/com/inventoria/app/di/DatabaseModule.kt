@@ -26,31 +26,27 @@ object DatabaseModule {
      * The versions a destructive rebuild is still allowed from.
      *
      * Only 12, 13 and 14 have a complete migration path up to the current version. Everything below
-     * that predates the migrations entirely -- MIGRATION_3_4 exists but 4→5 through 11→12 never
-     * did, so a database at any of those versions cannot be brought forward and has to be
-     * recreated.
+     * that predates the migrations entirely -- 4→5 through 11→12 were never written -- so a
+     * database at any of those versions cannot be brought forward and has to be recreated.
      *
      * Naming them explicitly, rather than allowing a blanket fallback, is the whole point: a
      * missing migration from a *future* version is then a loud crash at startup instead of a silent
      * wipe. Losing local data is recoverable for a signed-in user (it re-pulls from Firebase) but
      * total for a local-only one, which is far too quiet a failure to leave as the default for
      * mistakes not yet made.
+     *
+     * INVARIANT: no version listed here may also be the start OR end version of anything passed to
+     * addMigrations() below. Room rejects that combination outright at build() -- not lazily on a
+     * database that actually needs it, but for every user on every launch. A MIGRATION_3_4 used to
+     * sit here alongside 3 in this list, and the resulting IllegalArgumentException took down the
+     * whole process at startup: the first thing to ask for the database is SyncWorker, on a
+     * WorkManager thread, and InventoriaApplication's global handler turns any uncaught throwable
+     * into System.exit(1). So the app died behind the splash screen with nothing on screen to say
+     * why. Adding a real migration for one of these versions means removing it from this list in
+     * the same edit -- and, since 4→5 through 11→12 do not exist, filling in the whole chain.
      */
     private val LEGACY_UNMIGRATABLE_VERSIONS = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 
-    /** Unreachable in practice -- a database at v3 has no route past v4, so it takes the
-     * destructive path above instead. Kept because it is the correct 3→4 step if the missing
-     * 4→5..11→12 links are ever filled in. */
-    private val MIGRATION_3_4 = object : Migration(3, 4) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE InventoryItem ADD COLUMN isDirty INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE Task ADD COLUMN isDirty INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE InventoryCollection ADD COLUMN isDirty INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE InventoryCollectionItem ADD COLUMN isDirty INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE ItemLink ADD COLUMN isDirty INTEGER NOT NULL DEFAULT 0")
-        }
-    }
-    
     /**
      * Task Types (v13). Purely additive, so it gets a real migration rather than being allowed to
      * fall through to a destructive rebuild -- which wipes the local database, recoverably for a
@@ -97,7 +93,8 @@ object DatabaseModule {
             InventoryDatabase::class.java,
             InventoryDatabase.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_3_4, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+            // Every version here must be absent from LEGACY_UNMIGRATABLE_VERSIONS -- see its KDoc.
+            .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
             // Scoped to the versions listed above instead of a blanket fallback. Bump the database
             // version without writing the migration and this now throws
             // IllegalStateException("A migration from 15 to 16 was required but not found") on
