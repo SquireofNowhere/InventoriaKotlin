@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -53,6 +52,8 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TaskTypeStats
+import com.inventoria.app.ui.components.InventoriaTopBar
+import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.theme.PurplePrimary
 import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.util.bucketByDay
@@ -107,7 +108,6 @@ fun rememberTick(intervalMs: Long = 1000): State<Long> {
 @Composable
 fun TaskTrackerScreen(
     viewModel: TaskTrackerViewModel,
-    onNavigateBack: () -> Unit,
     onNavigateToStats: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToClock: () -> Unit
@@ -144,6 +144,7 @@ fun TaskTrackerScreen(
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
     var showProductivityDialog by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     val currentSelectedSession = remember(selectedSessionGroupId, activeSessions, completedSessions) {
         selectedSessionGroupId?.let { groupId ->
@@ -208,29 +209,48 @@ fun TaskTrackerScreen(
             if (isSelectionMode) {
                 TopAppBar(
                     title = { Text("${selectedTaskIds.size} Selected") },
-                    navigationIcon = { IconButton(onClick = { viewModel.clearSelection() }) { Icon(Icons.Default.Close, null) } },
+                    navigationIcon = { IconButton(onClick = { viewModel.clearSelection() }) { Icon(Icons.Default.Close, contentDescription = "Clear selection") } },
                     actions = {
-                        IconButton(onClick = { viewModel.saveSelectedTasksToCalendar() }) { Icon(Icons.Default.Save, "Save Selected") }
-                        IconButton(onClick = { viewModel.deleteSelectedTasks() }) { Icon(Icons.Default.Delete, "Delete Selected") }
+                        IconButton(onClick = { viewModel.saveSelectedTasksToCalendar() }) { Icon(Icons.Default.Save, contentDescription = "Save selected to calendar") }
+                        IconButton(onClick = { viewModel.deleteSelectedTasks() }) { Icon(Icons.Default.Delete, contentDescription = "Delete selected") }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 )
             } else {
-                CenterAlignedTopAppBar(
-                    title = { Text("Task Tracker", fontWeight = FontWeight.Bold) },
-                    navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
+                InventoriaTopBar(
+                    title = Screen.Tasks.title,
+                    // Two actions and an overflow, not four actions. Four 48dp buttons plus the
+                    // sync glyph left a centred "Task Tracker" about 140dp to render 22sp type in,
+                    // i.e. permanently ellipsized on a 360dp phone. Refresh and Timers stay out
+                    // because they act on this screen; Stats and History are drill-downs to other
+                    // screens and are the ones you reach for least often.
                     actions = {
-                        IconButton(onClick = { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() else calendarPermissionState.launchPermissionRequest() }) { Icon(Icons.Default.Sync, null) }
-                        IconButton(onClick = onNavigateToClock) { Icon(Icons.Default.Alarm, contentDescription = "Timers & Alarms") }
-                        IconButton(onClick = onNavigateToStats) { Icon(Icons.Default.BarChart, null) }
-                        IconButton(onClick = onNavigateToHistory) { Icon(Icons.Default.History, null) }
+                        IconButton(onClick = { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() else calendarPermissionState.launchPermissionRequest() }) { Icon(Icons.Default.Sync, contentDescription = "Refresh calendar") }
+                        IconButton(onClick = onNavigateToClock) { Icon(Icons.Default.Alarm, contentDescription = "Timers & alarms") }
+                        Box {
+                            IconButton(onClick = { showOverflowMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More")
+                            }
+                            DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Productivity stats") },
+                                    leadingIcon = { Icon(Icons.Default.BarChart, contentDescription = null) },
+                                    onClick = { showOverflowMenu = false; onNavigateToStats() }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Task history") },
+                                    leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
+                                    onClick = { showOverflowMenu = false; onNavigateToHistory() }
+                                )
+                            }
+                        }
                     }
                 )
             }
         },
         floatingActionButton = {
             if (!isSelectionMode && activeSessions.size < 5) {
-                FloatingActionButton(onClick = { viewModel.addNewTask() }, containerColor = MaterialTheme.colorScheme.primary) { Icon(Icons.Default.Add, null) }
+                FloatingActionButton(onClick = { viewModel.addNewTask() }, containerColor = MaterialTheme.colorScheme.primary) { Icon(Icons.Default.Add, contentDescription = "Start a new task") }
             }
         }
     ) { padding ->

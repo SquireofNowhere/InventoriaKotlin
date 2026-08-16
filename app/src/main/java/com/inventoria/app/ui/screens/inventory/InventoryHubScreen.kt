@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.ui.components.InventoriaTopBar
+import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.collections.CollectionsScreen
 import com.inventoria.app.ui.screens.collections.CollectionsViewModel
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
@@ -53,6 +55,14 @@ enum class InventorySegment(val label: String) {
  *
  * Items and Map share a single InventoryListViewModel, so the map shows whatever the list is
  * currently filtered to. (They were separate instances when Map was its own tab.)
+ *
+ * The hub owns the one and only app bar. Each segment used to draw its own on top of the segmented
+ * row, so the screen read "Items | Collections | Map" and then immediately repeated the segment
+ * name in a second bar below it -- and on Map that second bar held nothing but a sync dot. The
+ * nested screens now draw a title bar only when they're a pushed drill-down -- Items and Map key
+ * that off their existing nullable onNavigateBack ("I'm inside a tab") signal, and Collections
+ * never renders anywhere else. Their contextual multi-select bars are unaffected, since those are
+ * transient and genuinely want to announce a mode change.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,48 +82,56 @@ fun InventoryHubScreen(
         segment = InventorySegment.ITEMS
     }
 
-    Column(Modifier.fillMaxSize()) {
-        SingleChoiceSegmentedButtonRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+    Scaffold(
+        topBar = { InventoriaTopBar(title = Screen.InventoryHub.title) }
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
         ) {
-            InventorySegment.values().forEachIndexed { index, seg ->
-                SegmentedButton(
-                    selected = seg == segment,
-                    onClick = { segment = seg },
-                    shape = SegmentedButtonDefaults.itemShape(index, InventorySegment.values().size)
-                ) {
-                    Text(seg.label)
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                InventorySegment.entries.forEachIndexed { index, seg ->
+                    SegmentedButton(
+                        selected = seg == segment,
+                        onClick = { segment = seg },
+                        shape = SegmentedButtonDefaults.itemShape(index, InventorySegment.entries.size)
+                    ) {
+                        Text(seg.label)
+                    }
                 }
             }
-        }
 
-        if (segment == InventorySegment.ITEMS) {
-            InventoryStatsRow(hubViewModel)
-        }
+            if (segment == InventorySegment.ITEMS) {
+                InventoryStatsRow(hubViewModel)
+            }
 
-        Box(Modifier.weight(1f)) {
-            when (segment) {
-                InventorySegment.ITEMS -> InventoryListScreen(
-                    viewModel = inventoryViewModel,
-                    onAddItem = onAddItem,
-                    onItemClick = onItemClick,
-                    onEditItem = onEditItem,
-                    // Null: inside a tab there is nothing above this to go back to.
-                    onNavigateBack = null
-                )
-                InventorySegment.COLLECTIONS -> CollectionsScreen(
-                    viewModel = collectionsViewModel,
-                    onNavigateToCollectionDetail = onCollectionClick,
-                    onNavigateToCreateCollection = onCreateCollection
-                )
-                InventorySegment.MAP -> InventoryMapScreen(
-                    viewModel = inventoryViewModel,
-                    initialLocation = null,
-                    onItemClick = onItemClick,
-                    onNavigateBack = null
-                )
+            Box(Modifier.weight(1f)) {
+                when (segment) {
+                    InventorySegment.ITEMS -> InventoryListScreen(
+                        viewModel = inventoryViewModel,
+                        onAddItem = onAddItem,
+                        onItemClick = onItemClick,
+                        onEditItem = onEditItem,
+                        // Null: inside a tab there is nothing above this to go back to.
+                        onNavigateBack = null
+                    )
+                    InventorySegment.COLLECTIONS -> CollectionsScreen(
+                        viewModel = collectionsViewModel,
+                        onNavigateToCollectionDetail = onCollectionClick,
+                        onNavigateToCreateCollection = onCreateCollection
+                    )
+                    InventorySegment.MAP -> InventoryMapScreen(
+                        viewModel = inventoryViewModel,
+                        initialLocation = null,
+                        onItemClick = onItemClick,
+                        onNavigateBack = null
+                    )
+                }
             }
         }
     }

@@ -15,7 +15,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.preference.PreferenceManager
@@ -23,8 +22,6 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.inventoria.app.R
-import com.inventoria.app.ui.components.SyncStatusIndicator
-import com.inventoria.app.ui.main.SyncStatusViewModel
 import com.inventoria.app.ui.screens.inventory.InventoryListViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.DelayedMapListener
@@ -132,6 +129,9 @@ fun InventoryMapScreen(
 
     Scaffold(
         topBar = {
+            // Only the pushed "view this item's location" drill-down gets a bar. As the Inventory
+            // hub's Map segment there is nothing to put in one -- the hub already shows the title
+            // and sync state above the segment row.
             if (onNavigateBack != null) {
                 TopAppBar(
                     title = { Text("Item Location") },
@@ -140,12 +140,6 @@ fun InventoryMapScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
-                )
-            } else {
-                val syncStatusViewModel: SyncStatusViewModel = hiltViewModel()
-                val syncStatus by syncStatusViewModel.syncStatus.collectAsState()
-                CenterAlignedTopAppBar(
-                    title = { SyncStatusIndicator(syncStatus = syncStatus) }
                 )
             }
         },

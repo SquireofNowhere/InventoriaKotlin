@@ -21,11 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.components.LinearProductivityChart
-import com.inventoria.app.ui.components.SyncStatusIndicator
-import com.inventoria.app.ui.main.SyncStatusViewModel
+import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.todo.TodoDayHeader
 import com.inventoria.app.ui.screens.todo.TodoRow
 import com.inventoria.app.ui.screens.todo.TodoViewModel
@@ -37,12 +36,12 @@ import kotlinx.coroutines.delay
 /**
  * The app's home: what's on today, and how the day has actually gone so far.
  *
- * Todo rows here are the same TodoRow the Plan screen draws, minus the drag handle and delete
+ * Todo rows here are the same TodoRow the Todos screen draws, minus the drag handle and delete
  * button -- Today can check things off and start tracking them, but reordering/parenting/deleting
  * belong to the screen that owns the list.
  *
- * Row taps go to Plan rather than opening the edit dialog: this screen's TodoViewModel is a
- * different instance from Plan's (hiltViewModel resolves against the nav entry), so
+ * Row taps go to Todos rather than opening the edit dialog: this screen's TodoViewModel is a
+ * different instance from that screen's (hiltViewModel resolves against the nav entry), so
  * startEditingTodo would set pendingEditTodo on an instance nothing renders a dialog for. Same
  * reason Today doesn't use tap-to-select.
  */
@@ -53,8 +52,8 @@ fun TodayScreen(
     todoViewModel: TodoViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToHelp: () -> Unit,
-    onNavigateToPlan: () -> Unit,
-    onNavigateToTrack: () -> Unit
+    onNavigateToTodos: () -> Unit,
+    onNavigateToTasks: () -> Unit
 ) {
     val tasks by todayViewModel.tasks.collectAsState()
     val todoSections by todoViewModel.todoSections.collectAsState()
@@ -80,15 +79,17 @@ fun TodayScreen(
 
     Scaffold(
         topBar = {
-            val syncStatusViewModel: SyncStatusViewModel = hiltViewModel()
-            val syncStatus by syncStatusViewModel.syncStatus.collectAsState()
-            CenterAlignedTopAppBar(
-                title = { SyncStatusIndicator(syncStatus = syncStatus) },
+            InventoriaTopBar(
+                // From the tab definition, not a literal -- the nav label and the bar showing two
+                // different names for one screen is exactly what this pass was fixing.
+                title = Screen.Today.title,
                 actions = {
                     IconButton(onClick = { todayViewModel.refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                     // Settings and the manual both live behind here now that neither is a tab.
+                    // Deliberately only on Today: it's the start destination, so one canonical
+                    // way in beats scattering the same two entries across every tab.
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Settings and help")
@@ -118,7 +119,7 @@ fun TodayScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (todaySection == null) {
-                item { NothingDueToday(onNavigateToPlan) }
+                item { NothingDueToday(onNavigateToTodos) }
             } else {
                 item(key = "today_header") {
                     TodoDayHeader(
@@ -135,10 +136,10 @@ fun TodayScreen(
                         taskTypeNames = taskTypeNames,
                         hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
                         onToggleCompleted = { todoViewModel.toggleComplete(entry.todo) },
-                        // Editing lives on Plan -- see the class KDoc.
-                        onClick = onNavigateToPlan,
+                        // Editing lives on the Todos screen -- see the class KDoc.
+                        onClick = onNavigateToTodos,
                         onStart = { todoViewModel.startTaskFromTodo(entry.todo) },
-                        onViewTask = onNavigateToTrack,
+                        onViewTask = onNavigateToTasks,
                         showDragHandle = false,
                         showDelete = false
                     )
@@ -207,7 +208,7 @@ private fun TodayTimelineCard(tasks: List<Task>) {
 }
 
 @Composable
-private fun NothingDueToday(onNavigateToPlan: () -> Unit) {
+private fun NothingDueToday(onNavigateToTodos: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -226,7 +227,7 @@ private fun NothingDueToday(onNavigateToPlan: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
-        FilledTonalButton(onClick = onNavigateToPlan) {
+        FilledTonalButton(onClick = onNavigateToTodos) {
             Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Plan something")

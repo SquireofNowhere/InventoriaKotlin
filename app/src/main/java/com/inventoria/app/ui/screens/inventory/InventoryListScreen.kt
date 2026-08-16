@@ -243,68 +243,16 @@ fun InventoryListScreen(
                         titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 )
-            } else {
+            } else if (isCollectionPickerMode) {
+                // Only the pushed collection picker keeps a title bar -- it's a modal sub-mode and
+                // needs to say so. As the Inventory hub's Items segment this screen draws no bar at
+                // all; the hub owns the one bar, and sort/group/filter moved down beside the search
+                // field so they're reachable either way.
                 TopAppBar(
-                    title = { 
-                        Text(if (fromCollectionId != 0L) "Collection Items" else "Inventory", fontWeight = FontWeight.Bold) 
-                    },
+                    title = { Text("Collection Items", fontWeight = FontWeight.Bold) },
                     navigationIcon = {
-                        val back = if (isCollectionPickerMode) requestLeaveCollectionPicker else onNavigateBack
-                        if (back != null) {
-                            IconButton(onClick = back) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                            }
-                        }
-                    },
-                    actions = {
-                        Box {
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.Default.Sort, contentDescription = "Sort")
-                            }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
-                                SortOption.values().forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text(option.displayName) },
-                                        onClick = {
-                                            viewModel.setSortOption(option)
-                                            showSortMenu = false
-                                        },
-                                        trailingIcon = if (uiState.sortOption == option) {
-                                            { Icon(Icons.Default.Check, contentDescription = null) }
-                                        } else null
-                                    )
-                                }
-                            }
-                        }
-                        IconButton(onClick = {
-                            val nextOption = when (uiState.groupOption) {
-                                GroupOption.NONE -> GroupOption.CATEGORY
-                                GroupOption.CATEGORY -> GroupOption.LOCATION
-                                GroupOption.LOCATION -> GroupOption.COLLECTION
-                                GroupOption.COLLECTION -> GroupOption.NONE
-                            }
-                            viewModel.setGroupOption(nextOption)
-                        }) {
-                            Icon(
-                                imageVector = when (uiState.groupOption) {
-                                    GroupOption.CATEGORY -> Icons.Default.Category
-                                    GroupOption.LOCATION -> Icons.Default.LocationOn
-                                    GroupOption.COLLECTION -> Icons.Default.CollectionsBookmark
-                                    else -> Icons.Default.GridView
-                                },
-                                contentDescription = "Cycle Grouping"
-                            )
-                        }
-                        IconButton(onClick = { showFilterSheet = true }) {
-                            val isFiltered = uiState.activeTags.isNotEmpty() || uiState.activeCollections.isNotEmpty()
-                            BadgedBox(
-                                badge = { if (isFiltered) Badge() }
-                            ) {
-                                Icon(Icons.Default.FilterList, contentDescription = "Filter")
-                            }
+                        IconButton(onClick = requestLeaveCollectionPicker) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
                 )
@@ -329,30 +277,91 @@ fun InventoryListScreen(
             .padding(padding)
         ) {
             Column {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { 
-                        searchQuery = it
-                        viewModel.search(it)
-                    },
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    placeholder = { Text("Search items...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { 
-                                searchQuery = ""
-                                viewModel.search("")
-                            }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = {
+                            searchQuery = it
+                            viewModel.search(it)
+                        },
+                        modifier = Modifier.weight(1f),
+                        // Short placeholder deliberately: this field shares its row with three
+                        // action buttons now, so at 360dp there isn't room for a sentence.
+                        placeholder = { Text("Search") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    searchQuery = ""
+                                    viewModel.search("")
+                                }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            SortOption.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.displayName) },
+                                    onClick = {
+                                        viewModel.setSortOption(option)
+                                        showSortMenu = false
+                                    },
+                                    trailingIcon = if (uiState.sortOption == option) {
+                                        { Icon(Icons.Default.Check, contentDescription = null) }
+                                    } else null
+                                )
                             }
                         }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
+                    }
+                    IconButton(onClick = {
+                        val nextOption = when (uiState.groupOption) {
+                            GroupOption.NONE -> GroupOption.CATEGORY
+                            GroupOption.CATEGORY -> GroupOption.LOCATION
+                            GroupOption.LOCATION -> GroupOption.COLLECTION
+                            GroupOption.COLLECTION -> GroupOption.NONE
+                        }
+                        viewModel.setGroupOption(nextOption)
+                    }) {
+                        Icon(
+                            imageVector = when (uiState.groupOption) {
+                                GroupOption.CATEGORY -> Icons.Default.Category
+                                GroupOption.LOCATION -> Icons.Default.LocationOn
+                                GroupOption.COLLECTION -> Icons.Default.CollectionsBookmark
+                                else -> Icons.Default.GridView
+                            },
+                            // The current grouping is part of the label, not just the glyph --
+                            // otherwise TalkBack announces the same "Cycle grouping" in all four
+                            // states and there's no way to tell which one you're in.
+                            contentDescription = "Grouping: ${uiState.groupOption.displayName}. Tap to cycle"
+                        )
+                    }
+                    IconButton(onClick = { showFilterSheet = true }) {
+                        val isFiltered = uiState.activeTags.isNotEmpty() || uiState.activeCollections.isNotEmpty()
+                        BadgedBox(badge = { if (isFiltered) Badge() }) {
+                            Icon(
+                                Icons.Default.FilterList,
+                                contentDescription = if (isFiltered) "Filter (active)" else "Filter"
+                            )
+                        }
+                    }
+                }
 
                 if (uiState.isFiltering || uiState.sortOption != SortOption.DATE_DESC || uiState.groupOption != GroupOption.NONE) {
                     LazyRow(

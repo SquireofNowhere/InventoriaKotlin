@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
@@ -41,6 +40,8 @@ import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.ui.components.InventoriaTopBar
+import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
@@ -87,7 +88,6 @@ private fun showTimePicker(context: Context, initialMinuteOfDay: Int?, onTimeSel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
-    onNavigateBack: () -> Unit,
     onNavigateToTasks: () -> Unit,
     viewModel: TodoViewModel
 ) {
@@ -143,14 +143,7 @@ fun TodoScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Todos", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.clearSelection(); onNavigateBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
+            InventoriaTopBar(title = Screen.Todos.title)
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.startAddingTodo() }) {

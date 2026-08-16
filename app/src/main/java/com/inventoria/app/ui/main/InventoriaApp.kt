@@ -43,12 +43,50 @@ import com.inventoria.app.ui.screens.todo.TodoViewModel
  * This used to double as a route holder for screens that weren't really tabs (Inventory's route
  * got string-concatenated with "?fromCollection=" at its call site), which is exactly the
  * ambiguity that made it easy to plain-navigate to a tab route by accident -- see switchToTab.
+ *
+ * [title] is the screen's real name and the single source of it -- the same string its top app bar
+ * shows, so the tab you tapped and the screen you landed on agree. [shortTitle] is only a fallback
+ * for when [title] can't fit a nav item at the current width; see [AdaptiveNavLabel]. Where a name
+ * is already short both are the same string.
  */
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Today : Screen("today", "Today", Icons.Default.Today)
-    object Todos : Screen("todos", "Plan", Icons.Default.Checklist)
-    object Tasks : Screen("tasks", "Track", Icons.Default.Timer)
-    object InventoryHub : Screen("inventory_hub", "Inventory", Icons.Default.Inventory)
+sealed class Screen(
+    val route: String,
+    val title: String,
+    val shortTitle: String,
+    val icon: ImageVector
+) {
+    object Today : Screen("today", "Today", "Today", Icons.Default.Today)
+    object Todos : Screen("todos", "Todos", "Plan", Icons.Default.Checklist)
+    object Tasks : Screen("tasks", "Task Tracker", "Track", Icons.Default.Timer)
+    object InventoryHub : Screen("inventory_hub", "Inventory", "Inventory", Icons.Default.Inventory)
+}
+
+/**
+ * Draws [Screen.title], swapping to [Screen.shortTitle] if the full name would be ellipsized.
+ *
+ * Measuring rather than guessing at a breakpoint, because how much fits depends on the tab count,
+ * the display's font scale and the user's chosen system font -- all of which can change without the
+ * screen width changing. The first layout pass reports the overflow and the second draws the short
+ * form; the short form is by definition narrower, so this settles in one swap and can't oscillate.
+ *
+ * Keyed on the width so a fold or rotation that widens the bar gets to try the full name again
+ * rather than staying stuck on the abbreviation.
+ */
+@Composable
+private fun AdaptiveNavLabel(screen: Screen) {
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    var useShort by remember(screen, screenWidth) { mutableStateOf(false) }
+
+    Text(
+        text = if (useShort) screen.shortTitle else screen.title,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        onTextLayout = { result ->
+            if (!useShort && result.hasVisualOverflow) useShort = true
+        }
+    )
 }
 
 /**
@@ -108,14 +146,7 @@ fun InventoriaApp() {
                     } == true
                     NavigationRailItem(
                         icon = { Icon(screen.icon, contentDescription = null) },
-                        label = { 
-                            Text(
-                                text = screen.title,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            ) 
-                        },
+                        label = { AdaptiveNavLabel(screen) },
                         selected = selected,
                         onClick = {
                             // Safe now that item_location_map (the one screen that used to cause
@@ -139,16 +170,10 @@ fun InventoriaApp() {
                             } == true
                             NavigationBarItem(
                                 icon = { Icon(screen.icon, contentDescription = null) },
-                                label = { 
-                                    Text(
-                                        text = screen.title,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    ) 
-                                },
+                                label = { AdaptiveNavLabel(screen) },
                                 selected = selected,
-                                // Four tabs always leave room for a label, even at 360dp.
+                                // Four tabs always leave room for a label, even at 360dp -- the
+                                // label just shortens itself if the full title doesn't fit.
                                 alwaysShowLabel = true,
                                 onClick = { navController.switchToTab(screen.route) }
                             )
@@ -171,8 +196,8 @@ fun InventoriaApp() {
                     onNavigateToSettings = { navController.navigate("settings") },
                     onNavigateToHelp = { navController.navigate("help") },
                     // Both of these are tab jumps, not drill-downs -- must not plain-push.
-                    onNavigateToPlan = { navController.switchToTab(Screen.Todos.route) },
-                    onNavigateToTrack = { navController.switchToTab(Screen.Tasks.route) }
+                    onNavigateToTodos = { navController.switchToTab(Screen.Todos.route) },
+                    onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
                 )
             }
 
@@ -275,7 +300,6 @@ fun InventoriaApp() {
                 val viewModel: TaskTrackerViewModel = hiltViewModel()
                 TaskTrackerScreen(
                     viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() },
                     onNavigateToStats = { navController.navigate("productivity_stats") },
                     onNavigateToHistory = { navController.navigate("task_history") },
                     onNavigateToClock = { navController.navigate("timers_alarms") }
@@ -302,7 +326,6 @@ fun InventoriaApp() {
                 val viewModel: TodoViewModel = hiltViewModel()
                 TodoScreen(
                     viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() },
                     // "View on Tasks" is a tab switch, not a drill-down -- must not plain-push.
                     onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
                 )

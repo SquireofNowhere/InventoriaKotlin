@@ -64,11 +64,10 @@ fun CollectionsScreen(
                         titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 )
-            } else {
-                CenterAlignedTopAppBar(
-                    title = { Text("Collections", fontWeight = FontWeight.Bold) }
-                )
             }
+            // No bar outside selection mode: this only ever renders as the Inventory hub's
+            // Collections segment, where the segmented button already says "Collections" and the
+            // hub's own bar sits above it.
         },
         floatingActionButton = {
             if (!isSelectionMode) {

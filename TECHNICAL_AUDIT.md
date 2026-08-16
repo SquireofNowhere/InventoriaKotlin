@@ -26,10 +26,13 @@ The `quickEquipCollection` and `quickPackCollection` methods in `CollectionsView
 The Room entity for `InventoryItem` includes fields for `barcode` and `sku`, and `InventoryDao.searchItems()` is programmed to search them.
 - **The Gap**: There is no UI for scanning barcodes, no input fields in `AddEditItemScreen`, and no display of these values in `ItemDetailScreen`. The data layer is fully prepared, but the UI is non-existent.
 
-### 5. SyncStatusIndicator (Orphaned Component) (Resolved)
-- **Status**: ✅ Resolved
+### 5. SyncStatusIndicator (Orphaned Component) (Placement Resolved)
+- **Status**: ✅ Placement resolved — on every tab. ⚠️ One data-layer gap remains, see "Second gap" below.
 - A fully functional and animated `SyncStatusIndicator` component existed, and `InventoryListViewModel` correctly exposed the `syncStatus` as a `StateFlow`, but the component was never actually placed within any screen's composable tree.
-- **Fix**: Since no screen shares a common `Scaffold`/top bar (each of the ~6 top-level screens manages its own independently), wiring it into one screen wouldn't have made it visible everywhere. Instead, added a small `SyncStatusViewModel` (just re-exposes `FirebaseSyncRepository.syncStatus`) and render it once in `InventoriaApp()` as a floating pill (`Surface` + `SyncStatusIndicator`) anchored top-end, above the `NavHost` content — visible on every screen without touching any of them individually. Hidden on the one route that already hides the tab bar (`item_location_map`), for consistency.
+- **First attempt** (recorded here because the plan and the code disagreed for a while): the intent was a single floating pill rendered once in `InventoriaApp()` above the `NavHost`. That was never written. What shipped instead was a per-screen placement in exactly two spots — the old `DashboardScreen`'s top-bar *title* slot and `InventoryMapScreen`'s equivalent — leaving Inventory, Tasks, Todos, Collections and Settings with no sync status at all. That is the original "no shared top bar" problem still unsolved rather than worked around.
+- **Actual fix**: introduced `ui/components/InventoriaTopBar.kt`, a shared app bar that resolves `SyncStatusViewModel` itself and renders the indicator ahead of each screen's own actions. All four bottom-nav tabs (Today, Todos, Task Tracker, Inventory) now use it, so there genuinely is one shared top bar and sync state appears on all of them. Drill-down screens (item detail, settings, help, history, stats) keep their own bars and deliberately show no sync glyph.
+- The indicator itself became icon-only and renders **nothing** when `Idle`. It previously drew a bare grey dot, and because it sat in the *title* slot rather than the actions slot, the home screen's app bar was an anonymous dot most of the time. Its hardcoded `Color(0xFF4CAF50)` also now uses the theme's `Success`.
+- **Second gap (still open, data layer not UI)**: `_syncStatus` is only mutated by `pushItemsToFirebase`, `triggerFullSync`, `syncOnAppOpen`, and a listener failure. The other six push functions (links, tasks, collections, collection items, todos, task types) never touch it, so a reactive sync of anything but items still shows nothing — now on four screens rather than two. Fixing this means touching `FirebaseSyncRepository`, not the UI.
 
 ---
 
