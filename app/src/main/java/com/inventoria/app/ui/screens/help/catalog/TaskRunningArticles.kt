@@ -1,5 +1,8 @@
 package com.inventoria.app.ui.screens.help.catalog
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Stop
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.ui.screens.help.model.*
 
@@ -199,8 +202,8 @@ internal val taskRunningArticles = listOf(
                     HelpStep(
                         "Press the pause button on a running card.",
                         DiagramSpec(listOf(runningCard(highlight = false, trailing = listOf(
-                            DiagramIcon(androidx.compose.material.icons.Icons.Default.Pause, highlight = true),
-                            DiagramIcon(androidx.compose.material.icons.Icons.Default.Stop)
+                            DiagramIcon(Icons.Default.Pause, highlight = true),
+                            DiagramIcon(Icons.Default.Stop)
                         ))))
                     ),
                     HelpStep("The card shows PAUSED and the segment freezes with its own score."),
@@ -230,8 +233,8 @@ internal val taskRunningArticles = listOf(
                     HelpStep(
                         "Press the stop button on the running card.",
                         DiagramSpec(listOf(runningCard(trailing = listOf(
-                            DiagramIcon(androidx.compose.material.icons.Icons.Default.Pause),
-                            DiagramIcon(androidx.compose.material.icons.Icons.Default.Stop, highlight = true)
+                            DiagramIcon(Icons.Default.Pause),
+                            DiagramIcon(Icons.Default.Stop, highlight = true)
                         ))))
                     ),
                     HelpStep("The session moves down into Recent Sessions with its final time and score.")
