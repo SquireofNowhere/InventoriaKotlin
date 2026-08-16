@@ -132,6 +132,20 @@ class RepositoryModule {
 
     @Provides
     @Singleton
+    fun provideLocalDataRepository(
+        database: InventoryDatabase,
+        settingsRepository: SettingsRepository,
+        @ApplicationContext context: Context
+    ): LocalDataRepository {
+        return LocalDataRepository(
+            database = database,
+            settingsRepository = settingsRepository,
+            context = context
+        )
+    }
+
+    @Provides
+    @Singleton
     fun provideCalendarRepository(
         @ApplicationContext context: Context
     ): CalendarRepository {

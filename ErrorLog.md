@@ -563,4 +563,25 @@ Follow-up to #34, reported immediately after verifying it: start a task, interru
 Replaced the active-segment-only lookup with `findInterruptionSessionFor(groupId)`, which finds the session interrupting `groupId` by checking `activeSegment?.task ?: segments.firstOrNull()` — so it matches regardless of whether that interrupting session currently has a running segment or is itself paused by a further interruption. `stopActiveInterruptionChain` was generalized to walk sessions (not just active `RunningTaskUI`s) via this helper, so it now correctly collapses a chain of any depth in one pass. Reused from both `stopTask()` (#34) and `pauseResumeTask()`'s resume branch, so both entry points share one correct implementation instead of two divergent ones.
 
 ---
-*Last Updated: 2026-08-10*
+## 🐞 36. Deleting an Account Left Every Byte of Local Data Behind
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Two halves of the same gap, reported together. The Account section's delete button — labelled "Wipe Local Account Data" when you're on a local account — removed nothing from the device: every item, task, todo and preference was still there afterwards. And clearing the app's data from Android's own app settings didn't reliably leave you with a working local account either; the app would come back up signed in to nothing.
+
+### 🔍 Root Cause
+`FirebaseAuthRepository.deleteUserAccount()` does exactly three things, and all three are remote: remove the Realtime Database node, delete the Storage objects, delete the Auth record. Room and DataStore were never touched, so on a local account — where the *only* copy of the data is the local one — the button was a no-op by construction.
+
+The missing-account half had a separate cause. The splash screen's "Use Local Account" button was wired straight to `onNavigateToMain`; it never created anything. The anonymous account was actually created as a side effect of `InventoryRepository`'s `init` block, which runs once per process and swallows its own failure into a log line. So if `signInAnonymously()` didn't go through — offline being the ordinary case — the app carried on with no account at all, nothing retried it for the life of the process, and nothing on screen said so.
+
+### 🛠️ Final Fix
+- New `LocalDataRepository.wipeAllLocalData()`: `clearAllTables()` on the Room database (truncates but keeps the schema, so the singleton instance the app is already holding stays usable and its flows just re-emit empty), `SettingsRepository.clearAll()` on DataStore, and the `temp_images` camera scratch directory. `SettingsViewModel.deleteAccount()` calls it — but only when the remote delete succeeded, since if it failed we're still signed in and wiping would just hand the next sync an empty device to re-fill from the cloud.
+- The DataStore clear is unconditional rather than a hand-picked key list: `MANUAL_SYNC_ID`, `CUSTOM_USERNAME` and `TASK_TYPES_SEEDED` would each carry the deleted account's state into the next one.
+- Sync is torn down first via a new `FirebaseSyncRepository.stopSync()`, so no listener is still attached to the node that just went away and `triggerFullSync()` can't push to a stale `userRef`. Settings then restarts the app at the splash, because every screen in the back stack is still rendering the deleted account.
+- "Use Local Account" now calls `getOrCreateUserId()` itself, shows a spinner while it runs, and reports the failure with a toast instead of walking into the app accountless.
+- Two supporting leaks surfaced while doing this. `setupSettingsSync` attached its `custom_username` listener directly to a `DatabaseReference`, so cancelling `syncJobs` never detached it — it outlived its account and could write back into a store the wipe had just cleared; those raw listeners are now tracked and removed on teardown. And `.info/connected` was re-added on every sync restart without ever being removed, leaving a duplicate logger per account change; it's attached once now.
+- `syncOnAppOpen()` re-establishes the live listeners when the account id has changed. `startSync()`'s collector only fires on `manualSyncId` changes, so an account appearing any other way — the first anonymous one on a fresh install, or the replacement made after a delete — previously got no listeners until the process restarted. `seedDefaultsIfNeeded()` moved alongside it for the same reason, keeping the existing pull-then-seed order.
+
+---
+
+*Last Updated: 2026-08-16*

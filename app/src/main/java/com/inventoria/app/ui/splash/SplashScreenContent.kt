@@ -55,6 +55,7 @@ fun SplashScreenContent(
     var startAnimation by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
     var isSigningIn by remember { mutableStateOf(false) }
+    var isCreatingLocalAccount by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf<String?>(null) }
 
     val currentUser = authRepository.getCurrentUser()
@@ -136,7 +137,7 @@ fun SplashScreenContent(
                 indication = null
             ) {
                 // Tapping anywhere also navigates if account exists
-                if ((isGoogleAuthenticated || hasLocalAccount) && !isSigningIn) {
+                if ((isGoogleAuthenticated || hasLocalAccount) && !isSigningIn && !isCreatingLocalAccount) {
                     onNavigateToMain()
                 }
             },
@@ -196,7 +197,7 @@ fun SplashScreenContent(
                 enter = fadeIn()
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (isSigningIn) {
+                    if (isSigningIn || isCreatingLocalAccount) {
                         CircularProgressIndicator(color = Color.White)
                     } else {
                         Spacer(modifier = Modifier.height(32.dp))
@@ -227,7 +228,31 @@ fun SplashScreenContent(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         OutlinedButton(
-                            onClick = onNavigateToMain,
+                            onClick = {
+                                // This button used to just navigate. Creating the account was
+                                // left to InventoryRepository's init block, which runs once per
+                                // process and swallows its own failure -- so if anonymous sign-in
+                                // didn't go through (offline, most often) the app carried on with
+                                // no account at all, and nothing would try again until the
+                                // process was restarted. Pressing "Use Local Account" is the
+                                // moment the user asked for an account, so it's the moment to
+                                // create one, and to say so if it fails.
+                                isCreatingLocalAccount = true
+                                scope.launch {
+                                    try {
+                                        authRepository.getOrCreateUserId()
+                                        onNavigateToMain()
+                                    } catch (e: Exception) {
+                                        isCreatingLocalAccount = false
+                                        Log.e("SplashActivity", "Failed to create local account", e)
+                                        Toast.makeText(
+                                            context,
+                                            "Couldn't set up a local account. Check your connection and try again.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth(0.7f)
                                 .height(50.dp),

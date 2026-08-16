@@ -31,7 +31,32 @@ class FirebaseSyncRepository @Inject constructor(
 
     private val syncIgnoreCount = AtomicInteger(0)
     private var userRef: DatabaseReference? = null
+    /**
+     * Whose node [syncJobs] are currently listening on, so [syncOnAppOpen] can spot a change of
+     * account. Volatile because it is written under [syncLock] but read outside it, from whichever
+     * coroutine happens to be running the app-open sync.
+     */
+    @Volatile
+    private var syncedUserId: String? = null
     private var syncJobs = mutableListOf<Job>()
+
+    /**
+     * Listeners attached straight to a DatabaseReference rather than through a callbackFlow, so
+     * cancelling [syncJobs] does not detach them. Tracked here because one of them writes the
+     * cloud's custom_username back into DataStore: left attached, it outlives the account it
+     * belongs to and can repopulate a store that the account-delete wipe just cleared.
+     */
+    private val rawListeners = mutableListOf<Pair<DatabaseReference, ValueEventListener>>()
+
+    /** The .info/connected listener is per-database, not per-account, so it is attached once. */
+    private var connectionLoggingStarted = false
+
+    /**
+     * Guards the teardown/setup of the listener set above. [restartSyncForUser] now has two
+     * callers on different coroutines -- [startSync]'s manualSyncId collector and [syncOnAppOpen]
+     * -- and both mutate the same plain lists. None of the guarded code suspends.
+     */
+    private val syncLock = Any()
 
     fun isSyncing(): Boolean = syncIgnoreCount.get() > 0
 
@@ -44,24 +69,41 @@ class FirebaseSyncRepository @Inject constructor(
         }
     }
 
-    private fun restartSyncForUser(userId: String) {
-        // Cancel existing sync jobs
+    /**
+     * Tears the live listeners down and forgets the node they were attached to.
+     *
+     * Deleting an account has to do this before the local wipe: the per-node listeners are still
+     * attached to the outgoing uid, and [triggerFullSync] pushes to whatever [userRef] happens to
+     * hold, which after a delete is a node that no longer exists.
+     */
+    fun stopSync() {
+        synchronized(syncLock) {
+            Log.d(TAG, "Stopping sync")
+            detachFromCurrentUser()
+            userRef = null
+            syncedUserId = null
+            _syncStatus.value = SyncStatus.Idle
+        }
+    }
+
+    /** Callers must hold [syncLock]. */
+    private fun detachFromCurrentUser() {
         syncJobs.forEach { it.cancel() }
         syncJobs.clear()
-        
+        rawListeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
+        rawListeners.clear()
+    }
+
+    private fun restartSyncForUser(userId: String) = synchronized<Unit>(syncLock) {
+        detachFromCurrentUser()
+        syncedUserId = userId
+
         Log.d(TAG, "Starting sync for user: $userId")
-        
+
         val rootRef = firebaseDatabase.getReference("users").child(userId)
         userRef = rootRef
 
-        // Monitor connection status
-        firebaseDatabase.getReference(".info/connected").addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val connected = snapshot.getValue(Boolean::class.java) ?: false
-                Log.d(TAG, "Firebase Connection Status: ${if (connected) "CONNECTED" else "DISCONNECTED"}")
-            }
-            override fun onCancelled(error: DatabaseError) {}
-        })
+        startConnectionLoggingOnce()
 
         // Sync Items
         syncJobs.add(setupNodeSync(
@@ -122,6 +164,23 @@ class FirebaseSyncRepository @Inject constructor(
         syncJobs.add(setupSettingsSync(rootRef.child("settings")))
     }
 
+    /**
+     * Connection state belongs to the database, not to whoever is signed in, and this listener was
+     * previously re-added on every restart without ever being removed -- so each change of account
+     * left another copy logging the same transitions.
+     */
+    private fun startConnectionLoggingOnce() {
+        if (connectionLoggingStarted) return
+        connectionLoggingStarted = true
+        firebaseDatabase.getReference(".info/connected").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val connected = snapshot.getValue(Boolean::class.java) ?: false
+                Log.d(TAG, "Firebase Connection Status: ${if (connected) "CONNECTED" else "DISCONNECTED"}")
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
     private fun <T> setupNodeSync(
         nodeRef: DatabaseReference,
         localFlow: Flow<List<T>>,
@@ -174,7 +233,8 @@ class FirebaseSyncRepository @Inject constructor(
             }
         }
 
-        settingsRef.child("custom_username").addValueEventListener(object : ValueEventListener {
+        val usernameRef = settingsRef.child("custom_username")
+        val usernameListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val cloudUsername = snapshot.getValue(String::class.java)
                 scope.launch {
@@ -189,8 +249,11 @@ class FirebaseSyncRepository @Inject constructor(
                 }
             }
             override fun onCancelled(error: DatabaseError) {}
-        })
-        
+        }
+        usernameRef.addValueEventListener(usernameListener)
+        // Cancelling [job] stops the coroutine above but not this listener -- see [rawListeners].
+        rawListeners.add(usernameRef to usernameListener)
+
         return job
     }
 
@@ -479,6 +542,15 @@ class FirebaseSyncRepository @Inject constructor(
             val userId = authRepository.getOrCreateUserId()
             val ref = firebaseDatabase.getReference("users").child(userId)
             userRef = ref
+
+            // startSync()'s collector only fires when manualSyncId changes, so an account that
+            // appears any other way -- the first anonymous one on a fresh install, or the
+            // replacement created after an account delete -- would otherwise get no live
+            // listeners at all until the process was restarted, leaving this one-shot sync as
+            // the only thing keeping the device up to date.
+            if (syncedUserId != userId) {
+                restartSyncForUser(userId)
+            }
 
             _syncStatus.value = SyncStatus.Syncing
             Log.d(TAG, "Performing pull-first sync on app open")

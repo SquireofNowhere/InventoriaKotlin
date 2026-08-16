@@ -1,6 +1,8 @@
 package com.inventoria.app.ui.screens.settings
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
 import android.widget.Toast
@@ -34,6 +36,7 @@ import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
+import com.inventoria.app.ui.splash.SplashActivity
 import java.util.Currency
 import java.util.Locale
 
@@ -65,6 +68,20 @@ fun SettingsScreen(
     val procrastinationTaskEnabled by viewModel.procrastinationTaskEnabled.collectAsState()
     val procrastinationTaskKinds by viewModel.procrastinationTaskKinds.collectAsState()
     val procrastinationPenaltyAmount by viewModel.procrastinationPenaltyAmount.collectAsState()
+
+    // A wipe leaves every other screen in the back stack rendering the account that no longer
+    // exists, and the singletons that would create a replacement only run their init once per
+    // process. Restarting at the splash is what actually gives the device a fresh account.
+    LaunchedEffect(Unit) {
+        viewModel.accountWiped.collect {
+            context.startActivity(
+                Intent(context, SplashActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                )
+            )
+            (context as? Activity)?.finish()
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -519,7 +536,7 @@ fun AccountSection(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Text("This wipes your identity, every database record, and all stored images. This cannot be undone.")
+                    Text("This wipes your identity, every database record, and all stored images — in the cloud and on this device. The app restarts with a brand-new empty account. This cannot be undone.")
                 }
             },
             confirmButton = {

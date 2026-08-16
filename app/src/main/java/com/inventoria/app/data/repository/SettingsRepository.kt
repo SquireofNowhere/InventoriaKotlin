@@ -182,4 +182,16 @@ class SettingsRepository @Inject constructor(
     suspend fun setProcrastinationPenaltyAmount(amount: Int) {
         context.dataStore.edit { it[PROCRASTINATION_PENALTY_AMOUNT] = amount }
     }
+
+    /**
+     * Drops every stored preference, returning this store to its fresh-install state.
+     *
+     * Deliberately unconditional rather than a list of "account-ish" keys: MANUAL_SYNC_ID,
+     * CUSTOM_USERNAME and TASK_TYPES_SEEDED would each silently carry a deleted account's state
+     * into the next one, and picking which of the rest survive is a judgement the wipe shouldn't
+     * be making. See [LocalDataRepository], the only caller.
+     */
+    suspend fun clearAll() {
+        context.dataStore.edit { it.clear() }
+    }
 }

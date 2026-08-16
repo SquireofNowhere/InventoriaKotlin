@@ -7,6 +7,8 @@ import com.google.firebase.auth.FirebaseUser
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
+import com.inventoria.app.data.repository.FirebaseSyncRepository
+import com.inventoria.app.data.repository.LocalDataRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -16,7 +18,9 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
-    private val authRepository: FirebaseAuthRepository
+    private val authRepository: FirebaseAuthRepository,
+    private val localDataRepository: LocalDataRepository,
+    private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -68,6 +72,14 @@ class SettingsViewModel @Inject constructor(
 
     private val _inviteCodeError = MutableStateFlow<String?>(null)
     val inviteCodeError: StateFlow<String?> = _inviteCodeError.asStateFlow()
+
+    /**
+     * Emitted once [deleteAccount] has finished wiping the device. The UI has to restart from the
+     * splash on this: every screen behind Settings is still showing the deleted account's data,
+     * and the splash is where the replacement account gets created.
+     */
+    private val _accountWiped = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val accountWiped: SharedFlow<Unit> = _accountWiped.asSharedFlow()
 
     // Map of {joinerUid -> inviteCode} for accounts currently synced to *my* database.
     val sharedWithUsers: StateFlow<Map<String, String>> = authRepository.authStateFlow
@@ -129,13 +141,26 @@ class SettingsViewModel @Inject constructor(
         _generatedInviteCode.value = null
     }
 
+    /**
+     * Deletes the account everywhere it exists -- remote *and* on this device.
+     *
+     * deleteUserAccount() only ever touched Firebase, so this used to leave the entire Room
+     * database and every preference behind; on a local account, where the button reads "Wipe
+     * Local Account Data", that meant it visibly did nothing at all. The local wipe is
+     * conditional on the remote delete having succeeded: if it failed we are still signed in, and
+     * wiping would just hand the next sync an empty device to re-fill from the cloud.
+     */
     fun deleteAccount() {
         viewModelScope.launch {
             _authState.value = AuthState.Loading
             val result = authRepository.deleteUserAccount()
             if (result.isSuccess) {
-                _authState.value = AuthState.Idle
+                // Before the wipe, so no listener is still holding the node that just went away.
+                syncRepository.stopSync()
+                localDataRepository.wipeAllLocalData()
                 _generatedInviteCode.value = null
+                _authState.value = AuthState.Idle
+                _accountWiped.emit(Unit)
             } else {
                 _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Failed to delete account")
             }

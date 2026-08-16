@@ -3,6 +3,7 @@ package com.inventoria.app.ui.screens.inventory
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryItem
 import com.inventoria.app.data.model.ItemLink
@@ -24,7 +25,8 @@ class InventoryListViewModel @Inject constructor(
     private val repository: InventoryRepository,
     private val collectionRepository: CollectionRepository,
     private val syncRepository: FirebaseSyncRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val taskTypeRepository: TaskTypeRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(InventoryUiState())
@@ -553,6 +555,15 @@ class InventoryListViewModel @Inject constructor(
     }
 
     suspend fun syncOnAppOpen() {
-        syncRepository.syncOnAppOpen()
+        try {
+            syncRepository.syncOnAppOpen()
+        } finally {
+            // Same pull-then-seed order as InventoryRepository's init, repeated here because that
+            // init only runs once per process: an account created after it -- the replacement made
+            // after deleting an account, most obviously -- would otherwise start with no task
+            // types at all. seedDefaultsIfNeeded() is guarded on both the flag and the row count,
+            // so running it again every app open is a no-op once either is set.
+            taskTypeRepository.seedDefaultsIfNeeded()
+        }
     }
 }

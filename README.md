@@ -132,11 +132,15 @@ deliberate: see the comments there.
 To permanently wipe all your data and start fresh, the app supports complete account deletion.
 
 ### Automated Deletion (In-App)
-The "Delete Account" button in Settings calls `deleteUserAccount()`, which automatically:
+The "Delete Account" button in Settings (labelled "Wipe Local Account Data" when you're on a local account) removes the account from both ends:
 1. Delete your entire user branch (`users/{uid}`) from the **Firebase Realtime Database**.
 2. Delete all your uploaded images (`users/{uid}/item_images`) from **Firebase Storage**.
 3. Delete your **Firebase Authentication** record.
 4. Log you out of the Google Client.
+5. Wipe this device: the whole Room database, every stored preference, and the camera's scratch files.
+6. Restart the app at the splash screen, where you pick the account that replaces it.
+
+Step 5 only runs if the remote steps succeeded. If they failed you're still signed in, and wiping the device would simply hand the next sync an empty database to re-fill from the cloud.
 
 ### Manual Deletion (Fallback / Hard Reset)
 To force the app to start a new database manually:
