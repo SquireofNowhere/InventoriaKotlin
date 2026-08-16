@@ -630,4 +630,28 @@ Review of the invite code flow, prompted by the account work in #36 and #37. Six
 
 ---
 
+## 🐞 39. Anyone Who Installed the App Could Read, Overwrite and Delete Any Account's Photos
+**Status:** ✅ Resolved (rules still need deploying)
+
+### 📝 Problem
+Review of the Firebase security rules, both databases, after the invite-flow work in #38.
+
+### 🔍 Root Cause
+**Realtime Database — authorization bypass.** `invites/$code` allowed claiming an empty slot but never validated the *value* written there, because `!data.exists()` short-circuits before `data.val() === auth.uid` is reached. So a fresh code could be made to point at anybody. The chain: learn a victim's uid (the app displays it with a reveal toggle, prints it in the delete dialog, and every joiner already holds it as their `manualSyncId`), claim any unused code with the victim's uid as its value, then write `users/{victim}/sharedWith/{attacker}` with that code. The `sharedWith` rule checks that the code points at the victim — which it now does — and grants full read and write over the whole account. No code belonging to the victim is involved anywhere.
+
+**Realtime Database — over-broad write.** Rules cascade downward and deeper rules can only add permission, never remove it. `.write` at `users/$uid` granted to everyone in `sharedWith` therefore let any joiner delete the owner's entire database in one call, write `users/$uid/sharedWith/<anyone>` to attach third parties who survive the owner revoking the original joiner, remove other joiners, and overwrite `my_invite_code`.
+
+**Cloud Storage — everything open.** Both rules were bare `request.auth != null`, and this app hands an anonymous account to anyone who installs it. Given any uid, an attacker could list and download every photo in that account (`list` is governed by `read`, so the random UUID filenames protect nothing once the folder is enumerable), delete them all, overwrite them with arbitrary content served from the project's bucket, and upload unlimited files of unlimited size on the project's bill — there was no size or content-type cap. The old rule even carried a comment saying the app repository handles folder targeting, which is the client deciding its own access.
+
+**Client — orphaned invite codes.** `deleteUserAccount()` removed `users/$uid` but not the top-level `invites/{code}`, so the mapping outlived the account and anyone holding it could recreate `sharedWith` and resurrect the deleted node with themselves attached.
+
+### 🛠️ Final Fix
+- Both rulesets are now tracked — `database.rules.json` / `database.rules.md` and `storage.rules` / `storage.rules.md` — so the model can be reviewed at all. They are copies: the live rules are whatever is in the console.
+- `invites/$code` gains `.validate: newData.val() === auth.uid`, so a code can only ever point at whoever claimed it. Validate is skipped on deletes, so retiring a code still works.
+- `.write` at `users/$uid` is now owner-only, with the eight data children carrying the joiner grant individually. The owner still inherits write everywhere, which is what account deletion needs.
+- Storage rules are a flat `request.auth.uid == userId` for read and write, plus a 10MB and image-only cap on uploads. This needed a client change to be expressible at all: **Storage rules can query Firestore but not the Realtime Database**, so they cannot see `sharedWith` and could never distinguish a real joiner from any signed-in user. `FirebaseStorageRepository` now uploads via a new `getOrCreateOwnUserId()` rather than `getOrCreateUserId()`, so everyone writes under their own uid instead of a joiner writing into the owner's folder. Sharing is unaffected — what syncs is the tokenized download URL, and fetching that does not consult Storage rules, which is also why the old `allow read` was never what made shared photos visible.
+- `deleteUserAccount()` retires the invite code before removing the user node.
+
+---
+
 *Last Updated: 2026-08-16*

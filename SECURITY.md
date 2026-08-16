@@ -56,9 +56,10 @@ whole tree.
 
 ### 2. Storage rules
 
-**Firebase Console → Storage → Rules.** Item photos are uploaded here. The default template in some
-projects allows any authenticated user to read any path, which across accounts means other people's
-photos. Scope reads and writes to the owning UID.
+**Firebase Console → Storage → Rules.** Item photos are uploaded here. This was exactly the case
+below: the rules allowed any authenticated user to read, overwrite and delete any path, which across
+accounts means everyone else's photos. Deploy [`storage.rules`](storage.rules) — it scopes both to
+the owning UID.
 
 ### 3. Check whether anonymous or self-signup access is enabled
 
@@ -88,6 +89,16 @@ Read `database.rules.md` before changing anything under `invites` or `sharedWith
 authorization bypass the earlier rules allowed (an unvalidated invite value let anyone who knew your
 uid grant themselves your whole account) and why a joiner must not hold `.write` on `users/$uid`
 itself.
+
+## Cloud Storage rules
+
+Tracked at [`storage.rules`](storage.rules), reasoning in [`storage.rules.md`](storage.rules.md).
+Also a copy -- deploy via Firebase Console -> Storage -> Rules.
+
+The earlier rules allowed any authenticated user to read, overwrite and delete any account's photos,
+and this app hands out anonymous accounts to anyone who installs it. Closing it required a client
+change as well, because Storage rules cannot read the Realtime Database and so cannot see the
+sharing list; `storage.rules.md` explains the layout change that made a correct rule expressible.
 
 ## Going forward
 

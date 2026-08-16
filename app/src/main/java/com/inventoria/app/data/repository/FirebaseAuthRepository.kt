@@ -62,10 +62,25 @@ class FirebaseAuthRepository @Inject constructor(
         }
     }
 
+    /**
+     * Which database this device is using -- the external one if an invite code is active, ours
+     * otherwise. The right question for sync, and the wrong one for anything that has to be
+     * attributable to *us*; see [getOrCreateOwnUserId].
+     */
     suspend fun getOrCreateUserId(): String {
         val manualId = settingsRepository.manualSyncId.first()
         if (manualId != null) return manualId
+        return getOrCreateOwnUserId()
+    }
 
+    /**
+     * This device's own account id, ignoring any external sync connection.
+     *
+     * Storage needs this rather than [getOrCreateUserId]: the folder path is the only thing Storage
+     * rules can key off, since they can query Firestore but not the Realtime Database and so cannot
+     * see `sharedWith` at all.
+     */
+    suspend fun getOrCreateOwnUserId(): String {
         firebaseAuth.currentUser?.let { return it.uid }
 
         val result = firebaseAuth.signInAnonymously().await()

@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// See storage.rules.md for why this is a flat owner check and how sharing still works.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/item_images/{imageId} {
+
+      // Only ever your own folder. Everyone uploads under their own uid
+      // (FirebaseStorageRepository.uploadItemImage), and shared inventories are viewed through the
+      // tokenized download URL synced via the Realtime Database, which does not consult these rules.
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && (
+                     // Deletes carry no resource to check; account deletion needs them.
+                     request.resource == null
+                     || (
+                       request.resource.size < 10 * 1024 * 1024
+                       && request.resource.contentType.matches('image/.*')
+                     )
+                   );
+    }
+  }
+}

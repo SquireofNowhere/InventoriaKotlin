@@ -15,27 +15,39 @@ class FirebaseStorageRepository @Inject constructor(
 ) {
     private val TAG = "FirebaseStorage"
 
+    /**
+     * Uploads to *this device's own* folder, never the folder of an account it is merely synced to.
+     *
+     * It used to use getOrCreateUserId(), which returns the manualSyncId when one is set, so a
+     * joiner wrote straight into the owner's folder. That layout cannot be secured: Storage rules
+     * can query Firestore but not the Realtime Database, so they have no way to see `sharedWith`
+     * and cannot tell a genuine joiner from anyone else with an account -- which meant read and
+     * write had to be open to every authenticated user, and this app hands out anonymous accounts
+     * to anyone who installs it. Uploading under our own uid lets the rules be a flat
+     * `auth.uid == userId`.
+     *
+     * Sharing is unaffected: what gets synced is the tokenized download URL below, and fetching
+     * that URL does not consult Storage rules at all.
+     */
     suspend fun uploadItemImage(uri: Uri): Result<String> {
-        // Use the active database ID (could be the owner's ID if synced)
-        // This ensures images are stored with the inventory they belong to
-        val storageOwnerId = try {
-            authRepository.getOrCreateUserId()
+        val uploaderId = try {
+            authRepository.getOrCreateOwnUserId()
         } catch (e: Exception) {
             return Result.failure(e)
         }
-            
+
         // Generate a unique filename
         val fileName = "img_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
 
         val storageRef = storage.reference
             .child("users")
-            .child(storageOwnerId)
+            .child(uploaderId)
             .child("item_images")
             .child(fileName)
 
         return try {
-            Log.d(TAG, "Starting upload to owner folder ($storageOwnerId): ${storageRef.path}")
-            
+            Log.d(TAG, "Starting upload to own folder ($uploaderId): ${storageRef.path}")
+
             // Upload the file
             storageRef.putFile(uri).await()
             

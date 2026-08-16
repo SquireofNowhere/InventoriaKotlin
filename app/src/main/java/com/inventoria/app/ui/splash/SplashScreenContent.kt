@@ -240,7 +240,10 @@ fun SplashScreenContent(
                                 isCreatingLocalAccount = true
                                 scope.launch {
                                     try {
-                                        authRepository.getOrCreateUserId()
+                                        // Own id, not the sync target: this button means "give
+                                        // this device its own account", and getOrCreateUserId()
+                                        // would hand back an external sync id without creating one.
+                                        authRepository.getOrCreateOwnUserId()
                                         onNavigateToMain()
                                     } catch (e: Exception) {
                                         isCreatingLocalAccount = false
