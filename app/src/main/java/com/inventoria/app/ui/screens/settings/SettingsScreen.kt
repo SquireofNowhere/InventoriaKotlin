@@ -802,9 +802,24 @@ fun AccountSection(
             Text("Invite System", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             
             if (currentUserId != null) {
+                // Everything in this block is about *your own* database, because it all keys off
+                // your Firebase uid rather than manualSyncId. While an external account is
+                // connected that is the one database this device is not showing you, so minting a
+                // code here would share something other than what is on screen -- and nobody
+                // reading it would reach the inventory you are currently looking at, since your own
+                // node stops being written to for as long as you stay connected.
+                if (manualSyncId != null) {
+                    Text(
+                        "This section is about your own database, not the external one you're reading. Disconnect above to share it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 if (generatedInviteCode == null) {
                     Button(
                         onClick = onGenerateInviteCode,
+                        enabled = manualSyncId == null,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null)
@@ -854,7 +869,10 @@ fun AccountSection(
                 }
 
                 Text(
-                    "Connected to your database (${sharedWithUsers.size})",
+                    // "your own", not "your", because while an external account is connected the
+                    // unqualified version reads as the database currently on screen, which is the
+                    // one this list is not about.
+                    "Connected to your own database (${sharedWithUsers.size})",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(top = 8.dp)
