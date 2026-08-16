@@ -7,10 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,7 +47,6 @@ import kotlinx.coroutines.delay
 fun TodayScreen(
     todayViewModel: TodayViewModel,
     todoViewModel: TodoViewModel,
-    onNavigateToSettings: () -> Unit,
     onNavigateToHelp: () -> Unit,
     onNavigateToTodos: () -> Unit,
     onNavigateToTasks: () -> Unit
@@ -75,7 +71,6 @@ fun TodayScreen(
         }
     }
 
-    var menuOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -83,29 +78,13 @@ fun TodayScreen(
                 // From the tab definition, not a literal -- the nav label and the bar showing two
                 // different names for one screen is exactly what this pass was fixing.
                 title = Screen.Today.title,
+                onNavigateToHelp = onNavigateToHelp,
+                // The overflow that used to sit here held exactly two entries, Settings and
+                // How To. Settings is a tab again and How To is the "?" the bar now draws on
+                // every screen, so the menu had nothing left in it.
                 actions = {
                     IconButton(onClick = { todayViewModel.refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    // Settings and the manual both live behind here now that neither is a tab.
-                    // Deliberately only on Today: it's the start destination, so one canonical
-                    // way in beats scattering the same two entries across every tab.
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Settings and help")
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Settings") },
-                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                onClick = { menuOpen = false; onNavigateToSettings() }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("How To") },
-                                leadingIcon = { Icon(Icons.Default.HelpOutline, contentDescription = null) },
-                                onClick = { menuOpen = false; onNavigateToHelp() }
-                            )
-                        }
                     }
                 }
             )

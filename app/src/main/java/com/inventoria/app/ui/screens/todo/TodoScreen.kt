@@ -89,6 +89,7 @@ private fun showTimePicker(context: Context, initialMinuteOfDay: Int?, onTimeSel
 @Composable
 fun TodoScreen(
     onNavigateToTasks: () -> Unit,
+    onNavigateToHelp: () -> Unit,
     viewModel: TodoViewModel
 ) {
     val allTodos by viewModel.todos.collectAsState()
@@ -143,7 +144,10 @@ fun TodoScreen(
 
     Scaffold(
         topBar = {
-            InventoriaTopBar(title = Screen.Todos.title)
+            InventoriaTopBar(
+                title = Screen.Todos.title,
+                onNavigateToHelp = onNavigateToHelp
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.startAddingTodo() }) {

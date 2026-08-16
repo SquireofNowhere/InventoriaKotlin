@@ -108,6 +108,7 @@ fun rememberTick(intervalMs: Long = 1000): State<Long> {
 @Composable
 fun TaskTrackerScreen(
     viewModel: TaskTrackerViewModel,
+    onNavigateToHelp: () -> Unit,
     onNavigateToStats: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToClock: () -> Unit
@@ -219,19 +220,26 @@ fun TaskTrackerScreen(
             } else {
                 InventoriaTopBar(
                     title = Screen.Tasks.title,
-                    // Two actions and an overflow, not four actions. Four 48dp buttons plus the
-                    // sync glyph left a centred "Task Tracker" about 140dp to render 22sp type in,
-                    // i.e. permanently ellipsized on a 360dp phone. Refresh and Timers stay out
-                    // because they act on this screen; Stats and History are drill-downs to other
-                    // screens and are the ones you reach for least often.
+                    onNavigateToHelp = onNavigateToHelp,
+                    // One action and an overflow, not four actions. This screen has by far the
+                    // most to offer of any tab, and four 48dp buttons plus the sync glyph and the
+                    // help button left a centred "Task Tracker" under 100dp to render 22sp type
+                    // in -- permanently ellipsized on a 360dp phone. The split is by kind: the
+                    // calendar refresh acts on this screen and stays out; Timers, Stats and
+                    // History are all "go to another screen" and go in the menu, where they get
+                    // real labels instead of a glyph you have to recognise.
                     actions = {
                         IconButton(onClick = { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() else calendarPermissionState.launchPermissionRequest() }) { Icon(Icons.Default.Sync, contentDescription = "Refresh calendar") }
-                        IconButton(onClick = onNavigateToClock) { Icon(Icons.Default.Alarm, contentDescription = "Timers & alarms") }
                         Box {
                             IconButton(onClick = { showOverflowMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "More")
                             }
                             DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Timers & alarms") },
+                                    leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null) },
+                                    onClick = { showOverflowMenu = false; onNavigateToClock() }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Productivity stats") },
                                     leadingIcon = { Icon(Icons.Default.BarChart, contentDescription = null) },

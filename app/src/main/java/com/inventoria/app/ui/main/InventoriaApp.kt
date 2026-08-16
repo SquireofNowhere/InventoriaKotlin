@@ -26,6 +26,7 @@ import com.inventoria.app.ui.screens.clock.ClockViewModel
 import com.inventoria.app.ui.screens.help.HelpArticleScreen
 import com.inventoria.app.ui.screens.help.HelpCategoryScreen
 import com.inventoria.app.ui.screens.help.HelpIndexScreen
+import com.inventoria.app.ui.screens.help.catalog.HelpCatalog
 import com.inventoria.app.ui.screens.collections.*
 import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
@@ -48,17 +49,24 @@ import com.inventoria.app.ui.screens.todo.TodoViewModel
  * shows, so the tab you tapped and the screen you landed on agree. [shortTitle] is only a fallback
  * for when [title] can't fit a nav item at the current width; see [AdaptiveNavLabel]. Where a name
  * is already short both are the same string.
+ *
+ * [helpCategoryId] is the HelpCatalog category this tab's help button aims at. It's an id rather
+ * than a route so the tab decides *what* it's about and the nav layer decides where that lands --
+ * see openHelpFor, which redirects to the index when a category has nothing written in it yet.
  */
 sealed class Screen(
     val route: String,
     val title: String,
     val shortTitle: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val helpCategoryId: String
 ) {
-    object Today : Screen("today", "Today", "Today", Icons.Default.Today)
-    object Todos : Screen("todos", "Todos", "Plan", Icons.Default.Checklist)
-    object Tasks : Screen("tasks", "Task Tracker", "Track", Icons.Default.Timer)
-    object InventoryHub : Screen("inventory_hub", "Inventory", "Inventory", Icons.Default.Inventory)
+    object Today : Screen("today", "Today", "Today", Icons.Default.Today, "today")
+    object Todos : Screen("todos", "Todos", "Plan", Icons.Default.Checklist, "todos")
+    object Tasks : Screen("tasks", "Task Tracker", "Track", Icons.Default.Timer, "tasks")
+    object InventoryHub :
+        Screen("inventory_hub", "Inventory", "Inventory", Icons.Default.Inventory, "inventory")
+    object Settings : Screen("settings", "Settings", "Settings", Icons.Default.Settings, "settings")
 }
 
 /**
@@ -125,8 +133,27 @@ fun InventoriaApp() {
         Screen.Today,
         Screen.Todos,
         Screen.Tasks,
-        Screen.InventoryHub
+        Screen.InventoryHub,
+        Screen.Settings
     )
+
+    /**
+     * Open the manual at the section covering [categoryId], or at the index if that section has
+     * nothing in it yet.
+     *
+     * Most categories are still empty stubs, and HelpCategoryScreen would render one as a lone
+     * summary line -- a dead end reached by pressing the button marked "help". The index at least
+     * shows the shape of the manual and reaches the sections that are written. This check is why
+     * Screen carries a category id rather than a route: as articles get written, each tab's help
+     * button starts landing on its own section with no change here.
+     *
+     * HelpCatalog is deliberately lazy (it must not be built at launch), so this only touches it
+     * inside the lambda, on tap.
+     */
+    val openHelpFor: (String) -> Unit = { categoryId ->
+        val hasArticles = HelpCatalog.category(categoryId)?.articles?.isNotEmpty() == true
+        navController.navigate(if (hasArticles) "help/category/$categoryId" else "help")
+    }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -193,8 +220,7 @@ fun InventoriaApp() {
                     // A different TodoViewModel instance than the Todos destination holds -- see
                     // TodayScreen's KDoc for what that rules out (editing, tap-to-select).
                     todoViewModel = hiltViewModel<TodoViewModel>(),
-                    onNavigateToSettings = { navController.navigate("settings") },
-                    onNavigateToHelp = { navController.navigate("help") },
+                    onNavigateToHelp = { openHelpFor(Screen.Today.helpCategoryId) },
                     // Both of these are tab jumps, not drill-downs -- must not plain-push.
                     onNavigateToTodos = { navController.switchToTab(Screen.Todos.route) },
                     onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
@@ -206,6 +232,7 @@ fun InventoriaApp() {
                     inventoryViewModel = hiltViewModel<InventoryListViewModel>(),
                     collectionsViewModel = hiltViewModel<CollectionsViewModel>(),
                     hubViewModel = hiltViewModel<InventoryHubViewModel>(),
+                    onNavigateToHelp = { openHelpFor(Screen.InventoryHub.helpCategoryId) },
                     onAddItem = { navController.navigate("add_item") },
                     onItemClick = { id -> navController.navigate("item_detail/$id") },
                     onEditItem = { id -> navController.navigate("edit_item/$id") },
@@ -300,6 +327,7 @@ fun InventoriaApp() {
                 val viewModel: TaskTrackerViewModel = hiltViewModel()
                 TaskTrackerScreen(
                     viewModel = viewModel,
+                    onNavigateToHelp = { openHelpFor(Screen.Tasks.helpCategoryId) },
                     onNavigateToStats = { navController.navigate("productivity_stats") },
                     onNavigateToHistory = { navController.navigate("task_history") },
                     onNavigateToClock = { navController.navigate("timers_alarms") }
@@ -326,6 +354,7 @@ fun InventoriaApp() {
                 val viewModel: TodoViewModel = hiltViewModel()
                 TodoScreen(
                     viewModel = viewModel,
+                    onNavigateToHelp = { openHelpFor(Screen.Todos.helpCategoryId) },
                     // "View on Tasks" is a tab switch, not a drill-down -- must not plain-push.
                     onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
                 )
@@ -339,16 +368,17 @@ fun InventoriaApp() {
                 )
             }
 
-            // Reached from the Today top bar's overflow menu, not the nav bar. A drill-down with
-            // its own back button, like task_history/productivity_stats -- switchToTab is not
-            // involved, and showNavigation leaves the bar hidden here.
-            composable("settings") {
+            // A tab again, not a drill-down off Today's overflow -- so it keeps the nav bar, has no
+            // back arrow, and every jump to it goes through switchToTab like any other tab.
+            composable(Screen.Settings.route) {
                 val viewModel: SettingsViewModel = hiltViewModel()
                 SettingsScreen(
                     viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() },
                     onNavigateToTaskTypes = { navController.navigate("task_types") },
-                    onNavigateToHelp = { navController.navigate("help") }
+                    // The bar's "?" aims at the Settings section; the screen's own "How To" row
+                    // still opens the manual's index, which is what that row has always meant.
+                    onNavigateToHelp = { openHelpFor(Screen.Settings.helpCategoryId) },
+                    onNavigateToHelpIndex = { navController.navigate("help") }
                 )
             }
 

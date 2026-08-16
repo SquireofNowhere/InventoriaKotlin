@@ -70,6 +70,7 @@ fun InventoryHubScreen(
     inventoryViewModel: InventoryListViewModel,
     collectionsViewModel: CollectionsViewModel,
     hubViewModel: InventoryHubViewModel,
+    onNavigateToHelp: () -> Unit,
     onAddItem: () -> Unit,
     onItemClick: (Long) -> Unit,
     onEditItem: (Long) -> Unit,
@@ -83,7 +84,12 @@ fun InventoryHubScreen(
     }
 
     Scaffold(
-        topBar = { InventoriaTopBar(title = Screen.InventoryHub.title) }
+        topBar = {
+            InventoriaTopBar(
+                title = Screen.InventoryHub.title,
+                onNavigateToHelp = onNavigateToHelp
+            )
+        }
     ) { padding ->
         Column(
             Modifier

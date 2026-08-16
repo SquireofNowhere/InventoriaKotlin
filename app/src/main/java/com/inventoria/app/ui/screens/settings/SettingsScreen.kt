@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
@@ -32,6 +31,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.ui.components.InventoriaTopBar
+import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
 import java.util.Currency
 import java.util.Locale
@@ -40,9 +41,11 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onNavigateBack: () -> Unit,
     onNavigateToTaskTypes: () -> Unit,
-    onNavigateToHelp: () -> Unit
+    /** The top bar's "?": the Settings section of the manual. */
+    onNavigateToHelp: () -> Unit,
+    /** The "How To" row further down: the manual's index, as that row has always meant. */
+    onNavigateToHelpIndex: () -> Unit
 ) {
     val context = LocalContext.current
     val isDarkMode by viewModel.isDarkMode.collectAsState()
@@ -83,13 +86,9 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Settings", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
+            InventoriaTopBar(
+                title = Screen.Settings.title,
+                onNavigateToHelp = onNavigateToHelp
             )
         }
     ) { padding ->
@@ -192,7 +191,7 @@ fun SettingsScreen(
                 title = "How To",
                 subtitle = "Step-by-step guides for every feature, with diagrams",
                 icon = Icons.Default.HelpOutline,
-                onClick = onNavigateToHelp
+                onClick = onNavigateToHelpIndex
             )
 
             SettingsCategoryHeader("About")
