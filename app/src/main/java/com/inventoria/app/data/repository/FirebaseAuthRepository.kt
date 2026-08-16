@@ -288,7 +288,20 @@ class FirebaseAuthRepository @Inject constructor(
         val uid = user.uid
 
         try {
-            // 1. Delete user data from Realtime Database
+            // 1a. Retire the invite code first. It lives at the top level, so deleting users/$uid
+            // does not touch it -- the mapping outlived the account it pointed at, and the rules
+            // let anyone holding that code recreate users/$uid/sharedWith and so resurrect the
+            // deleted node with themselves attached to it.
+            val inviteCode = getExistingInviteCode()
+            if (inviteCode != null) {
+                try {
+                    firebaseDatabase.getReference("invites").child(inviteCode).removeValue().await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not retire invite code $inviteCode during account deletion", e)
+                }
+            }
+
+            // 1b. Delete user data from Realtime Database
             Log.d(TAG, "Deleting Realtime Database node for user: $uid")
             firebaseDatabase.getReference("users").child(uid).removeValue().await()
 

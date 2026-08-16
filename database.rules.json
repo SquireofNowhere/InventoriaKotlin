@@ -1,0 +1,50 @@
+{
+  "rules": {
+    "invites": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.val() === auth.uid)",
+        ".validate": "newData.isString() && newData.val() === auth.uid"
+      }
+    },
+
+    "users": {
+      "$uid": {
+        ".read": "auth != null && ($uid === auth.uid || root.child('users').child($uid).child('sharedWith').child(auth.uid).exists())",
+        ".write": "$uid === auth.uid",
+
+        "sharedWith": {
+          "$joinerUid": {
+            ".write": "$joinerUid === auth.uid && root.child('invites').child(newData.val()).val() === $uid",
+            ".validate": "newData.isString() && root.child('invites').child(newData.val()).val() === $uid && ($uid === auth.uid || $joinerUid === auth.uid)"
+          }
+        },
+
+        "items": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "item_links": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "tasks": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "collections": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "collection_items": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "todos": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "task_types": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "settings": {
+          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        }
+      }
+    }
+  }
+}

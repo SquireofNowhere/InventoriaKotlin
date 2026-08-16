@@ -78,6 +78,17 @@ being reused by anything else.
 **Firebase Console → Usage.** Unexpected reads, writes or storage egress are the signal that
 something already found the database. Worth one look now that you know the URL has been public.
 
+## Realtime Database rules
+
+The rules are tracked at [`database.rules.json`](database.rules.json), with the reasoning in
+[`database.rules.md`](database.rules.md). That file is a *copy* — the live rules are whatever is in
+Firebase Console -> Realtime Database -> Rules, so a change there is what takes effect.
+
+Read `database.rules.md` before changing anything under `invites` or `sharedWith`. It documents an
+authorization bypass the earlier rules allowed (an unvalidated invite value let anyone who knew your
+uid grant themselves your whole account) and why a joiner must not hold `.write` on `users/$uid`
+itself.
+
 ## Going forward
 
 - `.env` and `app/google-services.json` are in `.gitignore` and no longer tracked. A fresh clone
