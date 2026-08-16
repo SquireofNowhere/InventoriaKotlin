@@ -137,4 +137,12 @@ class RepositoryModule {
     ): CalendarRepository {
         return CalendarRepository(context)
     }
+
+    @Provides
+    @Singleton
+    fun provideSystemClockRepository(
+        @ApplicationContext context: Context
+    ): SystemClockRepository {
+        return SystemClockRepository(context)
+    }
 }

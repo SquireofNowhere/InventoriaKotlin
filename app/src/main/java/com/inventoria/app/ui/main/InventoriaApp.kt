@@ -21,6 +21,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.inventoria.app.ui.screens.clock.ClockScreen
+import com.inventoria.app.ui.screens.clock.ClockViewModel
 import com.inventoria.app.ui.screens.collections.*
 import com.inventoria.app.ui.screens.dashboard.DashboardScreen
 import com.inventoria.app.ui.screens.dashboard.DashboardViewModel
@@ -279,7 +281,16 @@ fun InventoriaApp() {
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToStats = { navController.navigate("productivity_stats") },
-                    onNavigateToHistory = { navController.navigate("task_history") }
+                    onNavigateToHistory = { navController.navigate("task_history") },
+                    onNavigateToClock = { navController.navigate("timers_alarms") }
+                )
+            }
+
+            composable("timers_alarms") {
+                val viewModel: ClockViewModel = hiltViewModel()
+                ClockScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
 

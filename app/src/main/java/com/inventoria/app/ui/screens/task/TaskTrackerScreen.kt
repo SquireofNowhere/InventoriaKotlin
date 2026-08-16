@@ -109,7 +109,8 @@ fun TaskTrackerScreen(
     viewModel: TaskTrackerViewModel,
     onNavigateBack: () -> Unit,
     onNavigateToStats: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToClock: () -> Unit
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -220,6 +221,7 @@ fun TaskTrackerScreen(
                     navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
                     actions = {
                         IconButton(onClick = { if (calendarPermissionState.status.isGranted) viewModel.refreshCalendar() else calendarPermissionState.launchPermissionRequest() }) { Icon(Icons.Default.Sync, null) }
+                        IconButton(onClick = onNavigateToClock) { Icon(Icons.Default.Alarm, contentDescription = "Timers & Alarms") }
                         IconButton(onClick = onNavigateToStats) { Icon(Icons.Default.BarChart, null) }
                         IconButton(onClick = onNavigateToHistory) { Icon(Icons.Default.History, null) }
                     }

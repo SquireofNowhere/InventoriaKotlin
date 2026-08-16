@@ -11,9 +11,29 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
+    <!-- Normal permission, granted at install with no runtime prompt. Only lets us hand an alarm
+         or timer to the clock app (and skip its confirmation UI); it grants no read access to
+         existing alarms or timers, because Android exposes none. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="18"/>
+
+    <!-- Package visibility (Android 11+): without this, resolveActivity() for the clock intents
+         returns null even when a clock app is installed, and the UI would wrongly report that the
+         device has none. Launching the intents works regardless; only the capability check needs
+         the declaration. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SHOW_ALARMS"/>
+        </intent>
+    </queries>
 
     <uses-feature
         android:name="android.hardware.camera"
