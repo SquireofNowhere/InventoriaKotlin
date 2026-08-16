@@ -8,6 +8,7 @@ import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.FirebaseSyncRepository
+import com.inventoria.app.data.repository.InviteCode
 import com.inventoria.app.data.repository.LocalDataRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -95,8 +96,9 @@ class SettingsViewModel @Inject constructor(
     val procrastinationPenaltyAmount: StateFlow<Int> = settingsRepository.getProcrastinationPenaltyAmount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2)
 
-    private val _generatedInviteCode = MutableStateFlow<String?>(null)
-    val generatedInviteCode: StateFlow<String?> = _generatedInviteCode.asStateFlow()
+    /** The owner's own code, expired or not -- the UI shows an expired one as needing replacing. */
+    private val _generatedInviteCode = MutableStateFlow<InviteCode?>(null)
+    val generatedInviteCode: StateFlow<InviteCode?> = _generatedInviteCode.asStateFlow()
 
     /** Failures from *using* someone else's code, shown under the code entry field. */
     private val _inviteCodeError = MutableStateFlow<String?>(null)
@@ -322,7 +324,7 @@ class SettingsViewModel @Inject constructor(
             _inviteCodeGenerationError.value = null
             // The displayed code, not a fresh read: a failed read would look like "no code to
             // retire" and the UI would clear a code that is still live on the server.
-            val code = _generatedInviteCode.value ?: return@launch
+            val code = _generatedInviteCode.value?.code ?: return@launch
             val result = authRepository.revokeInviteCode(code)
             if (result.isSuccess) {
                 _generatedInviteCode.value = null

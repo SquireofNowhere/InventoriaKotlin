@@ -39,6 +39,15 @@ class FirebaseAuthRepository @Inject constructor(
         const val INVITE_CODE_LENGTH = 6
         private const val INVITE_CODE_CLAIM_ATTEMPTS = 5
 
+        /**
+         * How long a freshly generated code can be used to join. Short on purpose: at
+         * [INVITE_CODE_LENGTH] characters the code space is guessable given enough attempts, and
+         * what an attacker actually needs is any *live* code -- so the number of them alive at once
+         * is the thing worth keeping small. The database rules enforce this too; this constant only
+         * decides what the client asks for.
+         */
+        const val INVITE_CODE_TTL_MILLIS = 24L * 60 * 60 * 1000
+
         /** The only characters a code can contain -- and the only ones safe as a Realtime Database key. */
         private val INVITE_CODE_CHARS = (('A'..'Z') + ('0'..'9')).toSet()
 
@@ -118,7 +127,7 @@ class FirebaseAuthRepository @Inject constructor(
         return googleSignInClient.signInIntent
     }
 
-    suspend fun generateInviteCode(): String {
+    suspend fun generateInviteCode(): InviteCode {
         val userId = getCurrentUserId() ?: throw IllegalStateException("User not logged in")
 
         // A freshly-created anonymous session's ID token can briefly lag behind Firebase's
@@ -131,9 +140,10 @@ class FirebaseAuthRepository @Inject constructor(
             Log.w(TAG, "Token refresh before generateInviteCode failed, proceeding anyway", e)
         }
 
-        val previousCode = getExistingInviteCode()
+        val previous = getExistingInviteCode()
 
-        val code = claimUnusedInviteCode(userId)
+        val expiresAt = System.currentTimeMillis() + INVITE_CODE_TTL_MILLIS
+        val code = claimUnusedInviteCode(userId, expiresAt)
 
         // Store the code in the user's own record for reference
         firebaseDatabase.getReference("users").child(userId).child("my_invite_code").setValue(code).await()
@@ -141,15 +151,15 @@ class FirebaseAuthRepository @Inject constructor(
         // The old code stayed live in `invites` forever otherwise, so a user who regenerated ended
         // up with two working codes and no way to retire the first. Best-effort: failing to clean
         // up an old code must not fail the new one, which is already claimed and recorded.
-        if (previousCode != null && previousCode != code) {
+        if (previous != null && previous.code != code) {
             try {
-                firebaseDatabase.getReference("invites").child(previousCode).removeValue().await()
+                firebaseDatabase.getReference("invites").child(previous.code).removeValue().await()
             } catch (e: Exception) {
-                Log.w(TAG, "Could not retire previous invite code $previousCode", e)
+                Log.w(TAG, "Could not retire previous invite code ${previous.code}", e)
             }
         }
 
-        return code
+        return InviteCode(code, expiresAt)
     }
 
     /**
@@ -161,25 +171,40 @@ class FirebaseAuthRepository @Inject constructor(
      * have been handed a stranger's database, while that user's own screen went on showing a code
      * that no longer pointed at them.
      */
-    private suspend fun claimUnusedInviteCode(userId: String): String {
+    private suspend fun claimUnusedInviteCode(userId: String, expiresAt: Long): String {
         repeat(INVITE_CODE_CLAIM_ATTEMPTS) {
             val code = (1..INVITE_CODE_LENGTH).map { INVITE_CODE_CHARS.random() }.joinToString("")
-            if (tryClaimInviteCode(code, userId)) return code
+            if (tryClaimInviteCode(code, userId, expiresAt)) return code
             Log.w(TAG, "Invite code $code was already taken, retrying")
         }
         throw IllegalStateException("Couldn't find a free invite code. Please try again.")
     }
 
-    /** Returns true if [code] was empty (or already ours) and now maps to [userId]. */
-    private suspend fun tryClaimInviteCode(code: String, userId: String): Boolean =
+    /** Returns true if [code] was free (empty, expired, or already ours) and now maps to [userId]. */
+    private suspend fun tryClaimInviteCode(code: String, userId: String, expiresAt: Long): Boolean =
         suspendCancellableCoroutine { continuation ->
             firebaseDatabase.getReference("invites").child(code).runTransaction(
                 object : Transaction.Handler {
                     override fun doTransaction(currentData: MutableData): Transaction.Result {
-                        val existing = currentData.getValue(String::class.java)
-                        // Re-claiming our own code is fine; anyone else's is the collision.
-                        if (existing != null && existing != userId) return Transaction.abort()
-                        currentData.value = userId
+                        // A legacy entry is the bare uid string rather than an object, so which
+                        // shape it is decides where the owner's uid is read from.
+                        val existingUid = if (currentData.hasChildren()) {
+                            currentData.child("uid").getValue(String::class.java)
+                        } else {
+                            currentData.getValue(String::class.java)
+                        }
+                        val existingExpiry =
+                            currentData.child("expiresAt").getValue(Long::class.java) ?: 0L
+
+                        // Re-claiming our own code is fine, and so is taking over one that has
+                        // expired -- which is the only thing that ever clears them out, since rules
+                        // cannot delete on a timer.
+                        val heldBySomeoneElse = existingUid != null &&
+                            existingUid != userId &&
+                            existingExpiry > System.currentTimeMillis()
+                        if (heldBySomeoneElse) return Transaction.abort()
+
+                        currentData.value = mapOf("uid" to userId, "expiresAt" to expiresAt)
                         return Transaction.success(currentData)
                     }
 
@@ -225,20 +250,40 @@ class FirebaseAuthRepository @Inject constructor(
         }
     }
 
-    suspend fun getExistingInviteCode(): String? {
+    /**
+     * The owner's own code, expired or not -- the caller decides how to present it.
+     *
+     * Returning null for an expired one would lose the only handle on it, and generating a
+     * replacement needs it in order to retire the old entry.
+     */
+    suspend fun getExistingInviteCode(): InviteCode? {
         val userId = getCurrentUserId() ?: return null
         return try {
-            val snapshot = firebaseDatabase.getReference("users").child(userId).child("my_invite_code").get().await()
-            snapshot.getValue(String::class.java)
+            val code = firebaseDatabase.getReference("users").child(userId).child("my_invite_code")
+                .get().await().getValue(String::class.java) ?: return null
+            val snapshot = firebaseDatabase.getReference("invites").child(code).get().await()
+            // A legacy string-shaped entry has no expiresAt, and neither does one already deleted.
+            // Both read as long expired, which is what makes the migration graceful: the owner is
+            // simply told the code has expired and generates a new one.
+            InviteCode(code, snapshot.child("expiresAt").getValue(Long::class.java) ?: 0L)
         } catch (e: Exception) {
+            Log.w(TAG, "Could not read existing invite code", e)
             null
         }
     }
 
-    /** [code] must already be through [normalizeInviteCode]; anything else is not a valid database key. */
+    /**
+     * The account a code points at, or null if there is no such code or it has expired.
+     *
+     * [code] must already be through [normalizeInviteCode]; anything else is not a valid database
+     * key. The expiry is checked against this device's clock, which only decides what to *show* --
+     * the database rules check it again on the write that actually links the accounts.
+     */
     suspend fun getUserIdFromInviteCode(code: String): String? {
         val snapshot = firebaseDatabase.getReference("invites").child(code).get().await()
-        return snapshot.getValue(String::class.java)
+        val expiresAt = snapshot.child("expiresAt").getValue(Long::class.java) ?: return null
+        if (expiresAt <= System.currentTimeMillis()) return null
+        return snapshot.child("uid").getValue(String::class.java)
     }
 
     /**
@@ -310,9 +355,9 @@ class FirebaseAuthRepository @Inject constructor(
             val inviteCode = getExistingInviteCode()
             if (inviteCode != null) {
                 try {
-                    firebaseDatabase.getReference("invites").child(inviteCode).removeValue().await()
+                    firebaseDatabase.getReference("invites").child(inviteCode.code).removeValue().await()
                 } catch (e: Exception) {
-                    Log.w(TAG, "Could not retire invite code $inviteCode during account deletion", e)
+                    Log.w(TAG, "Could not retire invite code ${inviteCode.code} during account deletion", e)
                 }
             }
 

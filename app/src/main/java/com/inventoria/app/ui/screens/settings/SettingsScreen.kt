@@ -34,6 +34,8 @@ import com.google.android.gms.common.api.ApiException
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
+import com.inventoria.app.data.repository.InviteCode
+import kotlinx.coroutines.delay
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
@@ -539,6 +541,15 @@ private fun deleteAccountCopy(authState: AuthState): DeleteAccountCopy = when {
     )
 }
 
+/** "Expires in 3h 20m" / "Expires in 12m". Coarse on purpose -- it is a rough sense of urgency. */
+private fun remainingLabel(expiresAt: Long, now: Long): String {
+    val remaining = expiresAt - now
+    if (remaining <= 0) return "Expired"
+    val hours = remaining / 3_600_000
+    val minutes = (remaining % 3_600_000) / 60_000
+    return if (hours >= 1) "Expires in ${hours}h ${minutes}m" else "Expires in ${minutes}m"
+}
+
 /** Shared confirm for the two actions that replace this device's database with another one's. */
 @Composable
 private fun SyncSwitchDialog(
@@ -576,7 +587,7 @@ fun AccountSection(
     customUsername: String?,
     manualSyncId: String?,
     currentUserId: String?,
-    generatedInviteCode: String?,
+    generatedInviteCode: InviteCode?,
     inviteCodeError: String?,
     inviteCodeGenerationError: String?,
     sharedWithUsers: Map<String, String>,
@@ -818,7 +829,27 @@ fun AccountSection(
                     )
                 }
 
-                if (generatedInviteCode == null) {
+                // Re-read on a slow tick so "Expires in 3h 20m" does not sit there going stale while
+                // Settings stays on screen. Only runs while there is a code to count down.
+                var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(generatedInviteCode) {
+                    while (generatedInviteCode != null) {
+                        now = System.currentTimeMillis()
+                        delay(60_000)
+                    }
+                }
+
+                val liveCode = generatedInviteCode?.takeIf { !it.isExpired(now) }
+                val expired = generatedInviteCode != null && liveCode == null
+
+                if (liveCode == null) {
+                    if (expired) {
+                        Text(
+                            "Your invite code has expired. Generate a new one to share your database again — anyone already connected stays connected.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Button(
                         onClick = onGenerateInviteCode,
                         enabled = manualSyncId == null,
@@ -826,24 +857,26 @@ fun AccountSection(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Generate Invite Code")
+                        Text(if (expired) "Generate a New Code" else "Generate Invite Code")
                     }
                 } else {
                     OutlinedTextField(
-                        value = generatedInviteCode,
+                        value = liveCode.code,
                         onValueChange = {},
                         label = { Text("Your Invite Code") },
                         readOnly = true,
                         modifier = Modifier.fillMaxWidth(),
                         trailingIcon = {
                             IconButton(onClick = {
-                                clipboardManager.setText(AnnotatedString(generatedInviteCode))
+                                clipboardManager.setText(AnnotatedString(liveCode.code))
                                 Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
                             }) {
                                 Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
                             }
                         },
-                        supportingText = { Text("Anyone with this code can join your database until you retire it") }
+                        supportingText = {
+                            Text("${remainingLabel(liveCode.expiresAt, now)} · anyone with it can join until then")
+                        }
                     )
 
                     TextButton(
@@ -852,7 +885,7 @@ fun AccountSection(
                     ) {
                         Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Retire This Code", color = MaterialTheme.colorScheme.error)
+                        Text("Retire It Now", color = MaterialTheme.colorScheme.error)
                     }
                 }
 

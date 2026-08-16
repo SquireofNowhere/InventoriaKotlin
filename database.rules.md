@@ -54,12 +54,43 @@ The child list is written out rather than using a `$section` wildcard on purpose
 take precedence over a wildcard at the same level, but a security boundary is the wrong place to
 lean on that.
 
+### Codes expire after 24 hours
+
+`invites/$code` holds `{ uid, expiresAt }` rather than a bare uid string, and both the `expiresAt`
+child validator and the `sharedWith` write rule check it against `now`.
+
+This is the answer to codes being brute-forceable: any authenticated user — including a fresh
+anonymous account, which this app hands out freely — can probe `invites/<guess>` without limit, and
+an attacker does not need a *particular* code, just any live one. Six characters is about 2.2 billion
+combinations, so what actually bounds the risk is how many codes are alive at once. A day is short
+enough to keep that number near zero most of the time. (The parent `invites` node still has no
+`.read`, so the list itself cannot be enumerated.)
+
+Two deliberate consequences:
+
+- **Expiry gates joining, not access.** A `sharedWith` entry is only written once, at link time, and
+  nothing re-validates it afterwards — so someone who joined before the code died stays connected.
+  Revoke, and retiring the code, are what cut people off.
+- **Expired entries are not deleted**, because rules cannot delete on a timer. Anyone may overwrite
+  an entry whose `expiresAt` has passed (`data.child('expiresAt').val() < now` in `.write`), so
+  slots recycle themselves as codes are generated. `FirebaseAuthRepository` also retires the
+  previous code whenever it mints a new one.
+
+`expiresAt` is set by the client, so the validator bounds it: strictly in the future, and less than
+48 hours out. The generous ceiling against a 24-hour lifetime is clock-skew slack — a device whose
+clock runs fast can still generate a code. A too-long code is only self-harm anyway, since `uid` is
+pinned to `auth.uid`.
+
+### Legacy codes stop working, gracefully
+
+Codes issued before this change are bare strings with no `expiresAt`. The `sharedWith` rule requires
+`expiresAt > now`, which a missing value fails, so they can no longer be used to join. Nothing needs
+migrating: `getExistingInviteCode()` reports a missing `expiresAt` as long expired, the owner is
+shown "your invite code has expired", and generating a replacement retires the old entry. Retiring a
+legacy code by hand also still works, because `.write` keeps the `data.val() === auth.uid` clause
+that matches the old string shape.
+
 ## Known limits, not yet addressed
 
-- **Codes are brute-forceable.** Any authenticated user — including a fresh anonymous account, which
-  this app hands out freely — can probe `invites/<guess>` without limit. Six characters is about
-  2.2 billion combinations, and an attacker does not need a *particular* code, just any live one.
-  The parent `invites` node has no `.read`, so the list itself cannot be enumerated. Lengthening
-  `INVITE_CODE_LENGTH` in `FirebaseAuthRepository` is the cheap mitigation; expiry would be better.
 - **Storage rules are separate.** Item photos go to `users/{uid}/item_images` in Cloud Storage under
-  its own ruleset, which is not in this file and has not been reviewed.
+  its own ruleset, which is not in this file — see [`storage.rules.md`](storage.rules.md).
