@@ -140,6 +140,10 @@ The "Delete Account" button in Settings (labelled "Wipe Local Account Data" when
 5. Wipe this device: the whole Room database, every stored preference, and the camera's scratch files.
 6. Restart the app at the splash screen, where you pick the account that replaces it.
 
+The button is withheld entirely while an external account is connected via an invite code. Delete
+always acts on this device's *own* account, so there it would destroy the database that is not on
+screen while leaving the visible one untouched — clear the sync connection first.
+
 Step 5 only runs if the remote steps succeeded. If they failed you're still signed in, and wiping the device would simply hand the next sync an empty database to re-fill from the cloud.
 
 ### Manual Deletion (Fallback / Hard Reset)

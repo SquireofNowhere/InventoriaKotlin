@@ -508,11 +508,11 @@ fun MaskedIdRow(label: String, id: String, color: androidx.compose.ui.graphics.C
  * Wording for the delete button and its dialog, which must name the account that will *actually*
  * be deleted rather than the one whose data happens to be on screen.
  *
- * The button used to be a two-way "Delete Account" / "Wipe Local Account Data" keyed off an
- * authState that could be stale, and it had no notion of external sync at all -- so while
- * connected to someone else's database it read "Wipe Local Account Data", when what it deletes is
- * this device's own account and the external database is left untouched. That is the wrong error
- * to make in the more dangerous direction, hence a third case here.
+ * The button used to be a two-way choice keyed off an authState that could be stale, so a signed-in
+ * Google user could be shown the local-account wording. There is deliberately no external-sync case:
+ * delete always acts on this device's own account, so while connected it would destroy the database
+ * that is *not* on screen -- and rather than word that carefully, the caller withholds the button
+ * entirely until the connection is cleared.
  */
 private data class DeleteAccountCopy(
     val buttonLabel: String,
@@ -522,16 +522,7 @@ private data class DeleteAccountCopy(
     val confirmLabel: String
 )
 
-private fun deleteAccountCopy(authState: AuthState, manualSyncId: String?): DeleteAccountCopy = when {
-    // Deliberately first: manualSyncId wins over whatever is signed in, exactly as it does in
-    // getOrCreateUserId() and in SyncStatusBanner above.
-    manualSyncId != null -> DeleteAccountCopy(
-        buttonLabel = "Delete This Device's Account",
-        dialogTitle = "Delete This Device's Account?",
-        lead = "You are connected to an external account, so the database you have been reading is NOT the one being deleted. This deletes this device's own account:",
-        warning = "The external account keeps everything, and its owner is unaffected. This device loses its identity, its local copy of that data, and its sync connection. To simply disconnect instead, use \"Clear External Sync\" below. This cannot be undone.",
-        confirmLabel = "Delete My Account"
-    )
+private fun deleteAccountCopy(authState: AuthState): DeleteAccountCopy = when {
     authState is AuthState.Authenticated -> DeleteAccountCopy(
         buttonLabel = "Delete Account",
         dialogTitle = "Delete Account & Database?",
@@ -605,7 +596,7 @@ fun AccountSection(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
-    val deleteCopy = deleteAccountCopy(authState = authState, manualSyncId = manualSyncId)
+    val deleteCopy = deleteAccountCopy(authState)
 
     // Both sync switches now empty this device's database first (see switchSyncTarget), so both
     // need saying out loud rather than happening on one tap.
@@ -784,7 +775,18 @@ fun AccountSection(
                 }
             }
 
-            if (currentUserId != null) {
+            // Withheld while an external account is connected. Delete acts on this device's own
+            // account -- never the one being read -- so here it destroys the database that is not
+            // on screen while leaving the visible one untouched. No wording makes that a safe thing
+            // to put one tap away; disconnecting first is the only order in which the button means
+            // what it appears to mean.
+            if (currentUserId != null && manualSyncId != null) {
+                Text(
+                    "Deleting this device's account is unavailable while an external account is connected — it would destroy your own database, not the one shown here. Disconnect first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (currentUserId != null) {
                 OutlinedButton(
                     onClick = { showDeleteDialog = true },
                     modifier = Modifier.fillMaxWidth(),
