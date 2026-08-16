@@ -4,9 +4,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,14 +13,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LinkOff
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
@@ -30,8 +25,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -41,8 +34,6 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.state.ToggleableState
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -50,16 +41,11 @@ import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
-import com.inventoria.app.data.model.TodoState
-import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
-import com.inventoria.app.ui.screens.task.TaskTypeLabel
-import com.inventoria.app.ui.screens.task.TodoPriorityChip
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
-import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
 import kotlinx.coroutines.delay
 import java.util.Calendar
@@ -80,10 +66,6 @@ private fun showDatePicker(context: Context, initialTime: Long, onDateSelected: 
         calendar.get(Calendar.MONTH),
         calendar.get(Calendar.DAY_OF_MONTH)
     ).show()
-}
-
-private fun currentMinuteOfDay(): Int = Calendar.getInstance().let {
-    it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
 }
 
 /** Deadline time-of-day picker, handing back minutes since midnight rather than a timestamp --
@@ -345,216 +327,6 @@ fun TodoScreen(
                 viewModel.saveEditedTodo(todo, title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority)
             }
         )
-    }
-}
-
-/** Day section header: which day it was, its date, and (when this day actually had todos due
- * on it, as opposed to only hosting carried-over overdue rows) an "X% Done" progress bar --
- * same readiness-bar pattern used for Collections. */
-@Composable
-private fun TodoDayHeader(dayStart: Long, totalDue: Int, completedDue: Int) {
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Column {
-                Text(getDayLabel(dayStart), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(formatSimpleDate(dayStart), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (totalDue > 0) {
-                val pct = (completedDue * 100) / totalDue
-                Text(
-                    text = "$pct% Done",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        if (totalDue > 0) {
-            Spacer(Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { completedDue.toFloat() / totalDue.toFloat() },
-                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun TodoRow(
-    entry: TodoTreeEntry,
-    todayStart: Long,
-    nowMinuteOfDay: Int,
-    taskTypeNames: Map<String, String>,
-    hasActiveSession: Boolean,
-    isDragged: Boolean,
-    isHoverTarget: Boolean,
-    isSelected: Boolean,
-    onToggleCompleted: () -> Unit,
-    onClick: () -> Unit,
-    onDelete: () -> Unit,
-    onStart: () -> Unit,
-    onViewTask: () -> Unit,
-    onBoundsChanged: (ClosedFloatingPointRange<Float>) -> Unit,
-    onDragStart: (iconRootTopLeft: Offset, localOffset: Offset) -> Unit,
-    onDragDelta: (Offset) -> Unit,
-    onDragEnd: () -> Unit
-) {
-    val todo = entry.todo
-    val isOverdue = todo.state != TodoState.COMPLETE && todo.deadline != null && todo.deadline!! < todayStart
-    val daysOverdue = if (isOverdue) ((todayStart - todo.deadline!!) / 86_400_000L).toInt() else 0
-    // A time that's already passed only reads as late on the day it's actually due: earlier days
-    // are covered by the whole-days "Overdue by N days" line, and on later days the clock says
-    // nothing. Purely a display cue -- the procrastination penalty stays whole-days-only.
-    val isLateToday = todo.state != TodoState.COMPLETE && todo.deadline == todayStart &&
-        todo.deadlineMinuteOfDay != null && todo.deadlineMinuteOfDay!! < nowMinuteOfDay
-    var iconRootTopLeft by remember { mutableStateOf(Offset.Zero) }
-    // pointerInput(todo.id) below only re-executes its block when todo.id itself changes -- since
-    // it doesn't change mid-drag, the block (and whatever it captures) stays frozen at whichever
-    // recomposition first set it up. onDragStart/onDragDelta happen to still work despite that
-    // (their bodies only write to stable remember-backed state), but onDragEnd reads plain local
-    // vals (hoverTodoId/isRemoveZone, recomputed fresh each recomposition, not remember-backed) in
-    // the caller, and a frozen reference to that lambda saw them as they were before any drag
-    // started -- silently resolving every drop as "nothing hovered." rememberUpdatedState keeps
-    // the callback actually invoked always pointing at the latest lambda, matching the exact
-    // pattern InventoryListScreen's own (working) drag-and-drop already relies on.
-    val currentOnDragStart by rememberUpdatedState(onDragStart)
-    val currentOnDragDelta by rememberUpdatedState(onDragDelta)
-    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = (entry.depth * 20).dp)
-            .alpha(if (isDragged) 0.3f else 1f)
-            .then(
-                if (isHoverTarget) Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-                else Modifier
-            )
-            .then(
-                if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
-                else Modifier
-            )
-            .onGloballyPositioned { coords ->
-                val top = coords.positionInRoot().y
-                onBoundsChanged(top..(top + coords.size.height))
-            },
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            if (entry.parentName != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, start = 8.dp)) {
-                    Icon(Icons.Default.SubdirectoryArrowRight, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Sub-todo of ${entry.parentName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Kind color, at a glance, before anything else in the row -- same left-bar
-                // convention SingleTaskItemCard already uses for tracked tasks.
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color(todo.kind.colorValue))
-                )
-                Spacer(Modifier.width(6.dp))
-                Icon(
-                    Icons.Default.DragIndicator,
-                    contentDescription = "Drag to make this a sub-todo of another",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(end = 4.dp)
-                        .onGloballyPositioned { iconRootTopLeft = it.positionInRoot() }
-                        .pointerInput(todo.id) {
-                            // Plain detectDragGestures (no long-press wait): this handle has no
-                            // competing gesture to disambiguate against, so there's no reason to
-                            // gate a drag behind a hold-still timer -- movement past touch slop
-                            // starts the drag immediately.
-                            detectDragGestures(
-                                onDragStart = { localOffset -> currentOnDragStart(iconRootTopLeft, localOffset) },
-                                onDrag = { change, dragAmount -> change.consume(); currentOnDragDelta(dragAmount) },
-                                onDragEnd = { currentOnDragEnd() },
-                                onDragCancel = { currentOnDragEnd() }
-                            )
-                        }
-                )
-                TriStateCheckbox(
-                    state = when (entry.effectiveState) {
-                        TodoState.COMPLETE -> ToggleableState.On
-                        TodoState.IN_PROGRESS -> ToggleableState.Indeterminate
-                        TodoState.INCOMPLETE -> ToggleableState.Off
-                    },
-                    onClick = onToggleCompleted
-                )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(onClick = onClick)
-                        .padding(vertical = 8.dp)
-                ) {
-                    val typeName = todo.taskTypeId?.let { taskTypeNames[it] }
-                    if (typeName != null) TaskTypeLabel(typeName)
-                    Text(
-                        text = todo.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textDecoration = if (entry.effectiveState == TodoState.COMPLETE) TextDecoration.LineThrough else null,
-                        color = if (entry.effectiveState == TodoState.INCOMPLETE) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    todo.deadlineMinuteOfDay?.let { minuteOfDay ->
-                        Text(
-                            text = "Due ${formatMinuteOfDay(minuteOfDay)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isLateToday) FontWeight.Bold else null,
-                            color = if (isLateToday) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (isOverdue) {
-                        Text(
-                            text = "Overdue by $daysOverdue day${if (daysOverdue == 1) "" else "s"}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    entry.childProgress?.let { (completed, total) ->
-                        Text(
-                            text = "$completed/$total sub-todos complete",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (todo.priority != null) {
-                    TodoPriorityChip(priority = todo.priority, modifier = Modifier.scale(0.85f))
-                }
-                TaskKindChip(kind = todo.kind, modifier = Modifier.scale(0.85f))
-                if (todo.state != TodoState.COMPLETE) {
-                    if (!hasActiveSession) {
-                        IconButton(onClick = onStart) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Start Tracking", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    } else {
-                        IconButton(onClick = onViewTask) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "In Progress -- View on Tasks",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
     }
 }
 

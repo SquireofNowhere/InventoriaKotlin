@@ -51,7 +51,7 @@ internal val taskOrganisingArticles = listOf(
             "with a caption naming its parent.",
         blocks = listOf(
             HelpBlock.Diagram(
-                caption = "A two-deep interruption chain on the Tasks tab",
+                caption = "A two-deep interruption chain on the Track tab",
                 spec = DiagramSpec(
                     elements = listOf(
                         runningCard(name = "Writing", type = null, kind = TaskKind.PEACOCK, trailing = emptyList()),

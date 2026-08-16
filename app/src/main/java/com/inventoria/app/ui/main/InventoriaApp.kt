@@ -27,23 +27,28 @@ import com.inventoria.app.ui.screens.help.HelpArticleScreen
 import com.inventoria.app.ui.screens.help.HelpCategoryScreen
 import com.inventoria.app.ui.screens.help.HelpIndexScreen
 import com.inventoria.app.ui.screens.collections.*
-import com.inventoria.app.ui.screens.dashboard.DashboardScreen
-import com.inventoria.app.ui.screens.dashboard.DashboardViewModel
 import com.inventoria.app.ui.screens.inventory.*
 import com.inventoria.app.ui.screens.map.InventoryMapScreen
 import com.inventoria.app.ui.screens.settings.*
 import com.inventoria.app.ui.screens.task.*
+import com.inventoria.app.ui.screens.today.TodayScreen
+import com.inventoria.app.ui.screens.today.TodayViewModel
 import com.inventoria.app.ui.screens.todo.TodoScreen
 import com.inventoria.app.ui.screens.todo.TodoViewModel
 
+/**
+ * A bottom-nav/rail tab, and nothing else. Every other destination below is a plain string
+ * literal, the same way collection/create, task_history and item_location_map always were.
+ *
+ * This used to double as a route holder for screens that weren't really tabs (Inventory's route
+ * got string-concatenated with "?fromCollection=" at its call site), which is exactly the
+ * ambiguity that made it easy to plain-navigate to a tab route by accident -- see switchToTab.
+ */
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
-    object Inventory : Screen("inventory", "Inventory", Icons.Default.Inventory)
-    object Collections : Screen("collections", "Collections", Icons.Default.Collections)
-    object Tasks : Screen("tasks", "Tasks", Icons.Default.Timer)
-    object Todos : Screen("todos", "Todos", Icons.Default.Checklist)
-    object Map : Screen("map", "Map", Icons.Default.Map)
-    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+    object Today : Screen("today", "Today", Icons.Default.Today)
+    object Todos : Screen("todos", "Plan", Icons.Default.Checklist)
+    object Tasks : Screen("tasks", "Track", Icons.Default.Timer)
+    object InventoryHub : Screen("inventory_hub", "Inventory", Icons.Default.Inventory)
 }
 
 /**
@@ -76,24 +81,22 @@ fun InventoriaApp() {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp
     val isWideScreen = screenWidth >= 600
-    val alwaysShowLabels = screenWidth >= 450
-    
+
     val navController = rememberNavController()
     val screens = listOf(
-        Screen.Dashboard,
-        Screen.Inventory,
-        Screen.Collections,
-        Screen.Map,
-        Screen.Tasks,
+        Screen.Today,
         Screen.Todos,
-        Screen.Settings
+        Screen.Tasks,
+        Screen.InventoryHub
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val currentBaseRoute = currentDestination?.route?.split("?")?.first()
-    // item_location_map (the item-detail "view this location" drill-down) intentionally has no
-    // nav bar -- it has its own back button and shouldn't be reachable via tab taps at all.
+    // Anything that isn't a tab renders chrome-free with its own back button: item_location_map
+    // (the item-detail "view this location" drill-down), settings, help, and the collection item
+    // picker (inventory?fromCollection=), which is a modal sub-mode with its own BackHandler,
+    // unsaved-changes dialog and confirm FAB.
     val showNavigation = screens.any { it.route == currentBaseRoute }
 
     Row(Modifier.fillMaxSize()) {
@@ -145,7 +148,8 @@ fun InventoriaApp() {
                                     ) 
                                 },
                                 selected = selected,
-                                alwaysShowLabel = alwaysShowLabels,
+                                // Four tabs always leave room for a label, even at 360dp.
+                                alwaysShowLabel = true,
                                 onClick = { navController.switchToTab(screen.route) }
                             )
                         }
@@ -155,24 +159,42 @@ fun InventoriaApp() {
         ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Dashboard.route,
+            startDestination = Screen.Today.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(Screen.Dashboard.route) {
-                val viewModel: DashboardViewModel = hiltViewModel()
-                DashboardScreen(
-                    viewModel = viewModel,
-                    // Jumps to the Inventory tab proper, so it goes through switchToTab like a
-                    // tab tap -- a plain push here would stack duplicate Inventory entries and
-                    // drop the tab's saved scroll state.
-                    onNavigateToInventory = { navController.switchToTab(Screen.Inventory.route) },
-                    onNavigateToAddItem = { navController.navigate("add_item") },
-                    onNavigateToItemDetail = { id -> navController.navigate("item_detail/$id") }
+            composable(Screen.Today.route) {
+                TodayScreen(
+                    todayViewModel = hiltViewModel<TodayViewModel>(),
+                    // A different TodoViewModel instance than the Todos destination holds -- see
+                    // TodayScreen's KDoc for what that rules out (editing, tap-to-select).
+                    todoViewModel = hiltViewModel<TodoViewModel>(),
+                    onNavigateToSettings = { navController.navigate("settings") },
+                    onNavigateToHelp = { navController.navigate("help") },
+                    // Both of these are tab jumps, not drill-downs -- must not plain-push.
+                    onNavigateToPlan = { navController.switchToTab(Screen.Todos.route) },
+                    onNavigateToTrack = { navController.switchToTab(Screen.Tasks.route) }
                 )
             }
 
+            composable(Screen.InventoryHub.route) {
+                InventoryHubScreen(
+                    inventoryViewModel = hiltViewModel<InventoryListViewModel>(),
+                    collectionsViewModel = hiltViewModel<CollectionsViewModel>(),
+                    hubViewModel = hiltViewModel<InventoryHubViewModel>(),
+                    onAddItem = { navController.navigate("add_item") },
+                    onItemClick = { id -> navController.navigate("item_detail/$id") },
+                    onEditItem = { id -> navController.navigate("edit_item/$id") },
+                    onCollectionClick = { id -> navController.navigate("collection/$id") },
+                    onCreateCollection = { navController.navigate("collection/create") }
+                )
+            }
+
+            // The collection item picker, pushed from CollectionDetailScreen -- not the Inventory
+            // tab. Kept a separate route rather than a hub segment because it's a modal sub-mode
+            // of InventoryListScreen (staged selection, BackHandler, unsaved-changes dialog, Save
+            // FAB) and none of that survives being a tab.
             composable(
-                route = Screen.Inventory.route + "?fromCollection={fromCollection}",
+                route = "inventory?fromCollection={fromCollection}",
                 arguments = listOf(
                     navArgument("fromCollection") { type = NavType.LongType; defaultValue = 0L }
                 )
@@ -186,15 +208,6 @@ fun InventoriaApp() {
                     onItemClick = { id -> navController.navigate("item_detail/$id") },
                     onEditItem = { id -> navController.navigate("edit_item/$id") },
                     onNavigateBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(Screen.Collections.route) {
-                val viewModel: CollectionsViewModel = hiltViewModel()
-                CollectionsScreen(
-                    viewModel = viewModel,
-                    onNavigateToCollectionDetail = { id -> navController.navigate("collection/$id") },
-                    onNavigateToCreateCollection = { navController.navigate("collection/create") }
                 )
             }
 
@@ -230,35 +243,15 @@ fun InventoriaApp() {
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onEditCollection = { navController.navigate("collection/edit/$it") },
-                    onNavigateToAddItems = { navController.navigate(Screen.Inventory.route + "?fromCollection=$it") },
+                    onNavigateToAddItems = { navController.navigate("inventory?fromCollection=$it") },
                     onNavigateToItemDetail = { navController.navigate("item_detail/$it") }
                 )
             }
 
-            composable(
-                route = Screen.Map.route + "?lat={lat}&lon={lon}",
-                arguments = listOf(
-                    navArgument("lat") { type = NavType.FloatType; defaultValue = -1f },
-                    navArgument("lon") { type = NavType.FloatType; defaultValue = -1f }
-                )
-            ) { backStackEntry ->
-                val lat = backStackEntry.arguments?.getFloat("lat")?.toDouble()?.takeIf { it != -1.0 }
-                val lon = backStackEntry.arguments?.getFloat("lon")?.toDouble()?.takeIf { it != -1.0 }
-                val initialLocation = if (lat != null && lon != null) lat to lon else null
-                val viewModel: InventoryListViewModel = hiltViewModel()
-                InventoryMapScreen(
-                    viewModel = viewModel,
-                    initialLocation = initialLocation,
-                    onItemClick = { id -> navController.navigate("item_detail/$id") }
-                )
-            }
-
-            // Same screen/ViewModel as the Map tab above, but a distinct route: this is reached
-            // as a drill-down from Item Detail ("view this item's location"), not from the
-            // bottom nav. Sharing Screen.Map.route here caused the bottom nav's save/restore
-            // state logic to conflate the two. Kept as a separate route with its own back
-            // button (no bottom nav here) rather than a tab-switchable destination, so drilling
-            // in here never interacts with the tab save/restore mechanism at all.
+            // The map as reached from Item Detail ("view this item's location"), rather than from
+            // the Inventory tab's Map segment. Kept a separate, non-tab route with its own back
+            // button so drilling in here never interacts with the tab save/restore mechanism at
+            // all -- when the map WAS a tab, sharing one route between the two conflated them.
             composable(
                 route = "item_location_map?lat={lat}&lon={lon}",
                 arguments = listOf(
@@ -323,13 +316,14 @@ fun InventoriaApp() {
                 )
             }
 
-            composable(Screen.Settings.route) {
+            // Reached from the Today top bar's overflow menu, not the nav bar. A drill-down with
+            // its own back button, like task_history/productivity_stats -- switchToTab is not
+            // involved, and showNavigation leaves the bar hidden here.
+            composable("settings") {
                 val viewModel: SettingsViewModel = hiltViewModel()
                 SettingsScreen(
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() },
-                    // A drill-down with its own back button, like task_history/productivity_stats
-                    // -- deliberately not a tab route, so switchToTab is not involved.
                     onNavigateToTaskTypes = { navController.navigate("task_types") },
                     onNavigateToHelp = { navController.navigate("help") }
                 )

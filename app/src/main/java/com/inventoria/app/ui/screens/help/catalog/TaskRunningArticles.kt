@@ -12,14 +12,14 @@ internal val taskRunningArticles = listOf(
     HelpArticle(
         id = "tasks-start",
         title = "Start tracking a task",
-        summary = "Begin timing something with the + button on the Tasks tab.",
+        summary = "Begin timing something with the + button on the Track tab.",
         whatItIs = "A task is a stopwatch with a name. Starting one begins counting up immediately — " +
             "you name it while it runs rather than before, so nothing delays the start.",
         blocks = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep(
-                        "Open the Tasks tab and press the + button.",
+                        "Open the Track tab and press the + button.",
                         DiagramSpec(listOf(tasksTopBar(), addTaskFab()))
                     ),
                     HelpStep(
@@ -261,7 +261,7 @@ internal val taskRunningArticles = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep(
-                        "Turn on the Flow Mode card near the top of the Tasks tab.",
+                        "Turn on the Flow Mode card near the top of the Track tab.",
                         DiagramSpec(listOf(DiagramElement.SettingsRow(
                             title = "Flow Mode",
                             subtitle = "Start the next task automatically",

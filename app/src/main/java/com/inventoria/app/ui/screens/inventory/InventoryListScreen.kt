@@ -56,7 +56,10 @@ fun InventoryListScreen(
     onAddItem: () -> Unit,
     onItemClick: (Long) -> Unit,
     onEditItem: (Long) -> Unit,
-    onNavigateBack: () -> Unit,
+    // Null when this is rendered as a tab (the Inventory hub's Items segment) -- there is nothing
+    // above it to go back to, so no back arrow is drawn. The collection picker is always pushed
+    // and always passes one. Same nullable-means-not-a-drill-down convention as InventoryMapScreen.
+    onNavigateBack: (() -> Unit)? = null,
     fromCollectionId: Long = 0L,
     viewModel: InventoryListViewModel
 ) {
@@ -93,10 +96,10 @@ fun InventoryListScreen(
 
     val confirmCollectionSelection: () -> Unit = {
         stagedCollectionItemIds?.let { viewModel.commitCollectionSelection(fromCollectionId, it) }
-        onNavigateBack()
+        onNavigateBack?.invoke()
     }
     val requestLeaveCollectionPicker: () -> Unit = {
-        if (hasUnsavedCollectionChanges) showUnsavedChangesDialog = true else onNavigateBack()
+        if (hasUnsavedCollectionChanges) showUnsavedChangesDialog = true else onNavigateBack?.invoke()
     }
     if (isCollectionPickerMode) {
         BackHandler(onBack = requestLeaveCollectionPicker)
@@ -246,8 +249,11 @@ fun InventoryListScreen(
                         Text(if (fromCollectionId != 0L) "Collection Items" else "Inventory", fontWeight = FontWeight.Bold) 
                     },
                     navigationIcon = {
-                        IconButton(onClick = if (isCollectionPickerMode) requestLeaveCollectionPicker else onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        val back = if (isCollectionPickerMode) requestLeaveCollectionPicker else onNavigateBack
+                        if (back != null) {
+                            IconButton(onClick = back) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
                         }
                     },
                     actions = {
@@ -606,7 +612,7 @@ fun InventoryListScreen(
                     }
                     TextButton(onClick = {
                         showUnsavedChangesDialog = false
-                        onNavigateBack()
+                        onNavigateBack?.invoke()
                     }) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
                     }

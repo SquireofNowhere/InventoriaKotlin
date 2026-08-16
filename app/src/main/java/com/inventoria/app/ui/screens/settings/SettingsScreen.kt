@@ -121,7 +121,7 @@ fun SettingsScreen(
             SettingsCategoryHeader("Inventory")
             SettingsToggleRow(
                 title = "Show Total Value",
-                subtitle = "Display total inventory value on dashboard",
+                subtitle = "Display total inventory value in the Inventory tab",
                 icon = Icons.Default.AccountBalanceWallet,
                 checked = showValueOnDashboard,
                 onCheckedChange = { viewModel.toggleShowValue(it) }

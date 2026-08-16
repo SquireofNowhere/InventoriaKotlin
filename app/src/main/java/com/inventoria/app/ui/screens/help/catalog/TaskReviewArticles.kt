@@ -149,7 +149,7 @@ internal val taskReviewArticles = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep("Open Productivity Stats from the Tasks top bar."),
-                    HelpStep("Choose the Today tab."),
+                    HelpStep("Choose the Today range in Productivity Stats."),
                     HelpStep("The curve is drawn with your own totals marked on it, and every term of the day's arithmetic is listed below.")
                 )
             ),

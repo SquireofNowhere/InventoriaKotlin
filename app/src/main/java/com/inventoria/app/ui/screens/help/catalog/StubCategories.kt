@@ -5,12 +5,12 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Collections
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Today
 import com.inventoria.app.ui.screens.help.model.ArticleStatus
 import com.inventoria.app.ui.screens.help.model.HelpArticle
 import com.inventoria.app.ui.screens.help.model.HelpCategory
@@ -97,6 +97,14 @@ private val comingSoonCategory = HelpCategory(
     )
 )
 
+/** The home screen, listed first in the index because it's where the app opens. */
+internal val todayCategory = HelpCategory(
+    id = "today",
+    title = "Today",
+    summary = "Your day at a glance: what's due, and the 24-hour timeline",
+    icon = Icons.Default.Today
+)
+
 /**
  * The rest of the manual.
  *
@@ -108,25 +116,25 @@ internal val stubCategories = listOf(
     HelpCategory(
         id = "inventory",
         title = "Inventory & Items",
-        summary = "Items, containers, photos, searching and filtering",
+        summary = "Items, containers, photos, searching and filtering, in the Inventory tab",
         icon = Icons.Default.Inventory
     ),
     HelpCategory(
         id = "collections",
         title = "Collections & Readiness",
-        summary = "Sets of items, packing and equipping",
+        summary = "Sets of items, packing and equipping, in the Inventory tab",
         icon = Icons.Default.Collections
     ),
     HelpCategory(
         id = "map",
         title = "Locations & Map",
-        summary = "Where your things are, and how locations are inherited",
+        summary = "Where your things are and how locations are inherited, in the Inventory tab",
         icon = Icons.Default.Map
     ),
     HelpCategory(
         id = "todos",
         title = "Todos",
-        summary = "Deadlines, priorities, sub-todos and starting work from them",
+        summary = "Deadlines, priorities, sub-todos and starting work from them, in the Plan tab",
         icon = Icons.Default.Checklist
     ),
     HelpCategory(
@@ -140,12 +148,6 @@ internal val stubCategories = listOf(
         title = "Task Types",
         summary = "Managing the activity labels that group your tasks",
         icon = Icons.Default.Category
-    ),
-    HelpCategory(
-        id = "dashboard",
-        title = "Dashboard",
-        summary = "The daily overview and quick actions",
-        icon = Icons.Default.Dashboard
     ),
     HelpCategory(
         id = "sync",
