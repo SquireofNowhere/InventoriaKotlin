@@ -584,4 +584,26 @@ The missing-account half had a separate cause. The splash screen's "Use Local Ac
 
 ---
 
+## 🐞 37. The Account Panel Described an Account State It Had Stopped Tracking
+**Status:** ✅ Resolved
+
+### 📝 Problem
+Follow-up to #36, reported straight after it: the wipe option has to stay true to what is actually signed in. It didn't, in three separate ways — the delete button could be labelled for the wrong account, it had no idea external sync existed, and the panel around it could describe an account that no longer matched Firebase.
+
+### 🔍 Root Cause
+Three causes with one shape: the UI was reading a copy of the auth state rather than the auth state.
+
+1. `SettingsViewModel.authState` was written once by a `checkCurrentUser()` call in `init`, and `currentUserId` was a plain function invoked during composition with no snapshot state behind it. The anonymous account is created lazily — later than this ViewModel is constructed — so on a fresh install both read "no account" and *stayed* that way: no delete button, no invite section, no device ID, until the activity was recreated.
+2. `AuthState` carried `Loading` and `Error` in the same sealed class as `Idle`/`Authenticated`, so a transient state **replaced** the account state instead of sitting in front of it. While an error was showing — and nothing ever dismissed one, since `clearAuthState()` had no caller anywhere — every `authState is Authenticated` check in the file read false, and a signed-in Google user was shown the local-account wording.
+3. The delete button was a two-way choice between "Delete Account" and "Wipe Local Account Data" with no third case for external sync. Connected to someone else's database it read "Wipe Local Account Data", while what `deleteUserAccount()` actually deletes is *this device's own* account — the external database is untouched. Wrong in the more dangerous direction: the label named the data on screen, not the data being destroyed.
+
+### 🛠️ Final Fix
+- `authState` and `currentUserId` are now derived from `FirebaseAuthRepository.authStateFlow` — Firebase's own auth state listener — so they track the account instead of remembering it.
+- `AuthState` is down to `Idle`/`Authenticated`, and the transient pair moved to a new `AuthOperation` (`InProgress`/`Failed`) held in its own flow. The account section renders the operation *in front of* the account state rather than instead of it, and a failed one now has a Dismiss button, which finally gives `clearAuthState()` a caller.
+- One `deleteAccountCopy()` decides the button label, dialog title, lead, warning and confirm label together from the three real states, with `manualSyncId` checked first — the same precedence `getOrCreateUserId()` and the sync banner already use. The external-sync case says outright that the database being read is not the one being deleted, and points at "Clear External Sync" as the milder option.
+- `SyncStatusBanner` gained a fourth case. "Local account" and "no account at all" previously rendered identically; signing out of Google leaves the device with no account, which is now stated rather than dressed up as a local one.
+- `useInviteCode`'s "are you signed in to Google" guard asks Firebase directly instead of reading `authState.value`, whose `WhileSubscribed` cache goes stale once Settings is off screen. Loading the existing invite code is keyed on the uid rather than read once in `init`, for the same reason it was blank on a fresh install.
+
+---
+
 *Last Updated: 2026-08-16*

@@ -55,6 +55,8 @@ fun SettingsScreen(
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsState()
     val showValueOnDashboard by viewModel.showValueOnDashboard.collectAsState()
     val authState by viewModel.authState.collectAsState()
+    val authOperation by viewModel.authOperation.collectAsState()
+    val currentUserId by viewModel.currentUserId.collectAsState()
     val customUsername by viewModel.customUsername.collectAsState()
     val currencyCode by viewModel.currencyCode.collectAsState()
     val autoCurrencyEnabled by viewModel.autoCurrencyEnabled.collectAsState()
@@ -182,9 +184,10 @@ fun SettingsScreen(
             SettingsCategoryHeader("Account & Sync")
             AccountSection(
                 authState = authState,
+                authOperation = authOperation,
                 customUsername = customUsername,
                 manualSyncId = manualSyncId,
-                currentUserId = viewModel.getCurrentUserId(),
+                currentUserId = currentUserId,
                 generatedInviteCode = generatedInviteCode,
                 inviteCodeError = inviteCodeError,
                 sharedWithUsers = sharedWithUsers,
@@ -193,6 +196,7 @@ fun SettingsScreen(
                     launcher.launch(viewModel.getGoogleSignInIntent())
                 },
                 onSignOutClick = { viewModel.signOut() },
+                onDismissAuthError = { viewModel.clearAuthState() },
                 onDeleteAccountClick = { viewModel.deleteAccount() },
                 onGenerateInviteCode = { viewModel.createInviteCode() },
                 onUseInviteCode = { viewModel.useInviteCode(it) },
@@ -418,8 +422,18 @@ fun ProcrastinationPenaltySettings(
  * the one actually-active sync target unambiguous instead of showing them as two separate facts.
  */
 @Composable
-fun SyncStatusBanner(authState: AuthState, manualSyncId: String?) {
+fun SyncStatusBanner(authState: AuthState, manualSyncId: String?, currentUserId: String?) {
     val (icon, title, subtitle, containerColor, contentColor) = when {
+        // "Local account" and "no account at all" used to render identically, because this fell
+        // through to the same else branch. They are not the same thing: signing out of Google, or
+        // a failed anonymous sign-in, leaves the device with no account and nothing to sync to.
+        currentUserId == null && manualSyncId == null -> SyncStatusVisuals(
+            Icons.Default.CloudOff,
+            "No Account Yet",
+            "This device has no account, so there is nothing to sync to. Sign in, or restart the app to set up a local account.",
+            MaterialTheme.colorScheme.errorContainer,
+            MaterialTheme.colorScheme.onErrorContainer
+        )
         manualSyncId != null -> {
             val signedInNote = (authState as? AuthState.Authenticated)?.user?.email?.let { " — not $it" } ?: ""
             SyncStatusVisuals(
@@ -485,6 +499,50 @@ fun MaskedIdRow(label: String, id: String, color: androidx.compose.ui.graphics.C
     }
 }
 
+/**
+ * Wording for the delete button and its dialog, which must name the account that will *actually*
+ * be deleted rather than the one whose data happens to be on screen.
+ *
+ * The button used to be a two-way "Delete Account" / "Wipe Local Account Data" keyed off an
+ * authState that could be stale, and it had no notion of external sync at all -- so while
+ * connected to someone else's database it read "Wipe Local Account Data", when what it deletes is
+ * this device's own account and the external database is left untouched. That is the wrong error
+ * to make in the more dangerous direction, hence a third case here.
+ */
+private data class DeleteAccountCopy(
+    val buttonLabel: String,
+    val dialogTitle: String,
+    val lead: String,
+    val warning: String,
+    val confirmLabel: String
+)
+
+private fun deleteAccountCopy(authState: AuthState, manualSyncId: String?): DeleteAccountCopy = when {
+    // Deliberately first: manualSyncId wins over whatever is signed in, exactly as it does in
+    // getOrCreateUserId() and in SyncStatusBanner above.
+    manualSyncId != null -> DeleteAccountCopy(
+        buttonLabel = "Delete This Device's Account",
+        dialogTitle = "Delete This Device's Account?",
+        lead = "You are connected to an external account, so the database you have been reading is NOT the one being deleted. This deletes this device's own account:",
+        warning = "The external account keeps everything, and its owner is unaffected. This device loses its identity, its local copy of that data, and its sync connection. To simply disconnect instead, use \"Clear External Sync\" below. This cannot be undone.",
+        confirmLabel = "Delete My Account"
+    )
+    authState is AuthState.Authenticated -> DeleteAccountCopy(
+        buttonLabel = "Delete Account",
+        dialogTitle = "Delete Account & Database?",
+        lead = "Are you sure? This will permanently DESTROY the entire cloud database branch for ID:",
+        warning = "This wipes your identity, every database record, and all stored images — in the cloud and on this device. You are signed out of Google and the app restarts empty. This cannot be undone.",
+        confirmLabel = "Delete Everything"
+    )
+    else -> DeleteAccountCopy(
+        buttonLabel = "Wipe Local Account Data",
+        dialogTitle = "Wipe Local Account?",
+        lead = "Are you sure? This will permanently DESTROY the local-only account and its cloud branch for ID:",
+        warning = "A local account has no password or email to recover with, so there is no way back. Everything on this device goes with it, and the app restarts with a brand-new empty account.",
+        confirmLabel = "Wipe Everything"
+    )
+}
+
 private data class SyncStatusVisuals(
     val icon: ImageVector,
     val title: String,
@@ -496,6 +554,7 @@ private data class SyncStatusVisuals(
 @Composable
 fun AccountSection(
     authState: AuthState,
+    authOperation: AuthOperation?,
     customUsername: String?,
     manualSyncId: String?,
     currentUserId: String?,
@@ -505,6 +564,7 @@ fun AccountSection(
     onUsernameChange: (String) -> Unit,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
+    onDismissAuthError: () -> Unit,
     onDeleteAccountClick: () -> Unit,
     onGenerateInviteCode: () -> Unit,
     onUseInviteCode: (String) -> Unit,
@@ -515,14 +575,15 @@ fun AccountSection(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val deleteCopy = deleteAccountCopy(authState = authState, manualSyncId = manualSyncId)
 
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Account & Database?") },
-            text = { 
+            title = { Text(deleteCopy.dialogTitle) },
+            text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Are you sure? This will permanently DESTROY the entire cloud database branch for ID:")
+                    Text(deleteCopy.lead)
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,
                         shape = MaterialTheme.shapes.small,
@@ -536,7 +597,7 @@ fun AccountSection(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Text("This wipes your identity, every database record, and all stored images — in the cloud and on this device. The app restarts with a brand-new empty account. This cannot be undone.")
+                    Text(deleteCopy.warning)
                 }
             },
             confirmButton = {
@@ -547,7 +608,7 @@ fun AccountSection(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete Everything", fontWeight = FontWeight.Bold)
+                    Text(deleteCopy.confirmLabel, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -563,14 +624,38 @@ fun AccountSection(
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SyncStatusBanner(authState = authState, manualSyncId = manualSyncId)
+            SyncStatusBanner(
+                authState = authState,
+                manualSyncId = manualSyncId,
+                currentUserId = currentUserId
+            )
 
             if (currentUserId != null) {
                 MaskedIdRow(label = "This device's ID", id = currentUserId)
             }
 
-            when (authState) {
-                is AuthState.Authenticated -> {
+            // An in-flight or failed operation is drawn *in front of* the account state, not
+            // instead of it -- the two used to share one enum, so a stale error convinced every
+            // other branch here that a signed-in Google user was on a local account.
+            when {
+                authOperation is AuthOperation.InProgress -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                }
+                authOperation is AuthOperation.Failed -> {
+                    Text("Error: ${authOperation.message}", color = MaterialTheme.colorScheme.error)
+                    // Retrying only makes sense where signing in is actually allowed -- offering it
+                    // to someone already signed in, or connected to an external account, is exactly
+                    // the overlap the error above is usually complaining about.
+                    if (authState !is AuthState.Authenticated && manualSyncId == null) {
+                        SignInButton(onSignInClick)
+                    }
+                    // clearAuthState() previously had no caller anywhere, so an auth error covered
+                    // the account section until the ViewModel died with the activity.
+                    TextButton(onClick = onDismissAuthError, modifier = Modifier.align(Alignment.End)) {
+                        Text("Dismiss")
+                    }
+                }
+                authState is AuthState.Authenticated -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(40.dp))
                         Spacer(Modifier.width(12.dp))
@@ -603,13 +688,6 @@ fun AccountSection(
                     ) {
                         Text("Sign Out")
                     }
-                }
-                AuthState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                }
-                is AuthState.Error -> {
-                    Text("Error: ${authState.message}", color = MaterialTheme.colorScheme.error)
-                    SignInButton(onSignInClick)
                 }
                 else -> {
                     if (manualSyncId != null) {
@@ -654,7 +732,7 @@ fun AccountSection(
                 ) {
                     Icon(Icons.Default.DeleteForever, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (authState is AuthState.Authenticated) "Delete Account" else "Wipe Local Account Data")
+                    Text(deleteCopy.buttonLabel)
                 }
             }
 

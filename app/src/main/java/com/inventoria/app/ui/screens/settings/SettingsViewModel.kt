@@ -23,8 +23,36 @@ class SettingsViewModel @Inject constructor(
     private val syncRepository: FirebaseSyncRepository
 ) : ViewModel() {
 
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
-    val authState: StateFlow<AuthState> = _authState.asStateFlow()
+    /**
+     * Who is signed in, straight from Firebase's own auth state listener rather than sampled once
+     * in init.
+     *
+     * The anonymous local account is created lazily -- on the splash, or by InventoryRepository's
+     * init -- so it routinely arrives *after* this ViewModel is constructed, and a snapshot taken
+     * at construction went on claiming there was no account long after there was one. It also
+     * changes under us on sign-out and on delete. Nothing here is a guess about what Firebase did;
+     * it is what Firebase reports.
+     */
+    val authState: StateFlow<AuthState> = authRepository.authStateFlow
+        .map { it.toAuthState() }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            authRepository.getCurrentUser().toAuthState()
+        )
+
+    /** The uid of whatever account currently exists on this device, tracked live for the same reason. */
+    val currentUserId: StateFlow<String?> = authRepository.authStateFlow
+        .map { it?.uid }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            authRepository.getCurrentUserId()
+        )
+
+    /** Kept apart from [authState] so an in-flight or failed action never masks the real account. */
+    private val _authOperation = MutableStateFlow<AuthOperation?>(null)
+    val authOperation: StateFlow<AuthOperation?> = _authOperation.asStateFlow()
 
     val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -90,16 +118,14 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     init {
-        checkCurrentUser()
-        loadExistingInviteCode()
-    }
-
-    private fun checkCurrentUser() {
-        val user = authRepository.getCurrentUser()
-        if (user != null && !user.isAnonymous) {
-            _authState.value = AuthState.Authenticated(user)
-        } else {
-            _authState.value = AuthState.Idle
+        // Keyed on the uid rather than read once: there may be no account yet when Settings is
+        // first built, and the uid changes on sign-in and on delete. A one-shot read in init left
+        // the invite code permanently blank for anyone whose account arrived a moment later.
+        viewModelScope.launch {
+            authRepository.authStateFlow
+                .map { it?.uid }
+                .distinctUntilChanged()
+                .collect { loadExistingInviteCode() }
         }
     }
 
@@ -113,20 +139,21 @@ class SettingsViewModel @Inject constructor(
     fun onGoogleSignInSuccess(idToken: String) {
         viewModelScope.launch {
             if (settingsRepository.manualSyncId.first() != null) {
-                _authState.value = AuthState.Error("Clear the external sync connection first — local, Google, and external-sync are separate states and shouldn't overlap.")
+                _authOperation.value = AuthOperation.Failed("Clear the external sync connection first — local, Google, and external-sync are separate states and shouldn't overlap.")
                 return@launch
             }
-            _authState.value = AuthState.Loading
+            _authOperation.value = AuthOperation.InProgress
             try {
                 val user = authRepository.signInWithGoogle(idToken)
                 if (user != null) {
-                    _authState.value = AuthState.Authenticated(user)
-                    loadExistingInviteCode()
+                    // authState follows Firebase's listener, which has already fired by now, and
+                    // the init block above reloads the invite code off the same signal.
+                    _authOperation.value = null
                 } else {
-                    _authState.value = AuthState.Error("Sign in failed")
+                    _authOperation.value = AuthOperation.Failed("Sign in failed")
                 }
             } catch (e: Exception) {
-                _authState.value = AuthState.Error(e.message ?: "Unknown error")
+                _authOperation.value = AuthOperation.Failed(e.message ?: "Unknown error")
             }
         }
     }
@@ -137,7 +164,7 @@ class SettingsViewModel @Inject constructor(
 
     fun signOut() {
         authRepository.signOut()
-        _authState.value = AuthState.Idle
+        _authOperation.value = null
         _generatedInviteCode.value = null
     }
 
@@ -152,23 +179,24 @@ class SettingsViewModel @Inject constructor(
      */
     fun deleteAccount() {
         viewModelScope.launch {
-            _authState.value = AuthState.Loading
+            _authOperation.value = AuthOperation.InProgress
             val result = authRepository.deleteUserAccount()
             if (result.isSuccess) {
                 // Before the wipe, so no listener is still holding the node that just went away.
                 syncRepository.stopSync()
                 localDataRepository.wipeAllLocalData()
                 _generatedInviteCode.value = null
-                _authState.value = AuthState.Idle
+                _authOperation.value = null
                 _accountWiped.emit(Unit)
             } else {
-                _authState.value = AuthState.Error(result.exceptionOrNull()?.message ?: "Failed to delete account")
+                _authOperation.value = AuthOperation.Failed(result.exceptionOrNull()?.message ?: "Failed to delete account")
             }
         }
     }
 
+    /** Dismisses a failed sign-in or delete. The account state underneath it never needed clearing. */
     fun clearAuthState() {
-        _authState.value = AuthState.Idle
+        _authOperation.value = null
     }
 
     fun toggleDarkMode(enabled: Boolean) {
@@ -265,7 +293,10 @@ class SettingsViewModel @Inject constructor(
     fun useInviteCode(code: String) {
         viewModelScope.launch {
             _inviteCodeError.value = null
-            if (_authState.value is AuthState.Authenticated) {
+            // Asks Firebase rather than reading authState.value: this is a correctness guard, and
+            // authState is a WhileSubscribed flow whose cached value goes stale once Settings is
+            // off screen.
+            if (isGoogleSignedIn()) {
                 _inviteCodeError.value = "Sign out of your Google account first — local, Google, and external-sync are separate states and shouldn't overlap."
                 return@launch
             }
@@ -289,6 +320,15 @@ class SettingsViewModel @Inject constructor(
     fun clearInviteCodeError() {
         _inviteCodeError.value = null
     }
-    
-    fun getCurrentUserId(): String? = authRepository.getCurrentUserId()
+
+    /** Firebase's live answer, for guards that must not act on a cached flow value. */
+    private fun isGoogleSignedIn(): Boolean =
+        authRepository.getCurrentUser()?.isAnonymous == false
+
+    /**
+     * The one place the "is this a real account or the anonymous local one" question is answered,
+     * so [authState] and everything keyed off it cannot drift apart.
+     */
+    private fun FirebaseUser?.toAuthState(): AuthState =
+        if (this != null && !this.isAnonymous) AuthState.Authenticated(this) else AuthState.Idle
 }
