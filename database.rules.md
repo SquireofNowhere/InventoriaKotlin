@@ -90,6 +90,23 @@ shown "your invite code has expired", and generating a replacement retires the o
 legacy code by hand also still works, because `.write` keeps the `data.val() === auth.uid` clause
 that matches the old string shape.
 
+### Deleting an account from the console has an order
+
+The `invites/$code` write rule permits a delete when the entry's `uid` equals `auth.uid` — you — or
+when it has expired. Deleting the Auth record first makes the first arm unsatisfiable forever, so
+the code stays live until its TTL runs out with nobody able to retire it. In that window it still
+works: the `sharedWith` rule asks only whether `invites/$code/uid` matches the account being joined
+and whether it has expired, never whether that account still exists. Worse, if the `users/$uid` node
+has already been deleted, a join **recreates** it — the write is to `sharedWith`, which the rule
+allows — leaving a node owned by nobody and holding the joiner's data.
+
+Retire the code first, then the node, then Storage, then the Auth record. `deleteUserAccount()` does
+exactly that sequence; README's manual fallback documents it for the console.
+
+Note also that expiry does not disconnect anyone already sharing the database. Their `sharedWith`
+row is written once and never re-validated, so deleting `users/$uid` — which takes `sharedWith` with
+it — is what actually cuts them off.
+
 ## Known limits, not yet addressed
 
 - **Storage rules are separate.** Item photos go to `users/{uid}/item_images` in Cloud Storage under

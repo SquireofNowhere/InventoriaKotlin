@@ -147,15 +147,41 @@ screen while leaving the visible one untouched — clear the sync connection fir
 Step 5 only runs if the remote steps succeeded. If they failed you're still signed in, and wiping the device would simply hand the next sync an empty database to re-fill from the cloud.
 
 ### Manual Deletion (Fallback / Hard Reset)
-To force the app to start a new database manually:
-1. **Clear Local App Data:**
-   - Go to your device's **Settings > Apps > Inventoria > Storage & cache** and tap **Clear storage**.
+
+Prefer the in-app button above — it already does all of this, in this order. Only reach for the
+console when the app cannot (you have lost the device, or the account is already unreachable).
+
+**The order matters and one step is one-way.** Deleting the Auth record is what makes you unable to
+prove you own the account, and retiring an invite code requires exactly that proof
+(`invites/$code`'s write rule permits a delete only when the entry's `uid` equals `auth.uid`). Do it
+first and the code stays live until it expires on its own, with nothing you can do about it.
+
+1. **Retire the invite code.**
+   - In-app: Settings → **Retire It Now** under your code. In the console: **Realtime Database** →
+     `invites` → delete the entry whose value's `uid` is your UID.
+   - Skip this and, for up to 24 hours, anyone holding that code can still join the account you are
+     deleting — and you will no longer be able to revoke them, because that also needs the Auth
+     record.
 2. **Delete Cloud Data (Firebase Console):**
-   - Open your project in the [Firebase Console](https://console.firebase.google.com/).
-   - Navigate to **Realtime Database**, find the `users` node, and delete your specific user ID (UID) node.
+   - Navigate to **Realtime Database**, find the `users` node, and delete your specific user ID
+     (UID) node.
+   - This is also what actually disconnects anyone already sharing your database: their access is
+     granted by `users/{uid}/sharedWith/{them}`, which goes with the node. Expiry alone does not cut
+     them off — it gates *joining*, not access already granted.
+   - Leaving a live code from step 1 lets this node be **recreated**: someone using the code writes
+     `users/{uid}/sharedWith/{them}`, which the rules allow because they only consult `invites`, and
+     the node comes back owned by nobody and holding their data.
 3. **Delete Cloud Images:**
    - Navigate to **Storage** and delete the folder corresponding to your UID.
-4. **Restart Fresh:**
-   - Open the app again and sign in. A new, empty database will be initialized.
+4. **Delete the Auth record, last.**
+   - **Authentication** → find the user → delete. Note this removes *only* the sign-in record; it
+     does not touch the Realtime Database or Storage, which is why they come first.
+5. **Clear Local App Data:**
+   - **Settings > Apps > Inventoria > Storage & cache** → **Clear storage**. Do this on every device
+     that had the account, and do it *after* the cloud steps: every pull is insert-only, so a device
+     still holding the data will happily push all of it back up and recreate the node on its next
+     background sync.
+6. **Restart Fresh:**
+   - Open the app again. A new, empty account is created.
 
 **Warning for local (anonymous) accounts**: unlike a Google account, a local account has no external credential to recover with. Clearing local app data (or reinstalling) permanently orphans that identity and everything under it — there is no password, email, or recovery flow, by design of Firebase Anonymous Authentication. If you're on a local account and want to survive a data wipe, sign in with Google first.
