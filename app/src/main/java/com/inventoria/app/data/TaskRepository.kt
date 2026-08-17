@@ -242,6 +242,20 @@ class TaskRepository @Inject constructor(
         taskDao.softDeleteTasksByGroupId(groupId, timestamp)
     }
 
+    /** Undo of [softDeleteTask]. The timestamp must beat the tombstone's own, or the delete still
+     * wins the last-write-wins merge on the next pull. */
+    suspend fun restoreTask(id: String) {
+        val existing = taskDao.getTaskById(id)
+        taskDao.restoreTaskById(id, getNextTimestamp(existing?.updatedAt ?: 0L))
+    }
+
+    /** Undo of [softDeleteSession]. */
+    suspend fun restoreSession(groupId: String) {
+        val tasks = taskDao.getTasksByGroupIdIncludingDeleted(groupId)
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        taskDao.restoreTasksByGroupId(groupId, getNextTimestamp(maxT))
+    }
+
     suspend fun purgeOldDeletedTasks(threshold: Long) {
         taskDao.purgeOldDeletedTasks(threshold)
     }

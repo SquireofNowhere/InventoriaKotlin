@@ -3,6 +3,7 @@ package com.inventoria.app.ui.screens.inventory
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.model.InventoryCollection
 import com.inventoria.app.data.model.InventoryItem
@@ -46,7 +47,7 @@ class InventoryListViewModel @Inject constructor(
     private fun startPeriodicCleanup() {
         viewModelScope.launch {
             while (isActive) {
-                repository.purgeOldDeletedLinks(System.currentTimeMillis() - 86_400_000)
+                repository.purgeOldDeletedLinks(deletedRowPurgeThreshold())
                 delay(60_000)
             }
         }

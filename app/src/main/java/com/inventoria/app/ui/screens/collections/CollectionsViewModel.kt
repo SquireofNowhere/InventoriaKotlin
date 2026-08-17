@@ -2,6 +2,7 @@ package com.inventoria.app.ui.screens.collections
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.InventoryCollectionWithCount
 import com.inventoria.app.data.repository.CollectionRepository
@@ -24,7 +25,7 @@ class CollectionsViewModel @Inject constructor(
     private fun startPeriodicCleanup() {
         viewModelScope.launch {
             while (isActive) {
-                collectionRepository.purgeOldDeletedCollections(System.currentTimeMillis() - 86_400_000)
+                collectionRepository.purgeOldDeletedCollections(deletedRowPurgeThreshold())
                 delay(60_000)
             }
         }

@@ -343,12 +343,47 @@ class FirebaseAuthRepository @Inject constructor(
         }
     }
 
+    /**
+     * Records this account as permanently deleted, which the database rules then enforce.
+     *
+     * Write-once and irreversible by rule (`.write` requires `!data.exists()`), because the whole
+     * point is that no client -- including a stale one, including this one -- can undo it. A uid is
+     * never reused by Firebase, so nothing is lost by the entry being permanent.
+     */
+    suspend fun markAccountDeleted(uid: String) {
+        firebaseDatabase.getReference("deletedAccounts").child(uid).setValue(System.currentTimeMillis()).await()
+    }
+
+    /**
+     * Whether [uid] has been tombstoned, i.e. this device is holding an account that was deleted
+     * somewhere else. Failures read as "not deleted": being offline must not wipe the device.
+     */
+    suspend fun isAccountDeleted(uid: String): Boolean = try {
+        firebaseDatabase.getReference("deletedAccounts").child(uid).get().await().exists()
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not check deletion tombstone for $uid", e)
+        false
+    }
+
     suspend fun deleteUserAccount(): Result<Unit> {
         val user = firebaseAuth.currentUser ?: return Result.failure(Exception("No user logged in"))
         val uid = user.uid
 
         try {
-            // 1a. Retire the invite code first. It lives at the top level, so deleting users/$uid
+            // 1. Tombstone the account before touching anything else.
+            //
+            // Absence is not authoritative anywhere in this app: every pull is insert-only, and
+            // triggerFullSync pushes every row on every backgrounding, so a second device still
+            // holding the data would simply recreate users/$uid moments after it was removed --
+            // and an invite code would let a stranger recreate it too. deletedAccounts/$uid is
+            // outside the node it kills, so deleting the node cannot destroy the evidence, and the
+            // rules refuse every write to users/$uid except a delete once it exists.
+            //
+            // Doing it first also makes the rest of this sequence safe to fail partway: whatever
+            // survives is already inert.
+            markAccountDeleted(uid)
+
+            // 1a. Retire the invite code. It lives at the top level, so deleting users/$uid
             // does not touch it -- the mapping outlived the account it pointed at, and the rules
             // let anyone holding that code recreate users/$uid/sharedWith and so resurrect the
             // deleted node with themselves attached to it.

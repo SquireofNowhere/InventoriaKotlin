@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
@@ -21,6 +22,7 @@ import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.CalendarRepository
 import com.inventoria.app.data.repository.SettingsRepository
+import com.inventoria.app.ui.components.UndoableDeleteController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -150,6 +152,11 @@ class TaskTrackerViewModel @Inject constructor(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val undoController = UndoableDeleteController()
+
+    /** Emits the label of a just-deleted segment or session, for the "Undo" snackbar. */
+    val undoPrompts: SharedFlow<String> = undoController.prompts
 
     private val _calendarTrigger = MutableStateFlow(0)
     
@@ -511,7 +518,7 @@ class TaskTrackerViewModel @Inject constructor(
     private fun startPeriodicCleanup() {
         viewModelScope.launch {
             while (isActive) {
-                repository.purgeOldDeletedTasks(System.currentTimeMillis() - 86400000)
+                repository.purgeOldDeletedTasks(deletedRowPurgeThreshold())
                 delay(60000)
             }
         }
@@ -846,8 +853,14 @@ class TaskTrackerViewModel @Inject constructor(
     fun deleteSession(groupId: String) {
         viewModelScope.launch {
             _isLoading.value = true
+            // Read the label before the delete: afterwards the session is a tombstone and the
+            // completedSessions flow no longer carries it.
+            val label = _completedSessions.value
+                .firstOrNull { s -> s.any { it.groupId == groupId } }
+                ?.firstOrNull()?.name.orEmpty().ifBlank { "session" }
             repository.softDeleteSession(groupId)
             _isLoading.value = false
+            undoController.offer(label) { repository.restoreSession(groupId) }
         }
     }
 
@@ -871,6 +884,12 @@ class TaskTrackerViewModel @Inject constructor(
             stopActiveInterruptionChain(session.groupId, now)
             repository.softDeleteSession(session.groupId)
             _isLoading.value = false
+            // Offered back like any other delete. The confirm in front of it is about the time
+            // being thrown away, not about it being unrecoverable -- the rows are tombstoned for
+            // the same retention window as everything else.
+            undoController.offer(
+                (session.activeSegment?.task ?: session.segments.firstOrNull())?.name.orEmpty().ifBlank { "session" }
+            ) { repository.restoreSession(session.groupId) }
 
             if (interruptedGroupId != null) {
                 _activeSessions.value
@@ -899,7 +918,14 @@ class TaskTrackerViewModel @Inject constructor(
     }
 
     fun deleteSegment(task: Task) {
-        viewModelScope.launch { repository.softDeleteTask(task.id) }
+        viewModelScope.launch {
+            repository.softDeleteTask(task.id)
+            undoController.offer(task.name.ifBlank { "segment" }) { repository.restoreTask(task.id) }
+        }
+    }
+
+    fun undoLastDelete() {
+        viewModelScope.launch { undoController.undo() }
     }
 
     /** Live point estimate for the Task Edit screen -- a running task's "so far" total, or a

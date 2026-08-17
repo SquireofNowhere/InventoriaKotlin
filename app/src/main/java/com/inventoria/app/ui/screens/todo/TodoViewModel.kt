@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.TodoRepository
@@ -17,6 +18,7 @@ import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.SettingsRepository
+import com.inventoria.app.ui.components.UndoableDeleteController
 import com.inventoria.app.ui.screens.task.TaskTimerService
 import com.inventoria.app.util.getStartOfDay
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -172,6 +174,11 @@ class TodoViewModel @Inject constructor(
         }
     }
 
+    private val undoController = UndoableDeleteController()
+
+    /** Emits the label of a just-deleted todo, for the screen's "Undo" snackbar. */
+    val undoPrompts: SharedFlow<String> = undoController.prompts
+
     private val _isAddingNew = MutableStateFlow(false)
     val isAddingNew: StateFlow<Boolean> = _isAddingNew.asStateFlow()
 
@@ -200,7 +207,7 @@ class TodoViewModel @Inject constructor(
     private fun startPeriodicCleanup() {
         viewModelScope.launch {
             while (isActive) {
-                todoRepository.purgeOldDeletedTodos(System.currentTimeMillis() - 86_400_000)
+                todoRepository.purgeOldDeletedTodos(deletedRowPurgeThreshold())
                 delay(60_000)
             }
         }
@@ -307,8 +314,25 @@ class TodoViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Soft-deletes a todo and offers it straight back.
+     *
+     * Descendants are deliberately left alone -- softDeleteTodo only tombstones this row, so a
+     * parent's children survive it and reparent themselves visually via the existing
+     * "parent outside the scope" path in buildTodoTree. Undo therefore only has this one row to
+     * put back.
+     */
     fun deleteTodo(todo: Todo) {
-        viewModelScope.launch { todoRepository.softDeleteTodo(todo.id) }
+        viewModelScope.launch {
+            todoRepository.softDeleteTodo(todo.id)
+            undoController.offer(todo.title.ifBlank { "todo" }) {
+                todoRepository.restoreTodo(todo.id)
+            }
+        }
+    }
+
+    fun undoLastDelete() {
+        viewModelScope.launch { undoController.undo() }
     }
 
     /** Drag-and-drop parenting: [child] dropped onto [newParentId]. Only parentTodoId changes --

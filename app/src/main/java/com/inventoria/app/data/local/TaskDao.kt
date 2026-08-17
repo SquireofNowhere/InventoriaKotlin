@@ -35,6 +35,11 @@ interface TaskDao {
     @Query("SELECT * FROM Task WHERE groupId = :groupId AND isDeleted = 0")
     suspend fun getTasksByGroupId(groupId: String): List<Task>
 
+    /** Tombstones included, unlike [getTasksByGroupId] -- the restore path has to read the rows it
+     * is about to un-delete, and by definition every one of them is already isDeleted = 1. */
+    @Query("SELECT * FROM Task WHERE groupId = :groupId")
+    suspend fun getTasksByGroupIdIncludingDeleted(groupId: String): List<Task>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: Task)
 
@@ -49,6 +54,14 @@ interface TaskDao {
 
     @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
     suspend fun softDeleteTasksByGroupId(groupId: String, timestamp: Long)
+
+    /** Undo of the two soft deletes above. isDirty so the un-deletion syncs like any other edit --
+     * a bumped updatedAt is what makes it win against the tombstone still on other devices. */
+    @Query("UPDATE Task SET isDeleted = 0, updatedAt = :timestamp, isDirty = 1 WHERE id = :id")
+    suspend fun restoreTaskById(id: String, timestamp: Long)
+
+    @Query("UPDATE Task SET isDeleted = 0, updatedAt = :timestamp, isDirty = 1 WHERE groupId = :groupId")
+    suspend fun restoreTasksByGroupId(groupId: String, timestamp: Long)
 
     @Query("UPDATE Task SET isRunning = 0, endTime = :endTime, duration = :duration, score = :score, updatedAt = :timestamp, isDirty = 1 WHERE id = :taskId")
     suspend fun completeTask(taskId: String, endTime: Long, duration: Long, score: Int, timestamp: Long)

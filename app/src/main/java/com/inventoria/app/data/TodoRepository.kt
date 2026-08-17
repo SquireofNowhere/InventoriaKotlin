@@ -100,6 +100,13 @@ class TodoRepository @Inject constructor(
         todoDao.softDeleteTodoById(id, timestamp)
     }
 
+    /** Puts a soft-deleted todo back. The timestamp must beat the tombstone's own, or the delete
+     * still wins the last-write-wins merge on the next pull. */
+    suspend fun restoreTodo(id: String) {
+        val existing = todoDao.getTodoById(id)
+        todoDao.restoreTodoById(id, getNextTimestamp(existing?.updatedAt ?: 0L))
+    }
+
     suspend fun purgeOldDeletedTodos(threshold: Long) {
         todoDao.purgeOldDeletedTodos(threshold)
     }

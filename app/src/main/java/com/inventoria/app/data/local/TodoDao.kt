@@ -39,6 +39,11 @@ interface TodoDao {
     @Query("UPDATE Todo SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE id = :id")
     suspend fun softDeleteTodoById(id: String, timestamp: Long)
 
+    /** Undo of the soft delete above. isDirty so the un-deletion syncs like any other edit -- a
+     * bumped updatedAt is what makes it win against the tombstone still sitting on other devices. */
+    @Query("UPDATE Todo SET isDeleted = 0, updatedAt = :timestamp, isDirty = 1 WHERE id = :id")
+    suspend fun restoreTodoById(id: String, timestamp: Long)
+
     @Query("DELETE FROM Todo WHERE isDeleted = 1 AND updatedAt < :threshold")
     suspend fun purgeOldDeletedTodos(threshold: Long)
 }

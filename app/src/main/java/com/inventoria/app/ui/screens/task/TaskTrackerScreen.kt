@@ -209,7 +209,23 @@ fun TaskTrackerScreen(
 
     val activeSessionTree = remember(activeSessions) { buildActiveSessionTree(activeSessions) }
 
+    // Every delete here is a tombstone kept for DELETED_ROW_RETENTION_MILLIS, so this offers back
+    // the one mistake people actually notice -- the one they just made.
+    val undoSnackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        viewModel.undoPrompts.collect { label ->
+            val result = undoSnackbarHostState.showSnackbar(
+                message = "Deleted \"$label\"",
+                actionLabel = "Undo",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoLastDelete()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(undoSnackbarHostState) },
         topBar = {
             if (isSelectionMode) {
                 TopAppBar(

@@ -14,41 +14,49 @@
       }
     },
 
+    "deletedAccounts": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "$uid === auth.uid && !data.exists()",
+        ".validate": "newData.isNumber()"
+      }
+    },
+
     "users": {
       "$uid": {
         ".read": "auth != null && ($uid === auth.uid || root.child('users').child($uid).child('sharedWith').child(auth.uid).exists())",
-        ".write": "$uid === auth.uid",
+        ".write": "$uid === auth.uid && (!root.child('deletedAccounts').child($uid).exists() || !newData.exists())",
 
         "sharedWith": {
           "$joinerUid": {
-            ".write": "$joinerUid === auth.uid && root.child('invites').child(newData.val()).child('uid').val() === $uid && root.child('invites').child(newData.val()).child('expiresAt').val() > now",
+            ".write": "$joinerUid === auth.uid && !root.child('deletedAccounts').child($uid).exists() && root.child('invites').child(newData.val()).child('uid').val() === $uid && root.child('invites').child(newData.val()).child('expiresAt').val() > now",
             ".validate": "newData.isString() && root.child('invites').child(newData.val()).child('uid').val() === $uid && root.child('invites').child(newData.val()).child('expiresAt').val() > now && ($uid === auth.uid || $joinerUid === auth.uid)"
           }
         },
 
         "items": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "item_links": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "tasks": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "collections": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "collection_items": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "todos": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "task_types": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
         "settings": {
-          ".write": "auth != null && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         }
       }
     }

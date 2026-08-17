@@ -44,7 +44,8 @@ class RepositoryModule {
         taskTypeDao: TaskTypeDao,
         firebaseDatabase: FirebaseDatabase,
         authRepository: FirebaseAuthRepository,
-        settingsRepository: SettingsRepository
+        settingsRepository: SettingsRepository,
+        localDataRepository: LocalDataRepository
     ): FirebaseSyncRepository {
         // Named arguments deliberately: these constructors are long and same-shaped, and the
         // positional form silently rebinds every argument after any newly inserted parameter.
@@ -57,7 +58,8 @@ class RepositoryModule {
             taskTypeDao = taskTypeDao,
             firebaseDatabase = firebaseDatabase,
             authRepository = authRepository,
-            settingsRepository = settingsRepository
+            settingsRepository = settingsRepository,
+            localDataRepository = localDataRepository
         )
     }
 

@@ -22,7 +22,8 @@ class FirebaseSyncRepository @Inject constructor(
     private val taskTypeDao: TaskTypeDao,
     private val firebaseDatabase: FirebaseDatabase,
     private val authRepository: FirebaseAuthRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val localDataRepository: LocalDataRepository
 ) {
     private val TAG = "FirebaseSync"
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -540,6 +541,32 @@ class FirebaseSyncRepository @Inject constructor(
     suspend fun syncOnAppOpen() {
         try {
             val userId = authRepository.getOrCreateUserId()
+
+            // A deleted account has to stop this device too, not just the server. Absence would
+            // never do it -- an insert-only pull reads an emptied node as "nothing new" -- so the
+            // tombstone is what tells a device that was offline during the delete, or is simply a
+            // second phone, that what it is holding is gone. Runs here because this is the one
+            // entry point that fires on every app open and every background sync.
+            if (authRepository.isAccountDeleted(userId)) {
+                stopSync()
+                if (userId == authRepository.getCurrentUserId()) {
+                    // Our own account, deleted from another device. Everything goes.
+                    Log.w(TAG, "This device's account ($userId) was deleted elsewhere; wiping")
+                    localDataRepository.wipeAllLocalData()
+                    authRepository.signOut()
+                } else {
+                    // We were only *reading* this account over an invite code and its owner deleted
+                    // it. Their data goes and so does the connection -- which is also the first
+                    // time a joiner gets told anything at all instead of just failing to sync
+                    // forever -- but our own identity and preferences were never theirs to take.
+                    Log.w(TAG, "Externally synced account $userId was deleted; disconnecting")
+                    localDataRepository.clearSyncedData()
+                    settingsRepository.saveManualSyncId(null)
+                }
+                _syncStatus.value = SyncStatus.Idle
+                return
+            }
+
             val ref = firebaseDatabase.getReference("users").child(userId)
             userRef = ref
 
