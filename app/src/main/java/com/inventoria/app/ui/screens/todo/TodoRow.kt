@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
@@ -90,9 +92,10 @@ internal fun TodoDayHeader(dayStart: Long, totalDue: Int, completedDue: Int) {
 /**
  * One todo row.
  *
- * [showDragHandle] and [showDelete] default to the full Plan-screen behaviour. Today passes false
- * for both: it has no drop targets to drag onto and no delete affordance, so it also skips
- * reporting its bounds (the drag machinery is the only consumer of those).
+ * [showDragHandle], [showDelete] and [showCollapseToggle] default to the full Plan-screen
+ * behaviour. Today passes false for all three: it has no drop targets to drag onto and no delete
+ * affordance, so it also skips reporting its bounds (the drag machinery is the only consumer of
+ * those), and folding is Todos-screen view state that Today deliberately does not share.
  */
 @Composable
 internal fun TodoRow(
@@ -107,9 +110,11 @@ internal fun TodoRow(
     onViewTask: () -> Unit,
     showDragHandle: Boolean = true,
     showDelete: Boolean = true,
+    showCollapseToggle: Boolean = true,
     isDragged: Boolean = false,
     isHoverTarget: Boolean = false,
     isSelected: Boolean = false,
+    onToggleCollapsed: () -> Unit = {},
     onDelete: () -> Unit = {},
     onBoundsChanged: (ClosedFloatingPointRange<Float>) -> Unit = {},
     onDragStart: (iconRootTopLeft: Offset, localOffset: Offset) -> Unit = { _, _ -> },
@@ -201,6 +206,18 @@ internal fun TodoRow(
                                 )
                             }
                     )
+                }
+                // Sits immediately left of the checkbox, and only on rows that actually nest
+                // something here -- reserving the space on every row would indent the whole list
+                // for the sake of a control most rows have no use for.
+                if (showCollapseToggle && entry.hasVisibleChildren) {
+                    IconButton(onClick = onToggleCollapsed, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            if (entry.isCollapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore,
+                            contentDescription = if (entry.isCollapsed) "Show sub-todos" else "Hide sub-todos",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 TriStateCheckbox(
                     state = when (entry.effectiveState) {

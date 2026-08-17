@@ -19,6 +19,10 @@ import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -93,8 +97,12 @@ fun TodoScreen(
     viewModel: TodoViewModel
 ) {
     val allTodos by viewModel.todos.collectAsState()
-    val todoSections by viewModel.todoSections.collectAsState()
+    // plannerSections, not todoSections: this screen's hide/collapse toggles apply here and
+    // deliberately not on Today. See TodoViewModel.todoSections.
+    val todoSections by viewModel.plannerSections.collectAsState()
     val undatedTodoEntries by viewModel.undatedTodoEntries.collectAsState()
+    val hideCompleted by viewModel.hideCompleted.collectAsState()
+    val anyCollapsed by viewModel.collapsedTodoIds.collectAsState()
     val isAddingNew by viewModel.isAddingNew.collectAsState()
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val selectedTodoId by viewModel.selectedTodoId.collectAsState()
@@ -116,6 +124,14 @@ fun TodoScreen(
     // current drag Y" -- and since only todo rows (never day headers/labels) report bounds here,
     // "no range contains it" already means "not over a todo" for free.
     val itemBoundsY = remember { mutableStateMapOf<String, ClosedFloatingPointRange<Float>>() }
+    // Rows only ever *add* their bounds, so a row that stops being drawn -- folded under a
+    // collapsed parent, or hidden with the rest of the completed work -- would otherwise leave its
+    // last known Y range in here forever, and a drag over that empty space would silently resolve
+    // to a todo that is not on screen.
+    val renderedTodoIds = remember(todoSections, undatedTodoEntries) {
+        (todoSections.flatMap { it.visibleTodos } + undatedTodoEntries).mapTo(mutableSetOf()) { it.todo.id }
+    }
+    LaunchedEffect(renderedTodoIds) { itemBoundsY.keys.retainAll(renderedTodoIds) }
     var contentBoxTopLeft by remember { mutableStateOf(Offset.Zero) }
     var draggedTodoId by remember { mutableStateOf<String?>(null) }
     var grabOffset by remember { mutableStateOf(Offset.Zero) } // small, local-to-handle touch point
@@ -146,7 +162,28 @@ fun TodoScreen(
         topBar = {
             InventoriaTopBar(
                 title = Screen.Todos.title,
-                onNavigateToHelp = onNavigateToHelp
+                onNavigateToHelp = onNavigateToHelp,
+                actions = {
+                    // Fold/unfold everything at once. Shows whichever action is the useful one:
+                    // with nothing folded there is nothing to expand, so it offers to collapse.
+                    IconButton(
+                        onClick = {
+                            if (anyCollapsed.isEmpty()) viewModel.collapseAll() else viewModel.expandAll()
+                        }
+                    ) {
+                        Icon(
+                            if (anyCollapsed.isEmpty()) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                            contentDescription = if (anyCollapsed.isEmpty()) "Collapse all sub-todos" else "Expand all sub-todos"
+                        )
+                    }
+                    IconButton(onClick = { viewModel.toggleHideCompleted() }) {
+                        Icon(
+                            if (hideCompleted) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (hideCompleted) "Show completed todos" else "Hide completed todos",
+                            tint = if (hideCompleted) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                        )
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -191,6 +228,7 @@ fun TodoScreen(
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
                                 onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
+                                onToggleCollapsed = { viewModel.toggleCollapsed(entry.todo.id) },
                                 onClick = {
                                     if (selectedTodoId == entry.todo.id) viewModel.startEditingTodo(entry.todo)
                                     else viewModel.selectTodo(entry.todo.id)
@@ -229,6 +267,7 @@ fun TodoScreen(
                                 isHoverTarget = hoverTodoId == entry.todo.id,
                                 isSelected = selectedTodoId == entry.todo.id,
                                 onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
+                                onToggleCollapsed = { viewModel.toggleCollapsed(entry.todo.id) },
                                 onClick = {
                                     if (selectedTodoId == entry.todo.id) viewModel.startEditingTodo(entry.todo)
                                     else viewModel.selectTodo(entry.todo.id)

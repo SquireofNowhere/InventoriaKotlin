@@ -46,6 +46,11 @@ class SettingsRepository @Inject constructor(
     // them on next launch. Device-local by design; cross-device double-seeding is instead made
     // harmless by the deterministic ids in TaskType.kt.
     private val TASK_TYPES_SEEDED = booleanPreferencesKey("task_types_seeded")
+    // Both are Todos-screen view state, deliberately device-local: which branches you have folded
+    // away is about how you are reading the list right now, not something the other devices on the
+    // account should have decided for them.
+    private val TODO_HIDE_COMPLETED = booleanPreferencesKey("todo_hide_completed")
+    private val TODO_COLLAPSED_IDS = stringSetPreferencesKey("todo_collapsed_ids")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -76,6 +81,16 @@ class SettingsRepository @Inject constructor(
     fun getProcrastinationTaskKinds(): Flow<Set<String>> = context.dataStore.data.map { it[PROCRASTINATION_TASK_KINDS] ?: emptySet() }
     fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
     fun hasSeededTaskTypes(): Flow<Boolean> = context.dataStore.data.map { it[TASK_TYPES_SEEDED] ?: false }
+    fun isTodoHideCompletedEnabled(): Flow<Boolean> = context.dataStore.data.map { it[TODO_HIDE_COMPLETED] ?: false }
+    fun getCollapsedTodoIds(): Flow<Set<String>> = context.dataStore.data.map { it[TODO_COLLAPSED_IDS] ?: emptySet() }
+
+    suspend fun setTodoHideCompleted(enabled: Boolean) {
+        context.dataStore.edit { it[TODO_HIDE_COMPLETED] = enabled }
+    }
+
+    suspend fun saveCollapsedTodoIds(ids: Set<String>) {
+        context.dataStore.edit { it[TODO_COLLAPSED_IDS] = ids }
+    }
 
     suspend fun setTaskTypesSeeded() {
         context.dataStore.edit { it[TASK_TYPES_SEEDED] = true }

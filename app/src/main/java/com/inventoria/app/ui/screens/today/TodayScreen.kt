@@ -120,7 +120,10 @@ fun TodayScreen(
                         onStart = { todoViewModel.startTaskFromTodo(entry.todo) },
                         onViewTask = onNavigateToTasks,
                         showDragHandle = false,
-                        showDelete = false
+                        showDelete = false,
+                        // Folding is Todos-screen view state and this screen reads the unfolded
+                        // sections, so a chevron here would be a control with nothing behind it.
+                        showCollapseToggle = false
                     )
                 }
             }

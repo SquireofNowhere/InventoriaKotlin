@@ -16,6 +16,7 @@ import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.repository.FirebaseSyncRepository
+import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.ui.screens.task.TaskTimerService
 import com.inventoria.app.util.getStartOfDay
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,13 +37,18 @@ import javax.inject.Inject
  * what should actually be displayed/clicked: [todo]'s own stored state, EXCEPT when it isn't
  * already COMPLETE and has at least one COMPLETE direct child, which displays as IN_PROGRESS
  * regardless of what's actually stored -- a live-computed override, never written back to the
- * todo itself. */
+ * todo itself. [hasVisibleChildren] is whether this entry would actually nest anything *in this
+ * list* -- not whether the todo has children at all, since a child filed under a different day
+ * cannot be folded away from here -- and [isCollapsed] is that fold being applied, which is why a
+ * collapsed entry still reports [childProgress] (the only thing left saying what is hidden). */
 data class TodoTreeEntry(
     val todo: Todo,
     val depth: Int,
     val parentName: String?,
     val childProgress: Pair<Int, Int>?,
-    val effectiveState: TodoState
+    val effectiveState: TodoState,
+    val hasVisibleChildren: Boolean = false,
+    val isCollapsed: Boolean = false
 )
 
 /** One day's worth of dated todos. [visibleTodos] is what actually gets rendered under this
@@ -63,7 +69,8 @@ class TodoViewModel @Inject constructor(
     private val todoRepository: TodoRepository,
     private val taskRepository: TaskRepository,
     private val taskTypeRepository: TaskTypeRepository,
-    private val syncRepository: FirebaseSyncRepository
+    private val syncRepository: FirebaseSyncRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
@@ -93,19 +100,77 @@ class TodoViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
-    val undatedTodoEntries: StateFlow<List<TodoTreeEntry>> = todos
-        .map { list ->
+    /** Whether the Todos screen is currently hiding finished work. Off by default. */
+    val hideCompleted: StateFlow<Boolean> = settingsRepository.isTodoHideCompletedEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** Todos whose sub-todos are folded away on the Todos screen. */
+    val collapsedTodoIds: StateFlow<Set<String>> = settingsRepository.getCollapsedTodoIds()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    val undatedTodoEntries: StateFlow<List<TodoTreeEntry>> =
+        combine(todos, hideCompleted, collapsedTodoIds) { list, hide, collapsed ->
             val byId = list.associateBy { it.id }
             val childCounts = computeChildCounts(list)
             val todayStart = getStartOfDay(System.currentTimeMillis())
-            val undated = list.filter { effectiveSectionDay(it, byId, todayStart) == null }
-            buildTodoTree(undated, byId, childCounts)
+            val undated = (if (hide) withoutCompleted(list, byId) else list)
+                .filter { effectiveSectionDay(it, byId, todayStart) == null }
+            buildTodoTree(undated, byId, childCounts, collapsed)
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * The unfiltered, unfolded sections -- the Today screen's source.
+     *
+     * Hiding and collapsing are Todos-screen view state, and Today is a different screen with a
+     * toggle the user cannot see from there; silently emptying the home screen off a control on
+     * another tab would be a surprise. Today reads this, the Todos screen reads
+     * [plannerSections].
+     */
     val todoSections: StateFlow<List<TodoDaySection>> = todos
         .map { list -> buildTodoSections(list) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** [todoSections] with this screen's hide/collapse preferences applied. */
+    val plannerSections: StateFlow<List<TodoDaySection>> =
+        combine(todos, hideCompleted, collapsedTodoIds) { list, hide, collapsed ->
+            buildTodoSections(list, hide, collapsed)
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun toggleHideCompleted() {
+        viewModelScope.launch { settingsRepository.setTodoHideCompleted(!hideCompleted.value) }
+    }
+
+    /**
+     * Folds a todo's sub-todos away, or unfolds them.
+     *
+     * The id is kept even once the todo stops having visible children (it may regain some, and a
+     * fold the user set should not silently reset); ids of deleted todos are pruned on the next
+     * toggle rather than watched for, since a stale id in this set does nothing at all.
+     */
+    fun toggleCollapsed(todoId: String) {
+        viewModelScope.launch {
+            val live = todos.value.mapTo(mutableSetOf()) { it.id }
+            val current = collapsedTodoIds.value
+            val next = if (todoId in current) current - todoId else current + todoId
+            // Guarded: todos is WhileSubscribed, and pruning against a list that has not emitted
+            // yet would clear every fold the user has set rather than the dead ids it is after.
+            settingsRepository.saveCollapsedTodoIds(if (live.isEmpty()) next else next.intersect(live))
+        }
+    }
+
+    fun expandAll() {
+        viewModelScope.launch { settingsRepository.saveCollapsedTodoIds(emptySet()) }
+    }
+
+    /** Every todo that currently parents something, folded in one go. */
+    fun collapseAll() {
+        viewModelScope.launch {
+            val parents = todos.value.mapNotNull { it.parentTodoId }.toSet()
+            settingsRepository.saveCollapsedTodoIds(parents)
+        }
+    }
 
     private val _isAddingNew = MutableStateFlow(false)
     val isAddingNew: StateFlow<Boolean> = _isAddingNew.asStateFlow()
@@ -288,7 +353,8 @@ class TodoViewModel @Inject constructor(
     private fun buildTodoTree(
         scoped: List<Todo>,
         allTodosById: Map<String, Todo>,
-        childCounts: Map<String, Pair<Int, Int>>
+        childCounts: Map<String, Pair<Int, Int>>,
+        collapsedIds: Set<String> = emptySet()
     ): List<TodoTreeEntry> {
         val scopedIds = scoped.map { it.id }.toSet()
         val childrenByParentId = scoped.groupBy { it.parentTodoId }
@@ -305,8 +371,14 @@ class TodoViewModel @Inject constructor(
             } else {
                 todo.state
             }
-            result.add(TodoTreeEntry(todo, depth, parentName, progress, effectiveState))
-            childrenByParentId[todo.id]?.forEach { child -> visit(child, depth + 1) }
+            // Children *in this list*, which is not the same as children at all: one filed under a
+            // different day is not something this row can fold away, so it must not offer to.
+            val children = childrenByParentId[todo.id].orEmpty()
+            val collapsed = children.isNotEmpty() && todo.id in collapsedIds
+            result.add(
+                TodoTreeEntry(todo, depth, parentName, progress, effectiveState, children.isNotEmpty(), collapsed)
+            )
+            if (!collapsed) children.forEach { child -> visit(child, depth + 1) }
         }
 
         scoped.filter { it.parentTodoId == null || it.parentTodoId !in scopedIds }
@@ -319,17 +391,50 @@ class TodoViewModel @Inject constructor(
      * else walks up parentTodoId until it finds a dated ancestor and inherits THAT ancestor's
      * resolved day (so a deadline-less child sits with its parent, including following the
      * parent into Today if the parent itself is overdue), else null (the "No Deadline" section,
-     * only reached when nothing in the whole ancestor chain has a deadline at all). */
+     * only reached when nothing in the whole ancestor chain has a deadline at all).
+     *
+     * A *completed* sub-todo also defers to its parent, even when it has a deadline of its own.
+     * Ticking one off otherwise tore it out of the group it belonged to and refiled it alone under
+     * its own date, which is precisely the moment the hierarchy is most worth keeping intact: the
+     * parent's "2/3 sub-todos complete" line pointed at rows that had scattered across the list.
+     * Only display moves -- the day header's own X% Done still counts it against the day it was
+     * genuinely due, which is why [buildTodoSections] keys those counts off `deadline` directly. */
     private fun effectiveSectionDay(todo: Todo, byId: Map<String, Todo>, todayStart: Long): Long? {
         var current: Todo? = todo
-        while (current != null) {
+        // parentTodoId cycles are prevented when parents are assigned (see invalidParentIds), but a
+        // cycle arriving from sync has no such gate and would spin here forever.
+        val seen = mutableSetOf<String>()
+        while (current != null && seen.add(current.id)) {
+            val parent = current.parentTodoId?.let { byId[it] }
+            val defersToParent = current.state == TodoState.COMPLETE && parent != null
             val deadline = current.deadline
-            if (deadline != null) {
+            if (deadline != null && !defersToParent) {
                 return if (current.state != TodoState.COMPLETE && deadline < todayStart) todayStart else deadline
             }
-            current = current.parentTodoId?.let { byId[it] }
+            current = parent
         }
         return null
+    }
+
+    /**
+     * Drops completed todos, keeping any that still have unfinished work hanging off them.
+     *
+     * A completed parent is not noise while one of its children is outstanding -- it is the thing
+     * that child is nested under, and removing it would strand the child at the top level looking
+     * unrelated to anything. So the rule is "keep every incomplete todo, and every ancestor of
+     * one", rather than a flat state filter.
+     */
+    private fun withoutCompleted(all: List<Todo>, byId: Map<String, Todo>): List<Todo> {
+        val keep = mutableSetOf<String>()
+        all.filter { it.state != TodoState.COMPLETE }.forEach { todo ->
+            var current: Todo? = todo
+            // add() returning false means this ancestor chain has already been walked -- which also
+            // stops a synced parent cycle from looping.
+            while (current != null && keep.add(current.id)) {
+                current = current.parentTodoId?.let { byId[it] }
+            }
+        }
+        return all.filter { it.id in keep }
     }
 
     /** Within a day, todos carrying a deadline time come first in chronological order, all-day
@@ -338,7 +443,17 @@ class TodoViewModel @Inject constructor(
     private fun sortedByDeadlineTime(todos: List<Todo>): List<Todo> =
         todos.sortedBy { it.deadlineMinuteOfDay ?: Int.MAX_VALUE }
 
-    private fun buildTodoSections(all: List<Todo>): List<TodoDaySection> {
+    /**
+     * [hideCompleted] and [collapsedIds] only ever remove *rows*. Everything a header counts --
+     * childCounts, ownDueByDeadline, and the ancestor walk in effectiveSectionDay -- is computed
+     * over the full list, so folding a branch away or hiding finished work never makes a day's
+     * "X% Done" or a parent's "2/3 sub-todos complete" quietly disagree with reality.
+     */
+    private fun buildTodoSections(
+        all: List<Todo>,
+        hideCompleted: Boolean = false,
+        collapsedIds: Set<String> = emptySet()
+    ): List<TodoDaySection> {
         val todayStart = getStartOfDay(System.currentTimeMillis())
         val byId = all.associateBy { it.id }
         val childCounts = computeChildCounts(all)
@@ -349,38 +464,30 @@ class TodoViewModel @Inject constructor(
         val ownDueByDeadline = all.filter { it.deadline != null }.groupBy { it.deadline!! }
 
         val sectionDayById = all.associate { it.id to effectiveSectionDay(it, byId, todayStart) }
-        val bySectionDay = all.filter { sectionDayById[it.id] != null }.groupBy { sectionDayById[it.id]!! }
+        val rendered = if (hideCompleted) withoutCompleted(all, byId) else all
+        val bySectionDay = rendered.filter { sectionDayById[it.id] != null }.groupBy { sectionDayById[it.id]!! }
 
-        val sections = mutableListOf<TodoDaySection>()
-
-        val todaySectionTodos = bySectionDay[todayStart] ?: emptyList()
-        if (todaySectionTodos.isNotEmpty()) {
-            val todayOwnTodos = ownDueByDeadline[todayStart] ?: emptyList()
-            sections.add(
-                TodoDaySection(
-                    dayStart = todayStart,
-                    visibleTodos = buildTodoTree(sortedByDeadlineTime(todaySectionTodos), byId, childCounts),
-                    totalDueCount = todayOwnTodos.size,
-                    completedDueCount = todayOwnTodos.count { it.state == TodoState.COMPLETE }
-                )
+        fun sectionFor(day: Long): TodoDaySection {
+            val ownForDay = ownDueByDeadline[day] ?: emptyList()
+            return TodoDaySection(
+                dayStart = day,
+                visibleTodos = buildTodoTree(sortedByDeadlineTime(bySectionDay[day]!!), byId, childCounts, collapsedIds),
+                totalDueCount = ownForDay.size,
+                completedDueCount = ownForDay.count { it.state == TodoState.COMPLETE }
             )
         }
 
+        val sections = mutableListOf<TodoDaySection>()
+
+        if (bySectionDay[todayStart]?.isNotEmpty() == true) sections.add(sectionFor(todayStart))
+
         // Upcoming days, soonest first.
-        bySectionDay.keys.filter { it > todayStart }.sorted().forEach { day ->
-            val sectionTodos = sortedByDeadlineTime(bySectionDay[day]!!)
-            val ownForDay = ownDueByDeadline[day] ?: emptyList()
-            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.state == TodoState.COMPLETE }))
-        }
+        bySectionDay.keys.filter { it > todayStart }.sorted().forEach { sections.add(sectionFor(it)) }
 
         // Past days, most recent first -- overdue-and-incomplete todos (and any deadline-less
         // children following them) already resolved to Today above via effectiveSectionDay, so
         // whatever's left here is exactly what's since been completed.
-        bySectionDay.keys.filter { it < todayStart }.sortedDescending().forEach { day ->
-            val sectionTodos = sortedByDeadlineTime(bySectionDay[day]!!)
-            val ownForDay = ownDueByDeadline[day] ?: emptyList()
-            sections.add(TodoDaySection(day, buildTodoTree(sectionTodos, byId, childCounts), ownForDay.size, ownForDay.count { it.state == TodoState.COMPLETE }))
-        }
+        bySectionDay.keys.filter { it < todayStart }.sortedDescending().forEach { sections.add(sectionFor(it)) }
 
         return sections
     }
