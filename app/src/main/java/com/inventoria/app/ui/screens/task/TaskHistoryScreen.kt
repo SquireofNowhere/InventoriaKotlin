@@ -191,7 +191,8 @@ fun TaskHistoryScreen(
                             onLongClick = { viewModel.toggleTaskSelection(task.id) },
                             onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
                             onDelete = { viewModel.deleteSegment(task) },
-                            onAddToCalendar = { addToGoogleCalendar(context, task) }
+                            onAddToCalendar = { addToGoogleCalendar(context, task) },
+                            onHideCalendarItem = { viewModel.hideCalendarTask(task) }
                         )
                     }
                     item(key = "spacer_${day.dayStart}") { Spacer(Modifier.height(8.dp)) }
@@ -227,7 +228,8 @@ fun TaskHistoryScreen(
                                 },
                                 onSegmentLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
                                 onSegmentDelete = { viewModel.deleteSegment(it) },
-                                onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
+                                onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
+                                onHideCalendarItem = { group.segments.forEach { viewModel.hideCalendarTask(it) } }
                             )
                         } else {
                             val task = group.segments.first()
@@ -243,7 +245,8 @@ fun TaskHistoryScreen(
                                 onLongClick = { viewModel.toggleTaskSelection(task.id) },
                                 onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
                                 onDelete = { viewModel.deleteSegment(task) },
-                                onAddToCalendar = { addToGoogleCalendar(context, task) }
+                                onAddToCalendar = { addToGoogleCalendar(context, task) },
+                                onHideCalendarItem = { viewModel.hideCalendarTask(task) }
                             )
                         }
                     }
@@ -429,7 +432,8 @@ internal fun TimelineTaskRow(
     onLongClick: () -> Unit,
     onToggleCalendar: () -> Unit,
     onDelete: () -> Unit,
-    onAddToCalendar: () -> Unit
+    onAddToCalendar: () -> Unit,
+    onHideCalendarItem: () -> Unit = {}
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (showTime) {
@@ -452,7 +456,8 @@ internal fun TimelineTaskRow(
             onLongClick = onLongClick,
             onToggleCalendar = onToggleCalendar,
             onDelete = onDelete,
-            onAddToCalendar = onAddToCalendar
+            onAddToCalendar = onAddToCalendar,
+            onHideCalendarItem = onHideCalendarItem
         )
     }
 }

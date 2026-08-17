@@ -136,6 +136,10 @@ fun TaskTrackerScreen(
     val isRecentFlatView by viewModel.isRecentSessionsFlatView.collectAsState()
     val activityGroups by viewModel.completedActivityGroups.collectAsState()
     var pendingActivityDelete by remember { mutableStateOf<ActivityGroup?>(null) }
+    // Discarding a running session is the one destructive action on these cards that cannot be
+    // undone by soft-delete semantics alone: the time it is still accruing has never been written
+    // anywhere else, so it asks first. The completed cards keep their immediate soft delete.
+    var pendingSessionDiscard by remember { mutableStateOf<TaskSessionUI?>(null) }
     var pendingScopedEdit by remember { mutableStateOf<PendingScopedEdit?>(null) }
     val activityFor: (Task) -> ActivityGroup? = { task -> activityGroups.find { it.key == activityKeyOf(task) } }
 
@@ -339,6 +343,7 @@ fun TaskTrackerScreen(
                             parentName = entry.parentName,
                             onStop = { viewModel.stopTask(session) },
                             onPauseResume = { viewModel.pauseResumeTask(session) },
+                            onDiscard = { pendingSessionDiscard = session },
                             onUpdateName = { viewModel.updateSessionName(session.groupId, it) },
                             onAutocompleteSelect = { name, kind, typeId -> viewModel.applyRecentSuggestion(session.groupId, name, kind, typeId) },
                             onTaskTypeSelect = { typeId -> viewModel.applyTaskTypeSuggestion(session.groupId, typeId) },
@@ -424,7 +429,8 @@ fun TaskTrackerScreen(
                                             else selectedTaskId = it.id
                                         },
                                         onSegmentDelete = { viewModel.deleteSegment(it) },
-                                        onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) }
+                                        onSegmentToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
+                                        onHideCalendarItem = { group.segments.forEach { viewModel.hideCalendarTask(it) } }
                                     )
                                 } else {
                                     val task = group.segments.first()
@@ -437,7 +443,8 @@ fun TaskTrackerScreen(
                                         onLongClick = { viewModel.toggleTaskSelection(task.id) },
                                         onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
                                         onDelete = { viewModel.deleteSegment(task) },
-                                        onAddToCalendar = { addToGoogleCalendar(context, task) }
+                                        onAddToCalendar = { addToGoogleCalendar(context, task) },
+                                        onHideCalendarItem = { viewModel.hideCalendarTask(task) }
                                     )
                                 }
                             }
@@ -561,6 +568,33 @@ fun TaskTrackerScreen(
             onAll = { viewModel.deleteSessions(group.groupIds) },
             onOne = { viewModel.deleteSession(group.groupIds.first()) },
             onDismiss = { pendingActivityDelete = null }
+        )
+    }
+
+    pendingSessionDiscard?.let { session ->
+        val refTask = session.activeSegment?.task ?: session.segments.firstOrNull()
+        AlertDialog(
+            onDismissRequest = { pendingSessionDiscard = null },
+            title = { Text("Discard \"${refTask?.name.orEmpty().ifBlank { "this session" }}\"?") },
+            text = {
+                Text(
+                    "This session is still running. Discarding throws away every segment of it, " +
+                        "including the time it has tracked so far — none of it is scored or kept. " +
+                        "To keep the record instead, use Stop."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.discardSession(session)
+                        pendingSessionDiscard = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("Discard", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSessionDiscard = null }) { Text("Cancel") }
+            }
         )
     }
 
@@ -746,7 +780,8 @@ fun SingleTaskItemCard(
     onLongClick: () -> Unit,
     onToggleCalendar: () -> Unit,
     onDelete: () -> Unit,
-    onAddToCalendar: () -> Unit
+    onAddToCalendar: () -> Unit,
+    onHideCalendarItem: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val taskColor = Color(task.kind.colorValue)
@@ -810,6 +845,12 @@ fun SingleTaskItemCard(
                     IconButton(onClick = { openInSystemCalendar(context, task) }) {
                         Icon(Icons.Default.EventAvailable, "Open in Calendar", tint = Success, modifier = Modifier.size(20.dp))
                     }
+                    // Same trailing slot as the delete on a normal card, and deliberately not the
+                    // same icon or wording: this row is a view of a system calendar event, which
+                    // the app reads and does not own. Dismissing takes it off this list only.
+                    IconButton(onClick = onHideCalendarItem) {
+                        Icon(Icons.Default.VisibilityOff, contentDescription = "Remove from Inventoria (keeps the calendar event)", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    }
                 } else {
                     IconButton(onClick = {
                         if (!task.savedToCalendar) onAddToCalendar()
@@ -846,7 +887,8 @@ fun CompletedSessionCard(
     onSegmentClick: (Task) -> Unit,
     onSegmentLongClick: (Task) -> Unit,
     onSegmentDelete: (Task) -> Unit,
-    onSegmentToggleCalendar: (Task) -> Unit
+    onSegmentToggleCalendar: (Task) -> Unit,
+    onHideCalendarItem: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
@@ -917,6 +959,10 @@ fun CompletedSessionCard(
                 if (isCalendarSession) {
                     IconButton(onClick = { openInSystemCalendar(context, segments.first()) }) {
                         Icon(Icons.Default.EventAvailable, contentDescription = "Open in Calendar", tint = Success, modifier = Modifier.size(20.dp))
+                    }
+                    // See SingleTaskItemCard: a calendar-sourced card is dismissed, not deleted.
+                    IconButton(onClick = onHideCalendarItem) {
+                        Icon(Icons.Default.VisibilityOff, contentDescription = "Remove from Inventoria (keeps the calendar event)", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                 } else {
                     if (allSaved) Icon(Icons.Default.EventAvailable, null, modifier = Modifier.size(20.dp), tint = Success)
@@ -1107,7 +1153,7 @@ private fun SegmentRow(
 
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, TaskKind, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onDiscard: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, TaskKind, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -1200,9 +1246,16 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                             Text("Stop & Continue", fontWeight = FontWeight.Bold)
                         }
                     } else {
-                        IconButton(onClick = onStop, modifier = Modifier.background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f), CircleShape)) { 
-                            Icon(Icons.Default.Stop, null, tint = MaterialTheme.colorScheme.error) 
+                        IconButton(onClick = onStop, modifier = Modifier.background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f), CircleShape)) {
+                            Icon(Icons.Default.Stop, null, tint = MaterialTheme.colorScheme.error)
                         }
+                    }
+                    // Trailing destructive action, same slot the two completed cards put theirs in.
+                    // Stop keeps the session; this throws it away, which is why it is the one action
+                    // on these cards that asks first.
+                    Spacer(Modifier.width(4.dp))
+                    IconButton(onClick = onDiscard, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Discard this session", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                     }
                 }
             }

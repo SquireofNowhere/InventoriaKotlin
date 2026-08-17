@@ -449,7 +449,14 @@ class TaskTrackerViewModel @Inject constructor(
             val calendarTasksFlow = _calendarTrigger.flatMapLatest {
                 flow { emit(calendarRepository.getInventoriaTasksFromCalendar()) }
             }
-            combine(visibleTasksFlow, calendarTasksFlow) { local, calendar ->
+            combine(
+                visibleTasksFlow,
+                calendarTasksFlow,
+                settingsRepository.getHiddenCalendarTaskIds()
+            ) { local, calendarAll, hidden ->
+                // Calendar rows are rebuilt from the system calendar on every refresh, so there is
+                // nothing to soft-delete -- dismissing one can only mean skipping it here.
+                val calendar = calendarAll.filter { it.id !in hidden }
                 val calendarIds = calendar.map { it.id }.toSet()
                 val filteredLocal = local.filter { it.isRunning || it.id !in calendarIds.map { id -> id.removePrefix("cal_") } }
                 filteredLocal + calendar
@@ -842,6 +849,53 @@ class TaskTrackerViewModel @Inject constructor(
             repository.softDeleteSession(groupId)
             _isLoading.value = false
         }
+    }
+
+    /**
+     * Throws away a session that is still running, rather than stopping it and keeping the record.
+     *
+     * Shares [stopTask]'s cascade -- an interruption sitting on top of this one has nothing left to
+     * return to once it is gone, and an interrupted parent underneath still wants resuming -- but
+     * deliberately not its other two tails. The Todo completion check-in and Flow Mode's
+     * auto-start-next both exist to follow up on work that *happened*; asking whether a discarded
+     * session finished a todo, or starting the next task off the back of it, would be answering a
+     * question the user just declined to ask.
+     */
+    fun discardSession(session: TaskSessionUI) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val now = System.currentTimeMillis()
+            val interruptedGroupId =
+                (session.activeSegment?.task ?: session.segments.firstOrNull())?.interruptedGroupId
+
+            stopActiveInterruptionChain(session.groupId, now)
+            repository.softDeleteSession(session.groupId)
+            _isLoading.value = false
+
+            if (interruptedGroupId != null) {
+                _activeSessions.value
+                    .find { it.groupId == interruptedGroupId && it.activeSegment == null }
+                    ?.let { resumeSession(it) }
+            }
+        }
+    }
+
+    /**
+     * Takes a calendar-sourced task off the list.
+     *
+     * Not a delete, and the UI must not call it one: these rows are re-read from the system
+     * calendar on every refresh and have no local row to remove, and the app holds READ_CALENDAR
+     * only, so the event itself is not ours to touch. This records the id as skipped; the event
+     * stays exactly where it is in the user's calendar.
+     */
+    fun hideCalendarTask(task: Task) {
+        if (!task.id.startsWith("cal_")) return
+        viewModelScope.launch { settingsRepository.hideCalendarTask(task.id) }
+    }
+
+    /** Un-hides every calendar row previously dismissed with [hideCalendarTask]. */
+    fun restoreHiddenCalendarTasks() {
+        viewModelScope.launch { settingsRepository.clearHiddenCalendarTasks() }
     }
 
     fun deleteSegment(task: Task) {

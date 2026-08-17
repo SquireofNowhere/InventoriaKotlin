@@ -51,6 +51,10 @@ class SettingsRepository @Inject constructor(
     // account should have decided for them.
     private val TODO_HIDE_COMPLETED = booleanPreferencesKey("todo_hide_completed")
     private val TODO_COLLAPSED_IDS = stringSetPreferencesKey("todo_collapsed_ids")
+    // Calendar-sourced tasks are re-read from the system calendar on every refresh and have no
+    // local row to delete, so "get this off my list" can only be a list of ids to skip. Device-
+    // local for the same reason the events are: the calendar is a device-level account, not ours.
+    private val HIDDEN_CALENDAR_TASK_IDS = stringSetPreferencesKey("hidden_calendar_task_ids")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -90,6 +94,17 @@ class SettingsRepository @Inject constructor(
 
     suspend fun saveCollapsedTodoIds(ids: Set<String>) {
         context.dataStore.edit { it[TODO_COLLAPSED_IDS] = ids }
+    }
+
+    fun getHiddenCalendarTaskIds(): Flow<Set<String>> =
+        context.dataStore.data.map { it[HIDDEN_CALENDAR_TASK_IDS] ?: emptySet() }
+
+    suspend fun hideCalendarTask(taskId: String) {
+        context.dataStore.edit { it[HIDDEN_CALENDAR_TASK_IDS] = (it[HIDDEN_CALENDAR_TASK_IDS] ?: emptySet()) + taskId }
+    }
+
+    suspend fun clearHiddenCalendarTasks() {
+        context.dataStore.edit { it.remove(HIDDEN_CALENDAR_TASK_IDS) }
     }
 
     suspend fun setTaskTypesSeeded() {
