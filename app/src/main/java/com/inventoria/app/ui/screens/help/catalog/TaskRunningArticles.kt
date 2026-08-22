@@ -203,6 +203,7 @@ internal val taskRunningArticles = listOf(
                         "Press the pause button on a running card.",
                         DiagramSpec(listOf(runningCard(highlight = false, trailing = listOf(
                             DiagramIcon(Icons.Default.Pause, highlight = true),
+
                             DiagramIcon(Icons.Default.Stop)
                         ))))
                     ),
