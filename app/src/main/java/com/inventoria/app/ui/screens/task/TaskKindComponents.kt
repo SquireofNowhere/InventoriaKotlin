@@ -76,6 +76,34 @@ fun TaskKindChip(
 }
 
 /**
+ * Auto-assigned colors for user-managed TaskTypes, which own no color of their own (unlike
+ * TaskKind). Hashed from the type's *id*, not its name: ids are stable across renames and --
+ * being deterministically seeded (see defaultTaskTypeId) -- identical across devices on an
+ * account, so "Work" is the same hue everywhere without storing anything.
+ *
+ * Hues are curated mid-tones that read on both themes, deliberately steering clear of the
+ * priority-tier red/orange/green so a type chip is never mistaken for a priority.
+ */
+private val TaskTypePalette = listOf(
+    Color(0xFF7E57C2), // deep purple
+    Color(0xFF5C6BC0), // indigo
+    Color(0xFF42A5F5), // blue
+    Color(0xFF26C6DA), // cyan
+    Color(0xFF26A69A), // teal
+    Color(0xFF9CCC65), // light green
+    Color(0xFFC0CA33), // lime
+    Color(0xFFFF7043), // deep orange
+    Color(0xFFEC407A), // pink
+    Color(0xFFAB47BC), // magenta
+    Color(0xFF8D6E63), // brown
+    Color(0xFF78909C)  // blue grey
+)
+
+/** Stable palette color for a task type. String.hashCode is spec-fixed, so this never drifts. */
+fun taskTypeColor(typeId: String): Color =
+    TaskTypePalette[((typeId.hashCode() % TaskTypePalette.size) + TaskTypePalette.size) % TaskTypePalette.size]
+
+/**
  * A task's Type ("Eating"), rendered as a small caption sitting above the task's own name so the
  * two tiers read as separate things: the type is the shared activity, the name is this particular
  * instance of it ("Eating with V"). Without this the type was stored and used for autofill and
@@ -83,25 +111,45 @@ fun TaskKindChip(
  *
  * Deliberately quieter than [TaskKindChip] -- the Kind owns a color and a score and earns a chip;
  * the type is a plain label and shouldn't compete with the name it sits above.
+ *
+ * [color] (usually [taskTypeColor]) upgrades the quiet caption to a small tinted chip -- the todo
+ * list passes it so types can be told apart at a glance; task cards keep the plain form.
  */
 @Composable
 fun TaskTypeLabel(
     typeName: String,
     modifier: Modifier = Modifier,
-    iconSize: Dp = 12.dp
+    iconSize: Dp = 12.dp,
+    color: Color? = null
 ) {
+    if (color != null) {
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(6.dp),
+            color = color.copy(alpha = 0.15f),
+            contentColor = color
+        ) {
+            TaskTypeLabelContent(typeName, iconSize, color, Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+        }
+    } else {
+        TaskTypeLabelContent(typeName, iconSize, MaterialTheme.colorScheme.onSurfaceVariant, modifier)
+    }
+}
+
+@Composable
+private fun TaskTypeLabelContent(typeName: String, iconSize: Dp, tint: Color, modifier: Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(
             Icons.Default.Category,
             contentDescription = "Task type",
             modifier = Modifier.size(iconSize),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = tint
         )
         Spacer(Modifier.width(4.dp))
         Text(
             text = typeName,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = tint,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -239,20 +287,27 @@ fun TaskKindDropdownMenu(
     }
 }
 
+/**
+ * The letter-tier color behind priority styling (A=red/urgent, B=orange, C=green, unset=gray) --
+ * by LETTER only, not per-exact-level, since the 9-way distinction matters far less at a glance
+ * than which third it's in. Shared by [TodoPriorityChip] and the todo row's background tint so
+ * the two can't disagree about what tier a color means.
+ */
+fun todoPriorityTierColor(priority: TodoPriority?): Color = when (priority?.name?.firstOrNull()) {
+    'A' -> Color(0xFFE53935)
+    'B' -> Color(0xFFFB8C00)
+    'C' -> Color(0xFF43A047)
+    else -> Color.Gray
+}
+
 /** Tier-colored chip for a Todo priority (A1 best .. C3 worst), or a neutral "No Priority" chip
- * when unset. Color is by LETTER tier only (A=red/urgent, B=orange, C=green), not per-exact-
- * level, since the 9-way distinction matters far less at a glance than which third it's in. */
+ * when unset. */
 @Composable
 fun TodoPriorityChip(
     priority: TodoPriority?,
     modifier: Modifier = Modifier
 ) {
-    val color = when (priority?.name?.firstOrNull()) {
-        'A' -> Color(0xFFE53935)
-        'B' -> Color(0xFFFB8C00)
-        'C' -> Color(0xFF43A047)
-        else -> Color.Gray
-    }
+    val color = todoPriorityTierColor(priority)
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),

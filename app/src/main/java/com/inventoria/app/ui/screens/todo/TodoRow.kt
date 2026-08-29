@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -34,6 +35,8 @@ import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.TodoPriorityChip
+import com.inventoria.app.ui.screens.task.taskTypeColor
+import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
@@ -164,7 +167,21 @@ internal fun TodoRow(
                     onBoundsChanged(top..(top + coords.size.height))
                 } else Modifier
             ),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
+        // Prioritized rows carry a wash of their tier color (A=red, B=orange, C=green -- the
+        // same mapping the chip uses) so the list reads by urgency without opening a single row.
+        // Composited over surface rather than left translucent: the hover/selected overlays above
+        // stack on whatever the container paints, and a flat pre-mixed color keeps those legible.
+        // Unprioritized rows keep the stock Card container -- gray-washing them would just make
+        // the whole list look disabled -- and completed rows drop back to it too, so the tint
+        // tracks what still demands attention rather than what it once was.
+        colors = if (todo.priority != null && entry.effectiveState != TodoState.COMPLETE) {
+            CardDefaults.cardColors(
+                containerColor = todoPriorityTierColor(todo.priority)
+                    .copy(alpha = 0.10f)
+                    .compositeOver(MaterialTheme.colorScheme.surface)
+            )
+        } else CardDefaults.cardColors()
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
             if (entry.parentName != null) {
@@ -233,8 +250,13 @@ internal fun TodoRow(
                         .clickable(onClick = onClick)
                         .padding(vertical = 8.dp)
                 ) {
-                    val typeName = todo.taskTypeId?.let { taskTypeNames[it] }
-                    if (typeName != null) TaskTypeLabel(typeName)
+                    // Colored by id, not name: renames keep their hue, and the seeded ids make
+                    // the same type the same color on every device. See taskTypeColor.
+                    todo.taskTypeId?.let { typeId ->
+                        taskTypeNames[typeId]?.let { typeName ->
+                            TaskTypeLabel(typeName, color = taskTypeColor(typeId))
+                        }
+                    }
                     Text(
                         text = todo.title,
                         style = MaterialTheme.typography.bodyLarge,

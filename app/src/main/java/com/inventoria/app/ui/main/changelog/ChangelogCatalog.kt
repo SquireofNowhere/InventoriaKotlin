@@ -24,6 +24,7 @@ object ChangelogCatalog {
                 versionName = "2.13",
                 changes = listOf(
                     "Choose your focus: Inventory, Tasks, or Todos. Your focus tab moves next to Today and the dashboard leads with it. Change it any time in Settings.",
+                    "Todos are now color coded: rows are tinted by priority tier (A red, B orange, C green) and each task type gets its own colored chip.",
                     "This update log now appears once after each update, so you always know what's new."
                 )
             )
