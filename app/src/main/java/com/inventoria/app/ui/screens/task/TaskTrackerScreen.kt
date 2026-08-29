@@ -490,7 +490,9 @@ fun TaskTrackerScreen(
 
     currentSelectedSession?.let { segments ->
         SessionDetailDialog(
-            segments = segments, taskTypes = taskTypes, onDismiss = { selectedSessionGroupId = null },
+            segments = segments, taskTypes = taskTypes,
+            taskTypeStats = taskTypeStats, suggestionSourceTasks = suggestionSourceTasks,
+            onDismiss = { selectedSessionGroupId = null },
             onUpdateSessionName = { name ->
                 scopedEdit(
                     group = activityFor(segments.first()),
@@ -529,6 +531,8 @@ fun TaskTrackerScreen(
         TaskDetailDialog(
             task = task,
             taskTypes = taskTypes,
+            taskTypeStats = taskTypeStats,
+            suggestionSourceTasks = suggestionSourceTasks,
             onDismiss = { selectedTaskId = null },
             // Segment-scoped by default (this dialog edits one segment), with "change all"
             // reaching every sitting of the activity -- the two ends of the ladder. Retagging the
@@ -564,7 +568,7 @@ fun TaskTrackerScreen(
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
             previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
-            onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) },
+            onSplit = { splitTime, secondName, secondKind, secondTypeId -> viewModel.splitSegment(task, splitTime, secondName, secondKind, secondTypeId) },
             nextTaskName = viewModel.nextTaskName
         )
     }
@@ -1301,7 +1305,9 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
 
 @Composable
 fun SessionDetailDialog(
-    segments: List<Task>, taskTypes: List<TaskType>, onDismiss: () -> Unit,
+    segments: List<Task>, taskTypes: List<TaskType>,
+    taskTypeStats: Map<String, TaskTypeStats>, suggestionSourceTasks: List<Task>,
+    onDismiss: () -> Unit,
     onUpdateSessionName: (String) -> Unit, onUpdateSessionKind: (TaskKind) -> Unit,
     onUpdateSessionTaskType: (String?) -> Unit,
     onToggleCalendar: (Task) -> Unit,
@@ -1314,7 +1320,20 @@ fun SessionDetailDialog(
         title = { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Filled.List, null); Spacer(Modifier.width(8.dp)); Text("Session Details") } },
         text = {
             Column(modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = sessionNameInput, onValueChange = { sessionNameInput = it }, label = { Text("Session Name") }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused && sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }))
+                // Same autofill dropdown as every other naming field; label-only picks for the
+                // same reason as TaskDetailDialog -- kind/type pickers sit right below, behind
+                // the scoped-edit prompt.
+                TaskNameAutofillField(
+                    value = sessionNameInput,
+                    onValueChange = { sessionNameInput = it },
+                    label = "Session Name",
+                    taskTypes = taskTypes,
+                    taskTypeStats = taskTypeStats,
+                    suggestionSourceTasks = suggestionSourceTasks,
+                    fieldModifier = Modifier.onFocusChanged { if (!it.isFocused && sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() })
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) { Text("Session Category: ", style = MaterialTheme.typography.bodySmall); TaskKindDropdownMenu(selectedKind = sessionRef.kind, onKindSelected = onUpdateSessionKind) }
                 // Whole-session, unlike TaskDetailDialog's per-segment picker: this dialog edits
                 // the session, so retyping here retypes every segment in it. Anchored on the first
@@ -1353,7 +1372,7 @@ fun SessionDetailDialog(
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onTaskTypeChange: (String?) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind) -> Unit, nextTaskName: String) {
+fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, suggestionSourceTasks: List<Task>, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onTaskTypeChange: (String?) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind, String?) -> Unit, nextTaskName: String) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
     var showSplitDialog by remember { mutableStateOf(false) }
     
@@ -1407,7 +1426,22 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, onDismiss: () -> Uni
         title = { Text("Task Details") },
         text = {
             Column(modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused && name != task.name && !isCalendarTask) onSaveName(name) }, enabled = !isCalendarTask, label = { Text("Task Name") }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() }))
+                // Same autofill dropdown as every other naming field. Picks fill the label only:
+                // kind and type have their own pickers right below, and routing a pick through
+                // onKindChange/onTaskTypeChange would fire the scoped-edit prompt (twice, for a
+                // Recent) over a dialog the user is still typing into.
+                TaskNameAutofillField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = "Task Name",
+                    taskTypes = taskTypes,
+                    taskTypeStats = taskTypeStats,
+                    suggestionSourceTasks = suggestionSourceTasks,
+                    fieldModifier = Modifier.onFocusChanged { if (!it.isFocused && name != task.name && !isCalendarTask) onSaveName(name) },
+                    enabled = !isCalendarTask,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboardController?.hide() })
+                )
                 if (isCalendarTask) { Row(verticalAlignment = Alignment.CenterVertically) { Text("Kind: ", style = MaterialTheme.typography.bodySmall); TaskKindChip(kind = task.kind) } } else { TaskKindDropdownMenu(selectedKind = task.kind, onKindSelected = onKindChange) }
                 // Calendar-sourced tasks are read-only mirrors of an external event, so their type
                 // is shown but not editable -- same treatment the name and Kind get above.
@@ -1534,6 +1568,9 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, onDismiss: () -> Uni
         var secondsStr by remember { mutableStateOf((TimeUnit.MILLISECONDS.toSeconds(initialOffsetMs) % 60).toString()) }
         var splitName by remember { mutableStateOf(nextTaskName) }
         var splitKind by remember { mutableStateOf(task.kind) }
+        // Starts untyped, same as any brand-new task (the second half is deliberately a fresh,
+        // independent task) -- stamped only when an autofill pick supplies one.
+        var splitTypeId by remember { mutableStateOf<String?>(null) }
 
         LaunchedEffect(currentTime) {
             if (useLiveOffset) {
@@ -1615,11 +1652,24 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, onDismiss: () -> Uni
                             color = MaterialTheme.colorScheme.error
                         )
                     }
-                    OutlinedTextField(
+                    // The second half is a new task, so a pick stamps everything the active-card
+                    // autofill would: a Type prefills its most-used Kind, a Recent carries its
+                    // kind and settled type (never clearing on null, same rule as the card).
+                    TaskNameAutofillField(
                         value = splitName,
                         onValueChange = { splitName = it },
-                        label = { Text("New Task Name") },
-                        modifier = Modifier.fillMaxWidth()
+                        label = "New Task Name",
+                        taskTypes = taskTypes,
+                        taskTypeStats = taskTypeStats,
+                        suggestionSourceTasks = suggestionSourceTasks,
+                        onPickType = { picked ->
+                            splitTypeId = picked.typeId
+                            picked.mostUsedKind?.let { splitKind = it }
+                        },
+                        onPickRecent = { picked ->
+                            splitKind = picked.kind
+                            picked.typeId?.let { splitTypeId = it }
+                        }
                     )
                     Text("New Task Category", style = MaterialTheme.typography.labelSmall)
                     TaskKindDropdownMenu(selectedKind = splitKind, onKindSelected = { splitKind = it })
@@ -1628,7 +1678,7 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, onDismiss: () -> Uni
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onSplit(splitTime, splitName, splitKind)
+                        onSplit(splitTime, splitName, splitKind, splitTypeId)
                         showSplitDialog = false
                         onDismiss()
                     },

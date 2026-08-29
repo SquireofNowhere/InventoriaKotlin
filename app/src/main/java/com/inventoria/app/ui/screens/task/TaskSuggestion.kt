@@ -1,19 +1,33 @@
 package com.inventoria.app.ui.screens.task
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
@@ -152,6 +166,86 @@ fun RecentSuggestionLabel(suggestion: TaskSuggestion.Recent) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+/**
+ * The one task-name text field with the autofill dropdown attached, so every place a task gets
+ * named offers the same suggestions with the same matching, ordering, and row rendering. The
+ * active-session card and interruption dialog predate this and keep their own wiring (they need
+ * TextFieldValue selection control and save-on-blur races handled); every dialog-hosted name
+ * field goes through here.
+ *
+ * The field owns only the dropdown lifecycle (focus-gated, reopens on the next keystroke after a
+ * dismiss -- same rules as the card). What a pick *stamps* is the caller's business via
+ * [onPickType]/[onPickRecent], because it differs by context: a field naming a brand-new task
+ * carries kind and type along; a field renaming an existing record may only want the label. The
+ * label itself is always written through [onValueChange] before the pick callback runs.
+ *
+ * Focus is deliberately not cleared on a pick, matching the interruption dialog: after a Type
+ * pick the user is expected to keep typing the specific name ("Eating" -> "Eating with V").
+ */
+@Composable
+fun TaskNameAutofillField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    taskTypes: List<TaskType>,
+    taskTypeStats: Map<String, TaskTypeStats>,
+    suggestionSourceTasks: List<Task>,
+    modifier: Modifier = Modifier,
+    fieldModifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    onPickType: (TaskSuggestion.Type) -> Unit = {},
+    onPickRecent: (TaskSuggestion.Recent) -> Unit = {}
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    var dropdownDismissedByUser by remember { mutableStateOf(false) }
+    LaunchedEffect(value) { dropdownDismissedByUser = false }
+    val suggestions = remember(value, isFocused, dropdownDismissedByUser, taskTypes, taskTypeStats, suggestionSourceTasks) {
+        if (!isFocused || dropdownDismissedByUser) emptyList()
+        else buildTaskSuggestions(value, taskTypes, taskTypeStats, suggestionSourceTasks)
+    }
+    Box(modifier = modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            singleLine = true,
+            enabled = enabled,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            modifier = fieldModifier
+                .fillMaxWidth()
+                .onFocusChanged { isFocused = it.isFocused }
+        )
+        DropdownMenu(
+            expanded = suggestions.isNotEmpty(),
+            onDismissRequest = { dropdownDismissedByUser = true },
+            properties = PopupProperties(focusable = false),
+            modifier = Modifier.fillMaxWidth(0.8f)
+        ) {
+            suggestions.forEach { suggestion ->
+                DropdownMenuItem(
+                    text = {
+                        when (suggestion) {
+                            is TaskSuggestion.Type -> TaskTypeSuggestionLabel(suggestion)
+                            is TaskSuggestion.Recent -> RecentSuggestionLabel(suggestion)
+                        }
+                    },
+                    onClick = {
+                        onValueChange(suggestion.label)
+                        dropdownDismissedByUser = true
+                        when (suggestion) {
+                            is TaskSuggestion.Type -> onPickType(suggestion)
+                            is TaskSuggestion.Recent -> onPickRecent(suggestion)
+                        }
+                    }
+                )
+            }
         }
     }
 }

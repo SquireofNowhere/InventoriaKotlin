@@ -990,7 +990,7 @@ class TaskTrackerViewModel @Inject constructor(
      * computed up front from the CURRENT streak, before either write lands, so freezing the
      * first half doesn't shift the streak lookback out from under the second half's
      * calculation. */
-    fun splitSegment(task: Task, splitTime: Long, secondName: String, secondKind: TaskKind) {
+    fun splitSegment(task: Task, splitTime: Long, secondName: String, secondKind: TaskKind, secondTypeId: String? = null) {
         if (task.id.startsWith("cal_")) return
         val effectiveEnd = task.endTime ?: System.currentTimeMillis()
         if (splitTime <= task.startTime || splitTime >= effectiveEnd) return
@@ -1023,6 +1023,7 @@ class TaskTrackerViewModel @Inject constructor(
                     // custom name.
                     isNameCustom = !finalSecondName.startsWith("Task "),
                     isKindCustom = secondKind != task.kind,
+                    taskTypeId = secondTypeId,
                     interruptedGroupId = task.interruptedGroupId,
                     countsForStreak = task.countsForStreak,
                     originTodoId = task.originTodoId,

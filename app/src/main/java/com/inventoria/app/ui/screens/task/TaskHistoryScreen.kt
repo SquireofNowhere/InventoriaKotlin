@@ -64,6 +64,7 @@ fun TaskHistoryScreen(
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val taskTypes by viewModel.taskTypes.collectAsState()
+    val taskTypeStats by viewModel.taskTypeStats.collectAsState()
     val activityGroups by viewModel.completedActivityGroups.collectAsState()
     val isSelectionMode = selectedTaskIds.isNotEmpty()
     val context = LocalContext.current
@@ -85,6 +86,10 @@ fun TaskHistoryScreen(
             completedSessions.flatten().find { it.id == id }
         }
     }
+
+    // Autofill pool for the name fields in the detail dialogs -- history only knows completed
+    // work, which is what the suggestions should be learning from anyway.
+    val suggestionSourceTasks = remember(completedSessions) { completedSessions.flatten() }
 
     // The day-by-day breakdown (used for every day header's total/mini-timeline) is always
     // computed from individual segments, even in grouped view -- a session's own segments can
@@ -294,6 +299,8 @@ fun TaskHistoryScreen(
         SessionDetailDialog(
             segments = segments,
             taskTypes = taskTypes,
+            taskTypeStats = taskTypeStats,
+            suggestionSourceTasks = suggestionSourceTasks,
             onDismiss = { selectedSessionGroupId = null },
             onUpdateSessionName = { name ->
                 scopedEdit(
@@ -333,6 +340,8 @@ fun TaskHistoryScreen(
         TaskDetailDialog(
             task = task,
             taskTypes = taskTypes,
+            taskTypeStats = taskTypeStats,
+            suggestionSourceTasks = suggestionSourceTasks,
             onDismiss = { selectedTaskId = null },
             onSaveName = { name ->
                 scopedEdit(
@@ -365,7 +374,7 @@ fun TaskHistoryScreen(
             onUpdateTime = { start, end -> viewModel.updateSegmentTime(task, start, end) },
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
             previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
-            onSplit = { splitTime, secondName, secondKind -> viewModel.splitSegment(task, splitTime, secondName, secondKind) },
+            onSplit = { splitTime, secondName, secondKind, secondTypeId -> viewModel.splitSegment(task, splitTime, secondName, secondKind, secondTypeId) },
             nextTaskName = viewModel.nextTaskName
         )
     }
