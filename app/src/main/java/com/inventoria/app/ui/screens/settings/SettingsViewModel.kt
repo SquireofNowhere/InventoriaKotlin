@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
+import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
@@ -54,6 +55,10 @@ class SettingsViewModel @Inject constructor(
     /** Kept apart from [authState] so an in-flight or failed action never masks the real account. */
     private val _authOperation = MutableStateFlow<AuthOperation?>(null)
     val authOperation: StateFlow<AuthOperation?> = _authOperation.asStateFlow()
+
+    val focusArea: StateFlow<FocusArea> = settingsRepository.getFocusArea()
+        .map { FocusArea.fromName(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FocusArea.INVENTORY)
 
     val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -210,6 +215,12 @@ class SettingsViewModel @Inject constructor(
     /** Dismisses a failed sign-in or delete. The account state underneath it never needed clearing. */
     fun clearAuthState() {
         _authOperation.value = null
+    }
+
+    fun setFocusArea(area: FocusArea) {
+        viewModelScope.launch {
+            settingsRepository.setFocusArea(area.name)
+        }
     }
 
     fun toggleDarkMode(enabled: Boolean) {

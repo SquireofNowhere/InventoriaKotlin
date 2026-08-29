@@ -55,6 +55,16 @@ class SettingsRepository @Inject constructor(
     // local row to delete, so "get this off my list" can only be a list of ids to skip. Device-
     // local for the same reason the events are: the calendar is a device-level account, not ours.
     private val HIDDEN_CALENDAR_TASK_IDS = stringSetPreferencesKey("hidden_calendar_task_ids")
+    // FocusArea.name -- which area the user said they mostly use the app for. Device-local like
+    // the rest of this store; each install asks once via the launch prompt.
+    private val FOCUS_AREA = stringPreferencesKey("focus_area")
+    private val FOCUS_PROMPT_SHOWN = booleanPreferencesKey("focus_prompt_shown")
+    // Gates the What's New dialog: entries newer than this versionCode get shown once. 0 means
+    // "never recorded" -- AppLaunchViewModel tells a fresh install (seed silently) apart from a
+    // pre-feature upgrade (show everything) via PackageInfo install timestamps, since the absent
+    // key alone can't. clearAll() resetting this means the dialog may show once more after an
+    // account wipe; accepted.
+    private val LAST_SEEN_VERSION_CODE = intPreferencesKey("last_seen_version_code")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -86,6 +96,9 @@ class SettingsRepository @Inject constructor(
     fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
     fun hasSeededTaskTypes(): Flow<Boolean> = context.dataStore.data.map { it[TASK_TYPES_SEEDED] ?: false }
     fun isTodoHideCompletedEnabled(): Flow<Boolean> = context.dataStore.data.map { it[TODO_HIDE_COMPLETED] ?: false }
+    fun getFocusArea(): Flow<String> = context.dataStore.data.map { it[FOCUS_AREA] ?: "INVENTORY" }
+    fun hasSeenFocusPrompt(): Flow<Boolean> = context.dataStore.data.map { it[FOCUS_PROMPT_SHOWN] ?: false }
+    fun getLastSeenVersionCode(): Flow<Int> = context.dataStore.data.map { it[LAST_SEEN_VERSION_CODE] ?: 0 }
     fun getCollapsedTodoIds(): Flow<Set<String>> = context.dataStore.data.map { it[TODO_COLLAPSED_IDS] ?: emptySet() }
 
     suspend fun setTodoHideCompleted(enabled: Boolean) {
@@ -183,6 +196,18 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setInnerTaskPromptShown(shown: Boolean) {
         context.dataStore.edit { it[INNER_TASK_PROMPT_SHOWN] = shown }
+    }
+
+    suspend fun setFocusArea(name: String) {
+        context.dataStore.edit { it[FOCUS_AREA] = name }
+    }
+
+    suspend fun setFocusPromptShown(shown: Boolean) {
+        context.dataStore.edit { it[FOCUS_PROMPT_SHOWN] = shown }
+    }
+
+    suspend fun setLastSeenVersionCode(code: Int) {
+        context.dataStore.edit { it[LAST_SEEN_VERSION_CODE] = code }
     }
 
     suspend fun setTaskHistoryFlatView(enabled: Boolean) {

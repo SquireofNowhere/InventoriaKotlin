@@ -3,6 +3,7 @@ package com.inventoria.app.ui.screens.today
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.components.LinearProductivityChart
@@ -29,6 +31,7 @@ import com.inventoria.app.ui.screens.todo.currentMinuteOfDay
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
 import kotlinx.coroutines.delay
+import java.text.NumberFormat
 
 /**
  * The app's home: what's on today, and how the day has actually gone so far.
@@ -52,6 +55,7 @@ fun TodayScreen(
     onNavigateToTasks: () -> Unit
 ) {
     val tasks by todayViewModel.tasks.collectAsState()
+    val focusArea by todayViewModel.focusArea.collectAsState()
     val todoSections by todoViewModel.todoSections.collectAsState()
     val taskTypeNames by todoViewModel.taskTypeNamesById.collectAsState()
     val todoIdsWithActiveSession by todoViewModel.todoIdsWithActiveSession.collectAsState()
@@ -90,13 +94,10 @@ fun TodayScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        // The two existing sections plus the inventory card, as reorderable blocks. Keys are the
+        // same in every arrangement ("inventory_summary", "today_header", todo ids, "timeline"),
+        // so changing focus is a reorder to LazyColumn, not a teardown.
+        fun LazyListScope.todoListItems() {
             if (todaySection == null) {
                 item { NothingDueToday(onNavigateToTodos) }
             } else {
@@ -127,10 +128,46 @@ fun TodayScreen(
                     )
                 }
             }
+        }
 
+        // The extra Spacer only when the timeline trails the todo list, preserving the wider gap
+        // it has always had there; as the lead card the arrangement spacing is enough.
+        fun LazyListScope.timelineItem(afterTodos: Boolean) {
             item(key = "timeline") {
-                Spacer(Modifier.height(8.dp))
+                if (afterTodos) Spacer(Modifier.height(8.dp))
                 TodayTimelineCard(tasks)
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            when (focusArea) {
+                FocusArea.INVENTORY -> {
+                    item(key = "inventory_summary") {
+                        // Collected here rather than at the screen root so the COUNT/SUM queries
+                        // only run while an Inventory-focused dashboard is actually showing.
+                        val totalValue by todayViewModel.totalValue.collectAsState()
+                        val showValue by todayViewModel.showTotalValue.collectAsState()
+                        val itemCount by todayViewModel.totalItems.collectAsState()
+                        val collectionCount by todayViewModel.collectionCount.collectAsState()
+                        InventoryFocusCard(totalValue, showValue, itemCount, collectionCount)
+                    }
+                    todoListItems()
+                    timelineItem(afterTodos = true)
+                }
+                FocusArea.TASKS -> {
+                    timelineItem(afterTodos = false)
+                    todoListItems()
+                }
+                FocusArea.TODOS -> {
+                    todoListItems()
+                    timelineItem(afterTodos = true)
+                }
             }
         }
     }
@@ -184,6 +221,70 @@ private fun TodayTimelineCard(tasks: List<Task>) {
                         .fillMaxWidth()
                         .height(48.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * The Inventory-focus lead card: the same gradient treatment as [TodayTimelineCard] so the
+ * dashboard's headline card reads the same whichever focus is on top. Value honours the
+ * "Show Total Value" setting exactly like the Inventory hub's stat card; with it off the
+ * counts step up into the headline slot.
+ */
+@Composable
+private fun InventoryFocusCard(
+    totalValue: Double,
+    showValue: Boolean,
+    itemCount: Int,
+    collectionCount: Int
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.secondary
+                        )
+                    )
+                )
+                .padding(24.dp)
+        ) {
+            Column {
+                val counts = "$itemCount ${if (itemCount == 1) "item" else "items"} · " +
+                    "$collectionCount ${if (collectionCount == 1) "collection" else "collections"}"
+                if (showValue) {
+                    Text(
+                        NumberFormat.getCurrencyInstance().format(totalValue),
+                        color = Color.White,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        counts,
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Text(
+                        counts,
+                        color = Color.White,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Your inventory at a glance.",
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
         }
     }

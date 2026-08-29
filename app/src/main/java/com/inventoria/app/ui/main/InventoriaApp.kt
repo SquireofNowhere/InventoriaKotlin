@@ -21,6 +21,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.ui.screens.clock.ClockScreen
 import com.inventoria.app.ui.screens.clock.ClockViewModel
 import com.inventoria.app.ui.screens.help.HelpArticleScreen
@@ -121,6 +122,24 @@ private fun NavController.switchToTab(route: String) {
     }
 }
 
+/**
+ * Nav bar/rail order for a chosen focus: Today stays first (it's the start destination and the
+ * dashboard), the focus tab comes right after it, the other two areas keep their canonical
+ * relative order, Settings stays last. TODOS reproduces the pre-focus order exactly.
+ *
+ * Order is all this changes -- every tab is always in the list, the NavHost's composable()
+ * registrations stay put, and switching focus performs no navigation, which is what keeps the
+ * save/restore behaviour switchToTab's KDoc warns about out of reach.
+ */
+private fun tabOrderFor(focus: FocusArea): List<Screen> = when (focus) {
+    FocusArea.INVENTORY ->
+        listOf(Screen.Today, Screen.InventoryHub, Screen.Todos, Screen.Tasks, Screen.Settings)
+    FocusArea.TASKS ->
+        listOf(Screen.Today, Screen.Tasks, Screen.Todos, Screen.InventoryHub, Screen.Settings)
+    FocusArea.TODOS ->
+        listOf(Screen.Today, Screen.Todos, Screen.Tasks, Screen.InventoryHub, Screen.Settings)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoriaApp() {
@@ -129,13 +148,27 @@ fun InventoriaApp() {
     val isWideScreen = screenWidth >= 600
 
     val navController = rememberNavController()
-    val screens = listOf(
-        Screen.Today,
-        Screen.Todos,
-        Screen.Tasks,
-        Screen.InventoryHub,
-        Screen.Settings
-    )
+
+    // Activity-scoped: owns the focus pref the bar orders itself by, plus the one-time launch
+    // dialogs, which must survive tab switches.
+    val launchViewModel: AppLaunchViewModel = hiltViewModel()
+    val focusArea by launchViewModel.focusArea.collectAsState()
+    val screens = remember(focusArea) { tabOrderFor(focusArea) }
+
+    val showFocusPrompt by launchViewModel.showFocusPrompt.collectAsState()
+    val pendingWhatsNew by launchViewModel.pendingWhatsNew.collectAsState()
+    // Strictly sequential, never stacked: the focus choice reshapes the tabs and dashboard the
+    // changelog describes, so it goes first and What's New waits for it to be answered.
+    if (showFocusPrompt) {
+        FocusPromptDialog(
+            onChoose = { launchViewModel.chooseFocus(it) },
+            onDismiss = { launchViewModel.dismissFocusPrompt() }
+        )
+    } else {
+        pendingWhatsNew?.let { entries ->
+            WhatsNewDialog(entries = entries, onDismiss = { launchViewModel.dismissWhatsNew() })
+        }
+    }
 
     /**
      * Open the manual at the section covering [categoryId], or at the index if that section has

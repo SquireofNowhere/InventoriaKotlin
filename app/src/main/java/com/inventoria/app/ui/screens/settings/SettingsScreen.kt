@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
+import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
@@ -54,6 +55,7 @@ fun SettingsScreen(
     onNavigateToHelpIndex: () -> Unit
 ) {
     val context = LocalContext.current
+    val focusArea by viewModel.focusArea.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsState()
     val showValueOnDashboard by viewModel.showValueOnDashboard.collectAsState()
@@ -123,6 +125,14 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // First on purpose: focus reshapes the whole app (tab order, dashboard), so it
+            // shouldn't hide below settings that only touch one screen.
+            SettingsCategoryHeader("Focus")
+            FocusSettings(
+                selected = focusArea,
+                onSelect = { viewModel.setFocusArea(it) }
+            )
+
             SettingsCategoryHeader("Appearance")
             SettingsToggleRow(
                 title = "Dark Mode",
@@ -143,7 +153,7 @@ fun SettingsScreen(
             SettingsCategoryHeader("Inventory")
             SettingsToggleRow(
                 title = "Show Total Value",
-                subtitle = "Display total inventory value in the Inventory tab",
+                subtitle = "Display total inventory value in the Inventory tab and the Today summary card",
                 icon = Icons.Default.AccountBalanceWallet,
                 checked = showValueOnDashboard,
                 onCheckedChange = { viewModel.toggleShowValue(it) }
@@ -227,6 +237,86 @@ fun SettingsScreen(
             
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+/**
+ * The current focus as a tappable Card row, opening the same three-way choice the launch prompt
+ * offers -- one copy of the titles/descriptions, via FocusArea itself. The bar reorders live on
+ * selection because InventoriaApp collects the same preference.
+ */
+@Composable
+fun FocusSettings(
+    selected: FocusArea,
+    onSelect: (FocusArea) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showDialog = true },
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.CenterFocusStrong,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("App Focus", fontWeight = FontWeight.Bold)
+                Text(
+                    "${selected.title} -- sits next to Today and leads the dashboard",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("App Focus") },
+            text = {
+                Column {
+                    FocusArea.entries.forEach { area ->
+                        ListItem(
+                            headlineContent = { Text(area.title, fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(area.description) },
+                            trailingContent = {
+                                if (area == selected) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            },
+                            modifier = Modifier.clickable {
+                                onSelect(area)
+                                showDialog = false
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 
