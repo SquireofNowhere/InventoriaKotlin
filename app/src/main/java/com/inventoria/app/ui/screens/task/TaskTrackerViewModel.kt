@@ -222,7 +222,6 @@ class TaskTrackerViewModel @Inject constructor(
     }
 
     private var flowModeJob: Job? = null
-    private var hasLoadedInitialTasks = false
 
     fun toggleFlowMode(enabled: Boolean) {
         viewModelScope.launch {
@@ -486,13 +485,6 @@ class TaskTrackerViewModel @Inject constructor(
                 TaskSessionUI(groupId, segments, isExpanded, runningUI)
             }.sortedByDescending { it.activeSegment?.task?.startTime ?: it.segments.firstOrNull()?.startTime ?: 0L }
         _activeSessions.value = active
-
-        if (!hasLoadedInitialTasks) {
-            hasLoadedInitialTasks = true
-            if (isFlowModeEnabled.value && active.isEmpty()) {
-                addNewTask()
-            }
-        }
 
         val completed = grouped.filter { (_, sessionTasks) -> sessionTasks.all { !it.isSessionActive } }
             .values.map { it.sortedByDescending { t -> t.startTime } }.sortedByDescending { it.firstOrNull()?.startTime ?: 0L }
