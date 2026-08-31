@@ -95,7 +95,7 @@ class SettingsRepository @Inject constructor(
     fun getProcrastinationTaskKinds(): Flow<Set<String>> = context.dataStore.data.map { it[PROCRASTINATION_TASK_KINDS] ?: emptySet() }
     fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
     fun hasSeededTaskTypes(): Flow<Boolean> = context.dataStore.data.map { it[TASK_TYPES_SEEDED] ?: false }
-    fun isTodoHideCompletedEnabled(): Flow<Boolean> = context.dataStore.data.map { it[TODO_HIDE_COMPLETED] ?: false }
+    fun isTodoHideCompletedEnabled(): Flow<Boolean> = context.dataStore.data.map { it[TODO_HIDE_COMPLETED] ?: true }
     fun getFocusArea(): Flow<String> = context.dataStore.data.map { it[FOCUS_AREA] ?: "INVENTORY" }
     fun hasSeenFocusPrompt(): Flow<Boolean> = context.dataStore.data.map { it[FOCUS_PROMPT_SHOWN] ?: false }
     fun getLastSeenVersionCode(): Flow<Int> = context.dataStore.data.map { it[LAST_SEEN_VERSION_CODE] ?: 0 }

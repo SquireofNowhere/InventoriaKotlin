@@ -102,9 +102,9 @@ class TodoViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
-    /** Whether the Todos screen is currently hiding finished work. Off by default. */
+    /** Whether the Todos screen is currently hiding finished work. On by default. */
     val hideCompleted: StateFlow<Boolean> = settingsRepository.isTodoHideCompletedEnabled()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     /** Todos whose sub-todos are folded away on the Todos screen. */
     val collapsedTodoIds: StateFlow<Set<String>> = settingsRepository.getCollapsedTodoIds()
