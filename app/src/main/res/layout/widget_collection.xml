@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background">
+
+    <LinearLayout
+        android:id="@+id/widget_collection_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/widget_header_background"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/widget_collection_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/widget_collection_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_collection_label"
+            android:textColor="@color/widget_on_header"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/widget_collection_ready"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:textColor="@color/widget_on_header_muted"
+            android:textSize="12sp"/>
+
+        <ImageView
+            android:id="@+id/widget_collection_dot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/widget_dot"
+            android:contentDescription="@null"/>
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/widget_collection_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:divider="@color/widget_divider"
+        android:dividerHeight="1dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="4dp"
+        android:clipToPadding="false"/>
+
+    <TextView
+        android:id="@+id/widget_collection_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="20dp"
+        android:text="@string/widget_collection_empty"
+        android:textColor="@color/widget_on_surface_variant"
+        android:textSize="13sp"
+        android:visibility="gone"/>
+</LinearLayout>

@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Task Tracker widget. Five fixed session slots rather than a ListView: sessions are capped at
+     five (TaskRepository.MAX_ACTIVE_SESSIONS), and fixed slots give every button its own
+     PendingIntent with no RemoteViewsService, no fill-in template and no list reload flicker on
+     each database change. Ids must be unique within one RemoteViews hierarchy, so the slot is
+     spelled out five times instead of <include>d. TaskWidgetProvider holds the id table. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_task_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background">
+
+    <LinearLayout
+        android:id="@+id/widget_task_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/widget_header_background"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_widget_timer"
+            android:contentDescription="@null"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_task_label"
+            android:textColor="@color/widget_on_header"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <ImageButton
+            android:id="@+id/widget_task_add"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@drawable/widget_button_background"
+            android:src="@drawable/ic_widget_add"
+            android:scaleType="centerInside"
+            android:padding="6dp"
+            android:contentDescription="@string/widget_new_task"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_task_sessions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <LinearLayout
+            android:id="@+id/widget_task_slot1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/widget_task_slot1_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="10dp"
+                android:src="@drawable/widget_dot"
+                android:contentDescription="@null"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_task_slot1_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+
+                <Chronometer
+                    android:id="@+id/widget_task_slot1_timer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"/>
+
+                <TextView
+                    android:id="@+id/widget_task_slot1_paused"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot1_toggle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_pause"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/pause"/>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot1_stop"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_stop"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/stop"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_task_slot2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/widget_task_slot2_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="10dp"
+                android:src="@drawable/widget_dot"
+                android:contentDescription="@null"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_task_slot2_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+
+                <Chronometer
+                    android:id="@+id/widget_task_slot2_timer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"/>
+
+                <TextView
+                    android:id="@+id/widget_task_slot2_paused"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot2_toggle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_pause"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/pause"/>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot2_stop"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_stop"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/stop"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_task_slot3"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/widget_task_slot3_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="10dp"
+                android:src="@drawable/widget_dot"
+                android:contentDescription="@null"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_task_slot3_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+
+                <Chronometer
+                    android:id="@+id/widget_task_slot3_timer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"/>
+
+                <TextView
+                    android:id="@+id/widget_task_slot3_paused"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot3_toggle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_pause"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/pause"/>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot3_stop"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_stop"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/stop"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_task_slot4"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/widget_task_slot4_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="10dp"
+                android:src="@drawable/widget_dot"
+                android:contentDescription="@null"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_task_slot4_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+
+                <Chronometer
+                    android:id="@+id/widget_task_slot4_timer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"/>
+
+                <TextView
+                    android:id="@+id/widget_task_slot4_paused"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot4_toggle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_pause"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/pause"/>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot4_stop"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_stop"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/stop"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_task_slot5"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/widget_task_slot5_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginEnd="10dp"
+                android:src="@drawable/widget_dot"
+                android:contentDescription="@null"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_task_slot5_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+
+                <Chronometer
+                    android:id="@+id/widget_task_slot5_timer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"/>
+
+                <TextView
+                    android:id="@+id/widget_task_slot5_paused"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_on_surface_variant"
+                    android:textSize="13sp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot5_toggle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_pause"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/pause"/>
+
+            <ImageButton
+                android:id="@+id/widget_task_slot5_stop"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/widget_button_background"
+                android:src="@drawable/ic_widget_stop"
+                android:tint="@color/widget_on_surface"
+                android:scaleType="centerInside"
+                android:padding="8dp"
+                android:contentDescription="@string/stop"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_task_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_task_empty"
+            android:textColor="@color/widget_on_surface_variant"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:id="@+id/widget_task_start"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/widget_chip_background"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="@string/widget_new_task"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="13sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+</LinearLayout>

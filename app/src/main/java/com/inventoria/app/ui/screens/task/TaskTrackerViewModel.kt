@@ -519,10 +519,11 @@ class TaskTrackerViewModel @Inject constructor(
     fun addNewTask() {
         flowModeJob?.cancel()
         _isAutoStartPending.value = false
-        if (_activeSessions.value.size >= 5) return
+        if (_activeSessions.value.size >= TaskRepository.MAX_ACTIVE_SESSIONS) return
         viewModelScope.launch {
-            val task = Task(id = UUID.randomUUID().toString(), groupId = UUID.randomUUID().toString(), name = "Task $taskCounter", isRunning = true, startTime = System.currentTimeMillis())
-            repository.insertTask(task)
+            // The repository re-checks the cap against the table, which matters when a widget
+            // button and this screen race each other.
+            repository.startNewSession("Task $taskCounter") ?: return@launch
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
             else { context.startService(intent) }
@@ -548,56 +549,14 @@ class TaskTrackerViewModel @Inject constructor(
                 // RESUMING: resuming this session directly means "back to this" -- collapse the
                 // whole interruption chain on top of it (however many levels deep, whatever their
                 // individual pause state), since none of them have anything left to return to.
-                val now = System.currentTimeMillis()
-                stopActiveInterruptionChain(session.groupId, now)
-                resumeSession(session)
+                repository.resumeSession(session.groupId, System.currentTimeMillis())
             }
         }
     }
 
-    /** Finds the session that is interrupting [groupId] -- i.e. whose own (first) segment has
-     * [Task.interruptedGroupId] pointing at it -- regardless of whether that interrupting session
-     * currently has a running segment or is itself paused (because IT has a further interruption
-     * on top). Unlike checking only [TaskSessionUI.activeSegment], this finds the whole chain. */
-    private fun findInterruptionSessionFor(groupId: String): TaskSessionUI? =
-        _activeSessions.value.find { s ->
-            (s.activeSegment?.task ?: s.segments.firstOrNull())?.interruptedGroupId == groupId
-        }
-
-    /** Stops whatever is interrupting [groupId] -- and, recursively, whatever is interrupting
-     * THAT -- deepest first, regardless of how many levels are currently paused partway down the
-     * chain. Used whenever a session is being stopped or resumed outright (rather than simply
-     * un-pausing straight back into an active interruption), so a chain of interruptions doesn't
-     * get left dangling with nothing left to eventually return to. */
-    private suspend fun stopActiveInterruptionChain(groupId: String, now: Long) {
-        val interrupting = findInterruptionSessionFor(groupId) ?: return
-        stopActiveInterruptionChain(interrupting.groupId, now)
-        interrupting.activeSegment?.let { ui ->
-            repository.stopTaskAndSession(ui.task.id, interrupting.groupId, now, now - ui.task.startTime, ui.task.kind)
-        } ?: repository.endSession(interrupting.groupId)
-    }
-
-    private suspend fun resumeSession(session: TaskSessionUI) {
-        val first = session.segments.firstOrNull() ?: return
-        // interruptedGroupId/countsForStreak/originTodoId must carry over from the session's own
-        // segments, or a session that gets paused (to spawn an interruption, or just paused and
-        // later resumed) silently loses its parent-child link, streak opt-in, or Todo origin the
-        // moment it's resumed, since a fresh Task() defaults all three back to null/false -- and
-        // since resumeSession always reads the MOST RECENT segment, a single un-propagated resume
-        // would otherwise permanently sever the link for every resume after it too.
-        val newTask = Task(
-            id = UUID.randomUUID().toString(),
-            groupId = session.groupId,
-            name = first.name,
-            kind = first.kind,
-            isRunning = true,
-            startTime = System.currentTimeMillis(),
-            interruptedGroupId = first.interruptedGroupId,
-            countsForStreak = first.countsForStreak,
-            originTodoId = first.originTodoId
-        )
-        repository.insertTask(newTask)
-    }
+    // Interruption-chain collapse, resume and stop live on TaskRepository (shared with the Task
+    // Tracker home-screen widget); this screen only adds the prompts, the todo check-in and Flow
+    // Mode on top.
 
     /** User answered the first-time "enable interruption tracking?" prompt. */
     fun respondToInnerTaskPrompt(enable: Boolean, pausedGroupId: String) {
@@ -672,14 +631,9 @@ class TaskTrackerViewModel @Inject constructor(
             // origin off whichever segment is actually available.
             val originTodoId = (session.activeSegment?.task ?: session.segments.firstOrNull())?.originTodoId
 
-            // Cascade: stop whatever is actively interrupting this session first (recursively,
-            // in case that interruption has its own interruption on top of it), since it has
-            // nothing left to "return to" once this session is gone.
-            stopActiveInterruptionChain(session.groupId, now)
-
-            session.activeSegment?.let { ui ->
-                repository.stopTaskAndSession(ui.task.id, session.groupId, now, now - ui.task.startTime, ui.task.kind)
-            } ?: run { repository.endSession(session.groupId) }
+            // Cascades through whatever is interrupting this session, freezes the running segment,
+            // and resumes the session this one interrupted (if any) -- see TaskRepository.stopSession.
+            repository.stopSession(session.groupId, now)
             _isLoading.value = false
 
             // A session started from a Todo's Start button just ended -- ask whether that actually
@@ -688,14 +642,6 @@ class TaskTrackerViewModel @Inject constructor(
             // and the session stopping is itself what releases it.
             if (originTodoId != null) {
                 todoRepository.getTodoById(originTodoId)?.let { _pendingTodoCompletionCheckIn.value = it }
-            }
-
-            // Stopping an interruption means "back to what I was doing" -- resume it automatically
-            // rather than leaving the user to find and un-pause it themselves.
-            if (interruptedGroupId != null) {
-                _activeSessions.value
-                    .find { it.groupId == interruptedGroupId && it.activeSegment == null }
-                    ?.let { resumeSession(it) }
             }
 
             // Flow Mode's auto-start-next-task only makes sense for a genuine stop -- an
@@ -873,7 +819,7 @@ class TaskTrackerViewModel @Inject constructor(
             val interruptedGroupId =
                 (session.activeSegment?.task ?: session.segments.firstOrNull())?.interruptedGroupId
 
-            stopActiveInterruptionChain(session.groupId, now)
+            repository.stopInterruptionChain(session.groupId, now)
             repository.softDeleteSession(session.groupId)
             _isLoading.value = false
             // Offered back like any other delete. The confirm in front of it is about the time
@@ -884,9 +830,7 @@ class TaskTrackerViewModel @Inject constructor(
             ) { repository.restoreSession(session.groupId) }
 
             if (interruptedGroupId != null) {
-                _activeSessions.value
-                    .find { it.groupId == interruptedGroupId && it.activeSegment == null }
-                    ?.let { resumeSession(it) }
+                repository.resumeSession(interruptedGroupId, System.currentTimeMillis())
             }
         }
     }

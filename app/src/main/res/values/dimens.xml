@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home-screen widget corners. Pre-31 devices get a fixed radius; values-v31 swaps in the
+         system's own widget radius so the widgets match every other widget on the screen. -->
+    <dimen name="widget_corner_radius">16dp</dimen>
+    <dimen name="widget_inner_radius">8dp</dimen>
+</resources>

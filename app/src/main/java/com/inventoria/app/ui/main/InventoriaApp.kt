@@ -142,9 +142,17 @@ private fun tabOrderFor(focus: FocusArea): List<Screen> = when (focus) {
         listOf(Screen.Today, Screen.Todos, Screen.Tasks, Screen.InventoryHub, Screen.Settings)
 }
 
+/**
+ * [pendingRoute] is a screen something outside the NavHost asked for -- a home-screen widget tap,
+ * delivered through MainActivity (see WidgetNav). It is honoured once, then [onRouteConsumed]
+ * clears it so a recomposition never navigates twice.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoriaApp() {
+fun InventoriaApp(
+    pendingRoute: String? = null,
+    onRouteConsumed: () -> Unit = {}
+) {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp
     val isWideScreen = screenWidth >= 600
@@ -538,4 +546,20 @@ fun InventoriaApp() {
         }
     }
 }
+
+    // After the NavHost above, so the graph exists by the time this runs. Tab routes go through
+    // switchToTab (a plain navigate() to a tab corrupts the bar's save/restore state -- see its
+    // KDoc); inventory drill-downs switch to the Inventory tab first so Back lands there.
+    LaunchedEffect(pendingRoute) {
+        val route = pendingRoute ?: return@LaunchedEffect
+        when {
+            screens.any { it.route == route } -> navController.switchToTab(route)
+            route.startsWith("collection/") || route.startsWith("item_detail/") -> {
+                navController.switchToTab(Screen.InventoryHub.route)
+                navController.navigate(route)
+            }
+            else -> navController.navigate(route)
+        }
+        onRouteConsumed()
+    }
 }

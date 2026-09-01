@@ -6,8 +6,7 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- Which collection each Collection widget shows, keyed by launcher-assigned widget id.
+         Those ids mean nothing on another device, so a restored mapping would only mislead. -->
+    <exclude domain="sharedpref" path="widget_prefs.xml"/>
 </full-backup-content>

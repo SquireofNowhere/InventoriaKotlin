@@ -101,6 +101,72 @@
             </intent-filter>
         </receiver>
 
+        <!-- Home-screen widgets. Providers are exported because the launcher sends them
+             APPWIDGET_UPDATE; their buttons all land on WidgetActionReceiver, which is not
+             exported because every PendingIntent aimed at it is created by this app. -->
+        <receiver
+            android:name=".widget.WidgetActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".widget.task.TaskWidgetProvider"
+            android:label="@string/widget_task_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_task_info"/>
+        </receiver>
+
+        <receiver
+            android:name=".widget.todo.TodoWidgetProvider"
+            android:label="@string/widget_todo_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_todo_info"/>
+        </receiver>
+
+        <receiver
+            android:name=".widget.collection.CollectionWidgetProvider"
+            android:label="@string/widget_collection_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_collection_info"/>
+        </receiver>
+
+        <!-- Row suppliers for the two list widgets. BIND_REMOTEVIEWS restricts binding to the
+             system, which is the only thing that ever should. -->
+        <service
+            android:name=".widget.todo.TodoWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
+        <service
+            android:name=".widget.collection.CollectionWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
+        <!-- Launched by the launcher when a Collection widget is placed; exported for that reason
+             and harmless to expose, it only reads the widget id it is handed. -->
+        <activity
+            android:name=".widget.collection.CollectionWidgetConfigureActivity"
+            android:theme="@style/Theme.Inventoria"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE"/>
+            </intent-filter>
+        </activity>
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

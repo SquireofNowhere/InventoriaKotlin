@@ -34,4 +34,23 @@
     <!-- Map Resources (from OSMDroid) -->
     <string name="map_mode">Map Source</string>
     <string name="my_location">My location</string>
+    <!-- Home-screen widgets -->
+    <string name="widget_todo_label">Today\'s Todos</string>
+    <string name="widget_todo_description">What is due or overdue today, with a tap to tick it off.</string>
+    <string name="widget_todo_title">Today</string>
+    <string name="widget_todo_empty">Nothing due today</string>
+    <string name="widget_overdue">Overdue</string>
+    <string name="widget_task_label">Task Tracker</string>
+    <string name="widget_task_description">Your running sessions, with pause, resume and stop.</string>
+    <string name="widget_task_empty">No active session</string>
+    <string name="widget_new_task">New task</string>
+    <string name="widget_paused">Paused</string>
+    <string name="widget_collection_label">Collection</string>
+    <string name="widget_collection_description">The items of one collection, and how ready it is.</string>
+    <string name="widget_collection_removed">Collection removed. Tap to choose another.</string>
+    <string name="widget_collection_empty">No items in this collection</string>
+    <string name="widget_collection_ready">%1$d/%2$d ready</string>
+    <string name="widget_choose_collection">Choose a collection</string>
+    <string name="widget_no_collections">No collections yet. Create one in the app first.</string>
+    <string name="widget_short">short</string>
 </resources>

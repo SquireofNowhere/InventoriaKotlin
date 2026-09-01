@@ -1,6 +1,7 @@
 package com.inventoria.app.ui.main
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -19,7 +20,9 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.inventoria.app.ui.screens.inventory.InventoryListViewModel
 import com.inventoria.app.ui.screens.settings.SettingsViewModel
 import com.inventoria.app.ui.theme.InventoriaTheme
+import com.inventoria.app.widget.WidgetNav
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -28,12 +31,22 @@ class MainActivity : ComponentActivity() {
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val inventoryViewModel: InventoryListViewModel by viewModels()
 
+    /** A screen a home-screen widget asked for (WidgetNav.EXTRA_NAV_ROUTE), until InventoriaApp
+     * has navigated there. Only read off a *fresh* launch intent: on a rotation the saved
+     * NavController state already holds wherever the user went, and replaying the route would
+     * yank them back. */
+    private val pendingRoute = MutableStateFlow<String?>(null)
+
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            pendingRoute.value = intent.getStringExtra(WidgetNav.EXTRA_NAV_ROUTE)
+        }
 
         setContent {
             val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
+            val route by pendingRoute.collectAsState()
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val notificationPermissionState = rememberPermissionState(
@@ -47,7 +60,10 @@ class MainActivity : ComponentActivity() {
             }
 
             InventoriaTheme(darkTheme = isDarkMode) {
-                InventoriaApp()
+                InventoriaApp(
+                    pendingRoute = route,
+                    onRouteConsumed = { pendingRoute.value = null }
+                )
             }
         }
 
@@ -66,6 +82,14 @@ class MainActivity : ComponentActivity() {
                 inventoryViewModel.triggerManualSync()
             }
         }
+    }
+
+    /** SplashActivity relaunches this activity with CLEAR_TOP|SINGLE_TOP, so a widget tap while
+     * the app is already running lands here rather than in a second onCreate. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(WidgetNav.EXTRA_NAV_ROUTE)?.let { pendingRoute.value = it }
     }
 
     override fun onStop() {

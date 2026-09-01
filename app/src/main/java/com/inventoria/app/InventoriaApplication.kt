@@ -7,6 +7,7 @@ import androidx.work.*
 import com.google.firebase.database.FirebaseDatabase
 import com.inventoria.app.data.alarm.TodoAlarmScheduler
 import com.inventoria.app.data.worker.SyncWorker
+import com.inventoria.app.widget.WidgetRefresher
 import dagger.hilt.android.HiltAndroidApp
 import org.osmdroid.config.Configuration as OsmConfiguration
 import java.util.concurrent.TimeUnit
@@ -20,6 +21,9 @@ class InventoriaApplication : Application(), Configuration.Provider {
 
     @Inject
     lateinit var todoAlarmScheduler: TodoAlarmScheduler
+
+    @Inject
+    lateinit var widgetRefresher: WidgetRefresher
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -52,6 +56,9 @@ class InventoriaApplication : Application(), Configuration.Provider {
         // Also the whole reboot story: BootReceiver only brings the process up, and this is what
         // then re-arms every alarm the restart threw away.
         todoAlarmScheduler.start()
+
+        // Same idea for the home-screen widgets: watch the tables, redraw whatever is placed.
+        widgetRefresher.start()
     }
 
     private fun scheduleSync() {

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 1800000 is the platform minimum for updatePeriodMillis; the real refresh is WidgetRefresher
+     watching the Task table, this is only the safety net. previewLayout, description and the
+     targetCell* sizes are Android 12+ and ignored below it, where previewImage applies. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:maxResizeHeight="400dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_task"
+    android:previewLayout="@layout/widget_task"
+    android:previewImage="@mipmap/ic_launcher"
+    android:description="@string/widget_task_description"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"/>

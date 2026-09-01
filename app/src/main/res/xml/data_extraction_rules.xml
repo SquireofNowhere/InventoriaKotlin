@@ -4,16 +4,11 @@
    for details.
 -->
 <data-extraction-rules>
+    <!-- Widget-id -> collection mapping; see backup_rules.xml for why it stays on the device. -->
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="widget_prefs.xml"/>
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="widget_prefs.xml"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

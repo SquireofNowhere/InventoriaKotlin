@@ -8,4 +8,14 @@
     <!-- Adjust other colors if needed for dark mode -->
     <color name="shimmer_highlight">#20FFFFFF</color>
     <color name="shimmer_base">#10FFFFFF</color>
+    <!-- Home-screen widgets in the dark -->
+    <color name="widget_background">#1e293b</color>
+    <color name="widget_on_surface">#f1f5f9</color>
+    <color name="widget_on_surface_variant">#cbd5e1</color>
+    <color name="widget_divider">#334155</color>
+    <color name="widget_chip">#334155</color>
+    <color name="widget_header">#7c3aed</color>
+    <color name="widget_on_header">#ffffff</color>
+    <color name="widget_on_header_muted">#e9d5ff</color>
+    <color name="widget_button">#33ffffff</color>
 </resources>

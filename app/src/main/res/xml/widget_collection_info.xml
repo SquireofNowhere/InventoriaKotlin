@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- configure: the user picks which collection when placing the widget. reconfigurable (Android
+     9+) lets them change their mind from the widget's long-press menu. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_collection"
+    android:previewLayout="@layout/widget_collection"
+    android:previewImage="@mipmap/ic_launcher"
+    android:description="@string/widget_collection_description"
+    android:configure="com.inventoria.app.widget.collection.CollectionWidgetConfigureActivity"
+    android:widgetFeatures="reconfigurable"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"/>

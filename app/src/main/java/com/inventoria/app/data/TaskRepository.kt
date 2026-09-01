@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -258,5 +259,128 @@ class TaskRepository @Inject constructor(
 
     suspend fun purgeOldDeletedTasks(threshold: Long) {
         taskDao.purgeOldDeletedTasks(threshold)
+    }
+
+    // ---- Session operations ------------------------------------------------------------------
+    //
+    // A "session" is every Task row sharing a groupId. These read the table rather than any
+    // in-memory snapshot so they work the same from the tracker screen and from a home-screen
+    // widget button pressed while the app is not running.
+
+    /** Sessions still active (paused or running), keyed by groupId. */
+    private suspend fun activeSessions(): Map<String, List<Task>> =
+        taskDao.getVisibleTasksList()
+            .groupBy { it.groupId }
+            .filter { (_, segments) -> segments.any { it.isSessionActive } }
+
+    /** Hard cap on concurrent sessions -- the tracker screen refuses a sixth, and so does this. */
+    suspend fun activeSessionCount(): Int = activeSessions().size
+
+    /**
+     * Stops whatever is interrupting [groupId] -- and, recursively, whatever is interrupting THAT
+     * -- deepest first, regardless of how many levels are currently paused partway down the chain.
+     * Used whenever a session is being stopped or resumed outright (rather than simply un-pausing
+     * straight back into an active interruption), so a chain of interruptions doesn't get left
+     * dangling with nothing left to eventually return to.
+     */
+    suspend fun stopInterruptionChain(groupId: String, now: Long) {
+        val interrupting = activeSessions().entries
+            .firstOrNull { (_, segments) -> segments.any { it.interruptedGroupId == groupId } }
+            ?: return
+        stopInterruptionChain(interrupting.key, now)
+        val running = interrupting.value.firstOrNull { it.isRunning }
+        if (running != null) {
+            stopTaskAndSession(running.id, interrupting.key, now, now - running.startTime, running.kind)
+        } else {
+            endSession(interrupting.key)
+        }
+    }
+
+    /**
+     * Un-pauses [groupId] by opening a fresh running segment on it, first collapsing any
+     * interruption chain stacked on top (resuming "back to this" means none of those have
+     * anything left to return to). No-op if the session is already running or is gone.
+     *
+     * interruptedGroupId/countsForStreak/originTodoId/taskTypeId carry over from the session's
+     * most recent segment, or a resume would silently sever the parent-child link, streak opt-in,
+     * todo origin or type -- and since this always reads the MOST RECENT segment, one un-propagated
+     * resume would sever them for every resume after it too.
+     */
+    suspend fun resumeSession(groupId: String, now: Long): Task? {
+        val segments = taskDao.getTasksByGroupId(groupId)
+        if (segments.none { it.isSessionActive } || segments.any { it.isRunning }) return null
+        val latest = segments.maxByOrNull { it.startTime } ?: return null
+        stopInterruptionChain(groupId, now)
+        val newTask = Task(
+            id = UUID.randomUUID().toString(),
+            groupId = groupId,
+            name = latest.name,
+            kind = latest.kind,
+            taskTypeId = latest.taskTypeId,
+            isRunning = true,
+            startTime = now,
+            interruptedGroupId = latest.interruptedGroupId,
+            countsForStreak = latest.countsForStreak,
+            originTodoId = latest.originTodoId
+        )
+        insertTask(newTask)
+        return newTask
+    }
+
+    /** Pauses [groupId]'s running segment, if it has one. Returns the segment that was paused. */
+    suspend fun pauseSession(groupId: String, now: Long): Task? {
+        val running = taskDao.getTasksByGroupId(groupId).firstOrNull { it.isRunning } ?: return null
+        pauseSegment(running, now)
+        return running
+    }
+
+    /**
+     * Ends [groupId] for good: collapses its interruption chain, freezes its running segment (or
+     * just closes the session if it was paused), and -- when this session was itself an
+     * interruption -- resumes the session it interrupted, because stopping an interruption means
+     * "back to what I was doing". Returns the todo this session was started from, if any, so a
+     * caller with a UI can offer the completion check-in.
+     */
+    suspend fun stopSession(groupId: String, now: Long): String? {
+        val segments = taskDao.getTasksByGroupId(groupId)
+        if (segments.none { it.isSessionActive }) return null
+        val running = segments.firstOrNull { it.isRunning }
+        // Read the links off whichever segment exists: a session can be paused right now because
+        // it has an interruption on top, in which case there is no running segment to ask.
+        val reference = running ?: segments.maxByOrNull { it.startTime }
+        val interruptedGroupId = reference?.interruptedGroupId
+        val originTodoId = reference?.originTodoId
+
+        stopInterruptionChain(groupId, now)
+        if (running != null) {
+            stopTaskAndSession(running.id, groupId, now, now - running.startTime, running.kind)
+        } else {
+            endSession(groupId)
+        }
+
+        if (interruptedGroupId != null) resumeSession(interruptedGroupId, now)
+        return originTodoId
+    }
+
+    /**
+     * Opens a brand-new running session called [name], or returns null when the five-session cap
+     * is already reached. Callers still own starting TaskTimerService afterwards.
+     */
+    suspend fun startNewSession(name: String, now: Long = System.currentTimeMillis()): Task? {
+        if (activeSessionCount() >= MAX_ACTIVE_SESSIONS) return null
+        val task = Task(
+            id = UUID.randomUUID().toString(),
+            groupId = UUID.randomUUID().toString(),
+            name = name,
+            isRunning = true,
+            startTime = now
+        )
+        insertTask(task)
+        return task
+    }
+
+    companion object {
+        /** The tracker screen refuses a sixth concurrent session; the widget honours the same cap. */
+        const val MAX_ACTIVE_SESSIONS = 5
     }
 }

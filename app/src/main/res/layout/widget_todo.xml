@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background">
+
+    <LinearLayout
+        android:id="@+id/widget_todo_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/widget_header_background"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <ImageView
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_widget_checklist"
+            android:contentDescription="@null"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_todo_title"
+            android:textColor="@color/widget_on_header"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/widget_todo_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_on_header_muted"
+            android:textSize="12sp"/>
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/widget_todo_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:divider="@color/widget_divider"
+        android:dividerHeight="1dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="4dp"
+        android:clipToPadding="false"/>
+
+    <TextView
+        android:id="@+id/widget_todo_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="20dp"
+        android:text="@string/widget_todo_empty"
+        android:textColor="@color/widget_on_surface_variant"
+        android:textSize="13sp"
+        android:visibility="gone"/>
+</LinearLayout>
