@@ -30,7 +30,7 @@ import com.inventoria.app.ui.main.changelog.ChangelogEntryContent
 
 /**
  * Asks which area the user wants the app to focus on. Every dismissal path is a valid answer:
- * picking a row chooses it, "Use Inventory" (and back / outside-tap) keeps the default.
+ * picking a row chooses it, "Use Task Tracker" (and back / outside-tap) keeps the default.
  */
 @Composable
 fun FocusPromptDialog(
@@ -67,7 +67,7 @@ fun FocusPromptDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Use Inventory")
+                Text("Use ${FocusArea.DEFAULT.title}")
             }
         }
     )

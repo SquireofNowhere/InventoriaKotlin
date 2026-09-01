@@ -43,7 +43,7 @@ class AppLaunchViewModel @Inject constructor(
      */
     val focusArea: StateFlow<FocusArea> = settingsRepository.getFocusArea()
         .map { FocusArea.fromName(it) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, FocusArea.INVENTORY)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FocusArea.DEFAULT)
 
     private val _showFocusPrompt = MutableStateFlow(false)
     val showFocusPrompt: StateFlow<Boolean> = _showFocusPrompt.asStateFlow()

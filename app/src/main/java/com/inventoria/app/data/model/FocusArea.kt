@@ -2,7 +2,7 @@ package com.inventoria.app.data.model
 
 /**
  * What the user told us they mostly use the app for. Chosen once in the launch prompt (or left at
- * the INVENTORY default), changeable any time from Settings.
+ * the TASKS default), changeable any time from Settings.
  *
  * Two things read it: the nav bar puts the focus tab right after Today, and the Today dashboard
  * leads with a card for the focus area. All tabs stay present regardless -- focus is emphasis,
@@ -12,13 +12,18 @@ package com.inventoria.app.data.model
  * surfaces can't drift apart on wording.
  */
 enum class FocusArea(val title: String, val description: String) {
-    INVENTORY("Inventory", "Track belongings and collections"),
+    // Declaration order is the order the prompt and the Settings picker list them: the default
+    // first.
     TASKS("Task Tracker", "Time and track what you work on"),
-    TODOS("Todos", "Plan and check off your day");
+    TODOS("Todos", "Plan and check off your day"),
+    INVENTORY("Inventory", "Track belongings and collections");
 
     companion object {
+        /** The focus an install has until the user picks one. */
+        val DEFAULT = TASKS
+
         /** Stored-string parse with the same silent fallback the other enum prefs use. */
         fun fromName(name: String): FocusArea =
-            try { valueOf(name) } catch (e: IllegalArgumentException) { INVENTORY }
+            try { valueOf(name) } catch (e: IllegalArgumentException) { DEFAULT }
     }
 }

@@ -56,7 +56,8 @@ class SettingsRepository @Inject constructor(
     // local for the same reason the events are: the calendar is a device-level account, not ours.
     private val HIDDEN_CALENDAR_TASK_IDS = stringSetPreferencesKey("hidden_calendar_task_ids")
     // FocusArea.name -- which area the user said they mostly use the app for. Device-local like
-    // the rest of this store; each install asks once via the launch prompt.
+    // the rest of this store; each install asks once via the launch prompt. Defaults to TASKS: the
+    // app is pitched as time management first (v2.14), so an unanswered prompt lands there.
     private val FOCUS_AREA = stringPreferencesKey("focus_area")
     private val FOCUS_PROMPT_SHOWN = booleanPreferencesKey("focus_prompt_shown")
     // Gates the What's New dialog: entries newer than this versionCode get shown once. 0 means
@@ -100,7 +101,7 @@ class SettingsRepository @Inject constructor(
     fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
     fun hasSeededTaskTypes(): Flow<Boolean> = context.dataStore.data.map { it[TASK_TYPES_SEEDED] ?: false }
     fun isTodoHideCompletedEnabled(): Flow<Boolean> = context.dataStore.data.map { it[TODO_HIDE_COMPLETED] ?: true }
-    fun getFocusArea(): Flow<String> = context.dataStore.data.map { it[FOCUS_AREA] ?: "INVENTORY" }
+    fun getFocusArea(): Flow<String> = context.dataStore.data.map { it[FOCUS_AREA] ?: "TASKS" }
     fun hasSeenFocusPrompt(): Flow<Boolean> = context.dataStore.data.map { it[FOCUS_PROMPT_SHOWN] ?: false }
     fun getLastSeenVersionCode(): Flow<Int> = context.dataStore.data.map { it[LAST_SEEN_VERSION_CODE] ?: 0 }
     fun getCollapsedTodoIds(): Flow<Set<String>> = context.dataStore.data.map { it[TODO_COLLAPSED_IDS] ?: emptySet() }

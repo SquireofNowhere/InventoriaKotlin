@@ -59,7 +59,7 @@ class SettingsViewModel @Inject constructor(
 
     val focusArea: StateFlow<FocusArea> = settingsRepository.getFocusArea()
         .map { FocusArea.fromName(it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FocusArea.INVENTORY)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FocusArea.DEFAULT)
 
     val isDarkMode: StateFlow<Boolean> = settingsRepository.isDarkMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)

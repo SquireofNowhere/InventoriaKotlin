@@ -8,3 +8,6 @@ screenshot_check.png
 .env
 google-services.json
 app/google-services.json
+
+# Logo generator previews (tools/make_logo.py)
+tools/preview_*.png

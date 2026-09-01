@@ -25,7 +25,9 @@ object ChangelogCatalog {
                 changes = listOf(
                     "Todos now has a Schedule view: a week strip and a day timeline where you block out what each hour is for, next to what your tracked tasks actually used it for. Todos due that day show up there too.",
                     "Todo alarms. Give a todo a deadline and it rings -- at the due time, or 10 minutes, an hour or a day before. Done and Snooze right from the notification. Pick Alarm or Notification style in Settings.",
-                    "In the todo dialog the time picker is always there. Pick a time first and the date fills in as today."
+                    "In the todo dialog the time picker is always there. Pick a time first and the date fills in as today.",
+                    "New icon: a clock whose hands make a check mark. The app now opens on the Task Tracker, and Task Tracker is the default focus for new installs.",
+                    "Settings > About has a Version History with every update note."
                 )
             ),
             ChangelogEntry(

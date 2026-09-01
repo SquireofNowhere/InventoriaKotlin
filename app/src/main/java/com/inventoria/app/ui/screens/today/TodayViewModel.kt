@@ -46,7 +46,7 @@ class TodayViewModel @Inject constructor(
 
     val focusArea: StateFlow<FocusArea> = settingsRepository.getFocusArea()
         .map { FocusArea.fromName(it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FocusArea.INVENTORY)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FocusArea.DEFAULT)
 
     val totalItems: StateFlow<Int> = inventoryRepository.getItemCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon (monochrome) layer. Only alpha matters here, so the face is left open: ring,
+     ticks and the check hands read as a clock; a filled face would tint to a plain disc. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <group
+        android:name="icon_group"
+        android:pivotX="64"
+        android:pivotY="64"
+        android:scaleX="0.6"
+        android:scaleY="0.6">
+        <path android:name="ring" android:pathData="M 64 11.5 A 52.5 52.5 0 1 1 64 116.5 A 52.5 52.5 0 1 1 64 11.5 Z" android:strokeColor="#ffffff" android:strokeWidth="7"/>
+        <path android:pathData="M 64.00 26.00 L 64.00 19.00" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 84.75 28.06 L 86.50 25.03" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 99.94 43.25 L 102.97 41.50" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 102.00 64.00 L 109.00 64.00" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 99.94 84.75 L 102.97 86.50" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 84.75 99.94 L 86.50 102.97" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 64.00 102.00 L 64.00 109.00" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 43.25 99.94 L 41.50 102.97" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 28.06 84.75 L 25.03 86.50" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 26.00 64.00 L 19.00 64.00" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 28.06 43.25 L 25.03 41.50" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:pathData="M 43.25 28.06 L 41.50 25.03" android:strokeColor="#ffffff" android:strokeWidth="3" android:strokeLineCap="round"/>
+        <path android:name="check_hands" android:pathData="M 48 48 L 64 64 L 92 36" android:strokeColor="#ffffff" android:strokeWidth="9" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    </group>
+</vector>
