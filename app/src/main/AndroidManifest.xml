@@ -20,7 +20,7 @@
          to an inexact alarm), USE_EXACT_ALARM from 13 on (granted at install; reserved for apps
          whose core function is alarms or reminders, which a todo alarm is). BOOT_COMPLETED lets the
          process come back up after a restart so the scheduler can re-arm everything from the
-         table -- see BootReceiver. -->
+         table; see BootReceiver. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
