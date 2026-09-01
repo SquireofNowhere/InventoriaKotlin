@@ -1,8 +1,5 @@
 package com.inventoria.app.ui.screens.todo
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -13,16 +10,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.AlarmOff
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
-import androidx.compose.material.icons.filled.UnfoldLess
-import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,12 +35,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.ALL_DAY_REMINDER_MINUTE_OF_DAY
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
-import com.inventoria.app.ui.components.InventoriaTopBar
-import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
@@ -53,47 +47,17 @@ import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getStartOfDay
 import kotlinx.coroutines.delay
-import java.util.Calendar
 import kotlin.math.roundToInt
 
-private fun showDatePicker(context: Context, initialTime: Long, onDateSelected: (Long) -> Unit) {
-    val calendar = Calendar.getInstance().apply { timeInMillis = initialTime }
-    DatePickerDialog(
-        context,
-        { _, year, month, day ->
-            val result = Calendar.getInstance().apply {
-                set(year, month, day, 0, 0, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            onDateSelected(result.timeInMillis)
-        },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
-    ).show()
-}
-
-/** Deadline time-of-day picker, handing back minutes since midnight rather than a timestamp --
- * the todo's date lives in its own field and must stay a start-of-day value. 24-hour, matching
- * showDateTimePicker on the Task tracker. */
-private fun showTimePicker(context: Context, initialMinuteOfDay: Int?, onTimeSelected: (Int) -> Unit) {
-    val now = Calendar.getInstance()
-    val hour = initialMinuteOfDay?.let { it / 60 } ?: now.get(Calendar.HOUR_OF_DAY)
-    val minute = initialMinuteOfDay?.let { it % 60 } ?: 0
-    TimePickerDialog(
-        context,
-        { _, pickedHour, pickedMinute -> onTimeSelected(pickedHour * 60 + pickedMinute) },
-        hour,
-        minute,
-        true
-    ).show()
-}
-
+/**
+ * The Todos segment of the Todos tab -- the full, editable list. Draws no app bar of its own: the
+ * hub (TodoHubScreen) owns the one bar and hosts this screen's collapse-all / hide-completed
+ * actions in it, the same arrangement the Inventory hub uses for its segments.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
     onNavigateToTasks: () -> Unit,
-    onNavigateToHelp: () -> Unit,
     viewModel: TodoViewModel
 ) {
     val allTodos by viewModel.todos.collectAsState()
@@ -101,8 +65,6 @@ fun TodoScreen(
     // deliberately not on Today. See TodoViewModel.todoSections.
     val todoSections by viewModel.plannerSections.collectAsState()
     val undatedTodoEntries by viewModel.undatedTodoEntries.collectAsState()
-    val hideCompleted by viewModel.hideCompleted.collectAsState()
-    val anyCollapsed by viewModel.collapsedTodoIds.collectAsState()
     val isAddingNew by viewModel.isAddingNew.collectAsState()
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val selectedTodoId by viewModel.selectedTodoId.collectAsState()
@@ -175,33 +137,6 @@ fun TodoScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(undoSnackbarHostState) },
-        topBar = {
-            InventoriaTopBar(
-                title = Screen.Todos.title,
-                onNavigateToHelp = onNavigateToHelp,
-                actions = {
-                    // Fold/unfold everything at once. Shows whichever action is the useful one:
-                    // with nothing folded there is nothing to expand, so it offers to collapse.
-                    IconButton(
-                        onClick = {
-                            if (anyCollapsed.isEmpty()) viewModel.collapseAll() else viewModel.expandAll()
-                        }
-                    ) {
-                        Icon(
-                            if (anyCollapsed.isEmpty()) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
-                            contentDescription = if (anyCollapsed.isEmpty()) "Collapse all sub-todos" else "Expand all sub-todos"
-                        )
-                    }
-                    IconButton(onClick = { viewModel.toggleHideCompleted() }) {
-                        Icon(
-                            if (hideCompleted) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (hideCompleted) "Show completed todos" else "Hide completed todos",
-                            tint = if (hideCompleted) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                        )
-                    }
-                }
-            )
-        },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.startAddingTodo() }) {
                 Icon(Icons.Default.Add, contentDescription = "Add Todo")
@@ -350,13 +285,16 @@ fun TodoScreen(
             taskTypes = taskTypes,
             initialDeadline = null,
             initialDeadlineMinuteOfDay = null,
+            // New todos ring at their due moment unless told otherwise -- the whole reason alarms
+            // exist is the deadline nobody looked at. Only takes effect once a deadline is set.
+            initialReminderOffsetMinutes = 0,
             initialParentId = selectedTodoId,
             initialPriority = null,
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority ->
-                viewModel.addTodo(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority)
+            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
+                viewModel.addTodo(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
             }
         )
     }
@@ -370,17 +308,33 @@ fun TodoScreen(
             taskTypes = taskTypes,
             initialDeadline = todo.deadline,
             initialDeadlineMinuteOfDay = todo.deadlineMinuteOfDay,
+            initialReminderOffsetMinutes = todo.reminderOffsetMinutes,
             initialParentId = todo.parentTodoId,
             initialPriority = todo.priority,
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority ->
-                viewModel.saveEditedTodo(todo, title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority)
+            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
+                viewModel.saveEditedTodo(todo, title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
             }
         )
     }
 }
+
+/** The alarm lead times a todo can pick from. Values are minutes before the due moment; null is
+ * "no alarm". Kept as a list of pairs rather than an enum so the stored Int stays the source of
+ * truth and a value this list doesn't name (synced from a newer build, say) still displays. */
+internal val REMINDER_CHOICES: List<Pair<Int?, String>> = listOf(
+    null to "No alarm",
+    0 to "At due time",
+    10 to "10 minutes before",
+    60 to "1 hour before",
+    24 * 60 to "1 day before"
+)
+
+internal fun reminderLabel(offsetMinutes: Int?): String =
+    REMINDER_CHOICES.firstOrNull { it.first == offsetMinutes }?.second
+        ?: "$offsetMinutes minutes before"
 
 @Composable
 private fun TodoEditDialog(
@@ -390,18 +344,20 @@ private fun TodoEditDialog(
     taskTypes: List<TaskType>,
     initialDeadline: Long?,
     initialDeadlineMinuteOfDay: Int?,
+    initialReminderOffsetMinutes: Int?,
     initialParentId: String?,
     initialPriority: TodoPriority?,
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind, String?, Long?, Int?, String?, TodoPriority?) -> Unit
+    onSave: (String, TaskKind, String?, Long?, Int?, Int?, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var kind by remember { mutableStateOf(initialKind) }
     var taskTypeId by remember { mutableStateOf(initialTaskTypeId) }
     var deadline by remember { mutableStateOf(initialDeadline) }
     var deadlineMinuteOfDay by remember { mutableStateOf(initialDeadlineMinuteOfDay) }
+    var reminderOffsetMinutes by remember { mutableStateOf(initialReminderOffsetMinutes) }
     var parentId by remember { mutableStateOf(initialParentId) }
     var priority by remember { mutableStateOf(initialPriority) }
     val context = LocalContext.current
@@ -450,32 +406,45 @@ private fun TodoEditDialog(
                         }
                     }
                 }
-                // A due time only means anything alongside a date, so this row only exists once
-                // one is set -- and clearing the date above takes the time with it.
-                if (deadline != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showTimePicker(context, deadlineMinuteOfDay) { picked ->
-                                    deadlineMinuteOfDay = picked
-                                }
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(deadlineMinuteOfDay?.let { formatMinuteOfDay(it) } ?: "No time (all day)")
-                        }
-                        if (deadlineMinuteOfDay != null) {
-                            IconButton(onClick = { deadlineMinuteOfDay = null }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear time", modifier = Modifier.size(18.dp))
+                // Always on offer, date or no date: picking a time first is a perfectly natural
+                // way to say "today at 17:00", so a time chosen with no date fills the date in as
+                // today rather than making you go back for it. Clearing the date above still takes
+                // the time with it -- a time with no day is not a deadline.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showTimePicker(context, deadlineMinuteOfDay) { picked ->
+                                if (deadline == null) deadline = getStartOfDay(System.currentTimeMillis())
+                                deadlineMinuteOfDay = picked
                             }
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            deadlineMinuteOfDay?.let { formatMinuteOfDay(it) }
+                                ?: if (deadline != null) "No time (all day)" else "No time (picks today)"
+                        )
+                    }
+                    if (deadlineMinuteOfDay != null) {
+                        IconButton(onClick = { deadlineMinuteOfDay = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear time", modifier = Modifier.size(18.dp))
                         }
                     }
                 }
+                // Alarm lead time. Only meaningful with a deadline, so it sits greyed out until
+                // one exists -- but stays visible so it is obvious the option is there. All-day
+                // deadlines ring at 09:00 (see ALL_DAY_REMINDER_MINUTE_OF_DAY).
+                ReminderPicker(
+                    enabled = deadline != null,
+                    isAllDay = deadline != null && deadlineMinuteOfDay == null,
+                    selected = reminderOffsetMinutes,
+                    onSelected = { reminderOffsetMinutes = it }
+                )
                 ParentTodoPicker(
                     parentChoices = parentChoices,
                     selectedParentId = parentId,
@@ -491,7 +460,10 @@ private fun TodoEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, parentId, priority) }, enabled = title.isNotBlank()) {
+            TextButton(
+                onClick = { onSave(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminderOffsetMinutes, parentId, priority) },
+                enabled = title.isNotBlank()
+            ) {
                 Text("Save")
             }
         },
@@ -499,6 +471,62 @@ private fun TodoEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+@Composable
+private fun ReminderPicker(
+    enabled: Boolean,
+    isAllDay: Boolean,
+    selected: Int?,
+    onSelected: (Int?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val tint = if (enabled) LocalContentColor.current else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (enabled) Modifier.clickable { expanded = true } else Modifier),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (selected != null) Icons.Default.Alarm else Icons.Default.AlarmOff,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = tint
+            )
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = when {
+                        !enabled -> "Alarm (set a deadline first)"
+                        else -> reminderLabel(selected)
+                    },
+                    color = tint
+                )
+                if (enabled && selected != null && isAllDay) {
+                    Text(
+                        "All-day deadline: rings at ${formatMinuteOfDay(ALL_DAY_REMINDER_MINUTE_OF_DAY)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            REMINDER_CHOICES.forEach { (offset, label) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            label,
+                            fontWeight = if (offset == selected) FontWeight.Bold else null
+                        )
+                    },
+                    onClick = { onSelected(offset); expanded = false }
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
 import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TodoAlarmStyle
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.FirebaseSyncRepository
@@ -65,6 +66,10 @@ class SettingsViewModel @Inject constructor(
 
     val notificationsEnabled: StateFlow<Boolean> = settingsRepository.getNotificationsEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val todoAlarmStyle: StateFlow<TodoAlarmStyle> = settingsRepository.getTodoAlarmStyle()
+        .map { TodoAlarmStyle.fromName(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TodoAlarmStyle.ALARM)
 
     val showValueOnDashboard: StateFlow<Boolean> = settingsRepository.getShowValueOnDashboard()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
@@ -232,6 +237,12 @@ class SettingsViewModel @Inject constructor(
     fun toggleNotifications(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.toggleNotifications(enabled)
+        }
+    }
+
+    fun setTodoAlarmStyle(style: TodoAlarmStyle) {
+        viewModelScope.launch {
+            settingsRepository.setTodoAlarmStyle(style.name)
         }
     }
 

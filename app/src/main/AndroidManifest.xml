@@ -15,6 +15,16 @@
          or timer to the clock app (and skip its confirmation UI); it grants no read access to
          existing alarms or timers, because Android exposes none. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
+    <!-- Todo alarms (TodoAlarmScheduler). Exact alarms need one of these two: SCHEDULE_EXACT_ALARM
+         on Android 12 (user-revocable, so the scheduler checks canScheduleExactAlarms and degrades
+         to an inexact alarm), USE_EXACT_ALARM from 13 on (granted at install; reserved for apps
+         whose core function is alarms or reminders, which a todo alarm is). BOOT_COMPLETED lets the
+         process come back up after a restart so the scheduler can re-arm everything from the
+         table -- see BootReceiver. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="18"/>
@@ -73,6 +83,23 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Task timing and tracking for inventory management"/>
         </service>
+
+        <!-- Todo alarms fire here (and their Done / Snooze buttons land here). Not exported: every
+             PendingIntent aimed at it is created by this app. -->
+        <receiver
+            android:name=".data.alarm.TodoAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Exported because the system sends these; the receiver itself does nothing but exist
+             so the process starts and TodoAlarmScheduler re-arms alarms from the table. -->
+        <receiver
+            android:name=".data.alarm.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

@@ -235,27 +235,70 @@ class TodoViewModel @Inject constructor(
         _isAddingNew.value = true
     }
 
-    fun addTodo(title: String, kind: TaskKind, taskTypeId: String?, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
+    fun addTodo(
+        title: String,
+        kind: TaskKind,
+        taskTypeId: String?,
+        deadline: Long?,
+        deadlineMinuteOfDay: Int?,
+        reminderOffsetMinutes: Int?,
+        parentTodoId: String?,
+        priority: TodoPriority?
+    ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
+        val reminder = reminderOffsetMinutes.takeIf { deadline != null }
         viewModelScope.launch {
             todoRepository.insertTodo(
-                Todo(id = UUID.randomUUID().toString(), title = trimmed, kind = kind, taskTypeId = taskTypeId, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority)
+                Todo(
+                    id = UUID.randomUUID().toString(),
+                    title = trimmed,
+                    kind = kind,
+                    taskTypeId = taskTypeId,
+                    deadline = deadline,
+                    deadlineMinuteOfDay = time,
+                    reminderOffsetMinutes = reminder,
+                    parentTodoId = parentTodoId,
+                    priority = priority
+                )
             )
         }
         _isAddingNew.value = false
     }
 
-    fun saveEditedTodo(todo: Todo, title: String, kind: TaskKind, taskTypeId: String?, deadline: Long?, deadlineMinuteOfDay: Int?, parentTodoId: String?, priority: TodoPriority?) {
+    fun saveEditedTodo(
+        todo: Todo,
+        title: String,
+        kind: TaskKind,
+        taskTypeId: String?,
+        deadline: Long?,
+        deadlineMinuteOfDay: Int?,
+        reminderOffsetMinutes: Int?,
+        parentTodoId: String?,
+        priority: TodoPriority?
+    ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         // A time without a date would be unreachable in the UI and would sort/display as a due
         // time nothing is actually due at, so the "null deadline clears the time" invariant is
-        // enforced here rather than trusted from the dialog.
+        // enforced here rather than trusted from the dialog. The alarm follows the same rule: an
+        // alarm with nothing to ring for is cleared, not carried around waiting for a date.
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
+        val reminder = reminderOffsetMinutes.takeIf { deadline != null }
         viewModelScope.launch {
-            todoRepository.updateTodo(todo.copy(title = trimmed, kind = kind, taskTypeId = taskTypeId, deadline = deadline, deadlineMinuteOfDay = time, parentTodoId = parentTodoId, priority = priority))
+            todoRepository.updateTodo(
+                todo.copy(
+                    title = trimmed,
+                    kind = kind,
+                    taskTypeId = taskTypeId,
+                    deadline = deadline,
+                    deadlineMinuteOfDay = time,
+                    reminderOffsetMinutes = reminder,
+                    parentTodoId = parentTodoId,
+                    priority = priority
+                )
+            )
         }
         _pendingEditTodo.value = null
     }

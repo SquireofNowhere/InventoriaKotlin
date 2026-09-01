@@ -55,6 +55,9 @@
         "task_types": {
           ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         },
+        "schedule_blocks": {
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
         "settings": {
           ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         }

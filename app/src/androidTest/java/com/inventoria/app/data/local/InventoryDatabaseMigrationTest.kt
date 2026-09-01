@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.di.DatabaseModule
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -18,8 +19,8 @@ import java.io.IOException
  *
  * That is 15: `exportSchema` was turned on at that version, so 12, 13 and 14 have migrations but
  * nothing to check them against, and [MigrationTestHelper.createDatabase] cannot build a starting
- * database without the schema JSON. 15 -> 16 is the first bump these tests can actually catch a
- * mistake in -- which is the point of writing them before that bump exists rather than after.
+ * database without the schema JSON. 15 -> 16 (the ScheduleBlock table and Todo.reminderOffsetMinutes)
+ * is the first bump these tests actually cover.
  *
  * Neither test names a target version. Both hand the database to Room's own builder and let it
  * migrate as far as [InventoryDatabase]'s `@Database(version = ...)` says, so adding a migration is
@@ -96,6 +97,25 @@ class InventoryDatabaseMigrationTest {
                 // Added by MIGRATION_13_14 and nullable, so it must come through unset rather than
                 // defaulted to something the user never chose.
                 assertNull(todo?.deadlineMinuteOfDay)
+                // Added by MIGRATION_15_16. Null here is the difference between "no alarm" and a
+                // pre-existing todo suddenly ringing at 09:00 on the morning after an update.
+                assertNull(todo?.reminderOffsetMinutes)
+
+                // The table MIGRATION_15_16 creates has to be usable through its DAO, not merely
+                // present -- a column with the wrong affinity passes CREATE TABLE and fails here.
+                db.scheduleBlockDao().insertBlock(
+                    ScheduleBlock(
+                        id = "block-1",
+                        title = "Gym",
+                        dayStart = 3000,
+                        startMinuteOfDay = 360,
+                        endMinuteOfDay = 420,
+                        repeatWeekly = true
+                    )
+                )
+                val block = db.scheduleBlockDao().getBlockById("block-1")
+                assertEquals("Gym", block?.title)
+                assertEquals(true, block?.repeatWeekly)
             }
         } finally {
             db.close()

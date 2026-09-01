@@ -5,6 +5,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.storage.FirebaseStorage
+import com.inventoria.app.data.ScheduleBlockRepository
 import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.TodoRepository
@@ -42,6 +43,7 @@ class RepositoryModule {
         itemLinkDao: ItemLinkDao,
         todoDao: TodoDao,
         taskTypeDao: TaskTypeDao,
+        scheduleBlockDao: ScheduleBlockDao,
         firebaseDatabase: FirebaseDatabase,
         authRepository: FirebaseAuthRepository,
         settingsRepository: SettingsRepository,
@@ -56,6 +58,7 @@ class RepositoryModule {
             itemLinkDao = itemLinkDao,
             todoDao = todoDao,
             taskTypeDao = taskTypeDao,
+            scheduleBlockDao = scheduleBlockDao,
             firebaseDatabase = firebaseDatabase,
             authRepository = authRepository,
             settingsRepository = settingsRepository,
@@ -104,6 +107,12 @@ class RepositoryModule {
     @Singleton
     fun provideTodoRepository(todoDao: TodoDao): TodoRepository {
         return TodoRepository(todoDao)
+    }
+
+    @Provides
+    @Singleton
+    fun provideScheduleBlockRepository(scheduleBlockDao: ScheduleBlockDao): ScheduleBlockRepository {
+        return ScheduleBlockRepository(scheduleBlockDao)
     }
 
     @Provides

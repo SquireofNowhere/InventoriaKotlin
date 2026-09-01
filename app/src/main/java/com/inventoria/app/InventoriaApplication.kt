@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
 import com.google.firebase.database.FirebaseDatabase
+import com.inventoria.app.data.alarm.TodoAlarmScheduler
 import com.inventoria.app.data.worker.SyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import org.osmdroid.config.Configuration as OsmConfiguration
@@ -16,6 +17,9 @@ class InventoriaApplication : Application(), Configuration.Provider {
     
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject
+    lateinit var todoAlarmScheduler: TodoAlarmScheduler
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -43,6 +47,11 @@ class InventoriaApplication : Application(), Configuration.Provider {
         }
 
         scheduleSync()
+
+        // Watches the Todo table for the life of the process and keeps AlarmManager matching it.
+        // Also the whole reboot story: BootReceiver only brings the process up, and this is what
+        // then re-arms every alarm the restart threw away.
+        todoAlarmScheduler.start()
     }
 
     private fun scheduleSync() {

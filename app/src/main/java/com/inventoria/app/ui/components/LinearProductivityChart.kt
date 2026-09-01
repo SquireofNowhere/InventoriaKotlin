@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.util.packIntoLanes
 import java.util.Calendar
 
 /**
@@ -56,57 +57,26 @@ fun LinearProductivityChart(
             it.startTime < todayStart + dayDuration && end > todayStart
         }
 
-        val initialSegments = todayTasks.map { task ->
+        val spans = todayTasks.map { task ->
             val start = maxOf(task.startTime, todayStart)
             val end = minOf(task.endTime ?: currentTime, todayStart + dayDuration)
-            val startRatio = (start - todayStart).toFloat() / dayDuration.toFloat()
-            val endRatio = (end - todayStart).toFloat() / dayDuration.toFloat()
-
-            ProductivityChartSegment(
-                color = Color(task.kind.colorValue),
-                startRatio = startRatio,
-                endRatio = endRatio
+            Triple(
+                Color(task.kind.colorValue),
+                (start - todayStart).toFloat() / dayDuration.toFloat(),
+                (end - todayStart).toFloat() / dayDuration.toFloat()
             )
-        }.sortedBy { it.startRatio }
-
-        val clusters = mutableListOf<MutableList<ProductivityChartSegment>>()
-        var currentCluster = mutableListOf<ProductivityChartSegment>()
-        var currentClusterEnd = -1f
-
-        for (segment in initialSegments) {
-            if (segment.startRatio >= currentClusterEnd) {
-                if (currentCluster.isNotEmpty()) clusters.add(currentCluster)
-                currentCluster = mutableListOf(segment)
-                currentClusterEnd = segment.endRatio
-            } else {
-                currentCluster.add(segment)
-                currentClusterEnd = maxOf(currentClusterEnd, segment.endRatio)
-            }
         }
-        if (currentCluster.isNotEmpty()) clusters.add(currentCluster)
 
-        for (cluster in clusters) {
-            val tracks = mutableListOf<MutableList<ProductivityChartSegment>>()
-            for (segment in cluster) {
-                var placed = false
-                for (i in tracks.indices) {
-                    val track = tracks[i]
-                    if (segment.startRatio >= track.last().endRatio) {
-                        track.add(segment)
-                        segment.trackIndex = i
-                        placed = true
-                        break
-                    }
-                }
-                if (!placed) {
-                    segment.trackIndex = tracks.size
-                    tracks.add(mutableListOf(segment))
-                }
-            }
-            val maxTracks = tracks.size
-            for (segment in cluster) segment.maxTracks = maxTracks
+        // Same lane packing the Schedule day view uses -- see packIntoLanes.
+        packIntoLanes(spans, start = { it.second }, end = { it.third }).map { slot ->
+            ProductivityChartSegment(
+                color = slot.item.first,
+                startRatio = slot.item.second,
+                endRatio = slot.item.third,
+                trackIndex = slot.lane,
+                maxTracks = slot.laneCount
+            )
         }
-        initialSegments
     }
 
     Column(modifier = modifier) {
@@ -169,6 +139,6 @@ private data class ProductivityChartSegment(
     val color: Color,
     val startRatio: Float,
     val endRatio: Float,
-    var trackIndex: Int = 0,
-    var maxTracks: Int = 1
+    val trackIndex: Int,
+    val maxTracks: Int
 )

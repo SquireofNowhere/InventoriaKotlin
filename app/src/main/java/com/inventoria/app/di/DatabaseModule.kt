@@ -8,6 +8,7 @@ import com.inventoria.app.data.local.CollectionDao
 import com.inventoria.app.data.local.InventoryDao
 import com.inventoria.app.data.local.InventoryDatabase
 import com.inventoria.app.data.local.ItemLinkDao
+import com.inventoria.app.data.local.ScheduleBlockDao
 import com.inventoria.app.data.local.TaskDao
 import com.inventoria.app.data.local.TaskTypeDao
 import com.inventoria.app.data.local.TodoDao
@@ -84,12 +85,42 @@ object DatabaseModule {
     }
 
     /**
+     * Schedule blocks and todo alarms (v16). Additive on both counts: a new table for the
+     * Schedule segment's time blocks, and a nullable alarm lead-time column on Todo -- existing
+     * rows come through with no alarm, which is the only safe default for a column that makes
+     * things ring. Column types and NOT NULL constraints mirror the entities exactly; Room
+     * validates them against the exported schema at open, and the migration test checks the same.
+     */
+    private val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS ScheduleBlock (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    dayStart INTEGER NOT NULL,
+                    startMinuteOfDay INTEGER NOT NULL,
+                    endMinuteOfDay INTEGER NOT NULL,
+                    repeatWeekly INTEGER NOT NULL,
+                    notes TEXT NOT NULL,
+                    isDeleted INTEGER NOT NULL,
+                    updatedAt INTEGER NOT NULL,
+                    isDirty INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("ALTER TABLE Todo ADD COLUMN reminderOffsetMinutes INTEGER")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
 
     @Provides
     @Singleton
@@ -152,5 +183,11 @@ object DatabaseModule {
     @Singleton
     fun provideTaskTypeDao(database: InventoryDatabase): TaskTypeDao {
         return database.taskTypeDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideScheduleBlockDao(database: InventoryDatabase): ScheduleBlockDao {
+        return database.scheduleBlockDao()
     }
 }

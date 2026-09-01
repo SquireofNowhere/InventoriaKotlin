@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
@@ -263,13 +264,30 @@ internal fun TodoRow(
                         textDecoration = if (entry.effectiveState == TodoState.COMPLETE) TextDecoration.LineThrough else null,
                         color = if (entry.effectiveState == TodoState.INCOMPLETE) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    todo.deadlineMinuteOfDay?.let { minuteOfDay ->
-                        Text(
-                            text = "Due ${formatMinuteOfDay(minuteOfDay)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isLateToday) FontWeight.Bold else null,
-                            color = if (isLateToday) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    // Due time and, when one is set, the alarm -- the icon is the only place the
+                    // list says "this one will ring", so it sits right next to the time it rings
+                    // for. An all-day todo with an alarm shows the icon alone.
+                    val hasAlarm = todo.reminderOffsetMinutes != null && todo.state != TodoState.COMPLETE
+                    if (todo.deadlineMinuteOfDay != null || hasAlarm) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            todo.deadlineMinuteOfDay?.let { minuteOfDay ->
+                                Text(
+                                    text = "Due ${formatMinuteOfDay(minuteOfDay)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isLateToday) FontWeight.Bold else null,
+                                    color = if (isLateToday) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (hasAlarm) Spacer(Modifier.width(4.dp))
+                            }
+                            if (hasAlarm) {
+                                Icon(
+                                    Icons.Default.Alarm,
+                                    contentDescription = "Alarm set",
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                     if (isOverdue) {
                         Text(

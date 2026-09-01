@@ -46,8 +46,8 @@ shared inventory:
   owner revoking the original joiner;
 - remove other joiners, and overwrite `my_invite_code`.
 
-So `.write` at `users/$uid` is now `$uid === auth.uid`, and the eight data children carry the
-joiner's write grant individually. The owner still inherits write everywhere from the parent, which
+So `.write` at `users/$uid` is now `$uid === auth.uid`, and the nine data children carry the
+joiner's write grant individually (`schedule_blocks` joined the list with v2.14's Schedule segment). The owner still inherits write everywhere from the parent, which
 is what lets account deletion remove the whole node.
 
 The child list is written out rather than using a `$section` wildcard on purpose: named children do

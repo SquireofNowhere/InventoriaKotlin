@@ -37,6 +37,12 @@ data class Todo(
     // basis for the whole-days-overdue procrastination penalty, both of which only work while it
     // stays exactly a start-of-day value. Meaningless (and always cleared) when deadline is null.
     @get:PropertyName("deadlineMinuteOfDay") @set:PropertyName("deadlineMinuteOfDay") var deadlineMinuteOfDay: Int? = null,
+    // Alarm lead time in minutes before the due moment: null is no alarm at all, 0 rings exactly
+    // at the deadline, 60 an hour before, 1440 a day before. Meaningless (and always cleared) when
+    // deadline is null, same as deadlineMinuteOfDay. Firebase reads an absent field as null, so
+    // todos written before this existed simply have no alarm rather than a surprise one. See
+    // [reminderTriggerAt] for how it combines with an all-day deadline.
+    @get:PropertyName("reminderOffsetMinutes") @set:PropertyName("reminderOffsetMinutes") var reminderOffsetMinutes: Int? = null,
     // Null means unprioritized -- always counts as procrastination if that penalty is enabled,
     // regardless of the configured cutoff tier.
     @get:PropertyName("priority") @set:PropertyName("priority") var priority: TodoPriority? = null,
@@ -59,3 +65,21 @@ data class Todo(
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 )
+
+/** Where an all-day deadline's alarm lands when the todo carries no time of its own: 09:00, late
+ * enough to be awake for, early enough to still act on. */
+const val ALL_DAY_REMINDER_MINUTE_OF_DAY = 9 * 60
+
+/**
+ * The wall-clock instant this todo's alarm should fire, or null when nothing should ring: no
+ * deadline, no alarm set, already complete, or deleted. Purely a function of the row, so the
+ * scheduler can derive every pending alarm from the table alone -- nothing else has to remember
+ * what was armed.
+ */
+fun Todo.reminderTriggerAt(): Long? {
+    val day = deadline ?: return null
+    val offset = reminderOffsetMinutes ?: return null
+    if (isDeleted || state == TodoState.COMPLETE) return null
+    val minuteOfDay = deadlineMinuteOfDay ?: ALL_DAY_REMINDER_MINUTE_OF_DAY
+    return day + minuteOfDay * 60_000L - offset * 60_000L
+}

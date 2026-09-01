@@ -31,8 +31,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.inventoria.app.data.alarm.TodoAlarmScheduler
 import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TodoAlarmStyle
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.repository.FirebaseAuthRepository
 import com.inventoria.app.data.repository.InviteCode
@@ -58,6 +61,7 @@ fun SettingsScreen(
     val focusArea by viewModel.focusArea.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsState()
+    val todoAlarmStyle by viewModel.todoAlarmStyle.collectAsState()
     val showValueOnDashboard by viewModel.showValueOnDashboard.collectAsState()
     val authState by viewModel.authState.collectAsState()
     val authOperation by viewModel.authOperation.collectAsState()
@@ -194,6 +198,11 @@ fun SettingsScreen(
                 checked = notificationsEnabled,
                 onCheckedChange = { viewModel.toggleNotifications(it) }
             )
+            TodoAlarmStyleSetting(
+                selected = todoAlarmStyle,
+                onSelect = { viewModel.setTodoAlarmStyle(it) }
+            )
+            ExactAlarmPermissionRow(context)
 
             SettingsCategoryHeader("Account & Sync")
             AccountSection(
@@ -1107,6 +1116,86 @@ fun SignInButton(onSignInClick: () -> Unit) {
         Spacer(Modifier.width(8.dp))
         Text("Sign in with Google")
     }
+}
+
+/**
+ * Alarm vs. Notification for todo alarms. A segmented pair rather than a switch because neither
+ * side is "off" -- the alarm itself is per-todo, set in the todo's own dialog; this only decides how
+ * loud every one of them is on this device. See TodoAlarmStyle for why it is two channels.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TodoAlarmStyleSetting(
+    selected: TodoAlarmStyle,
+    onSelect: (TodoAlarmStyle) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Alarm, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Todo Alarm Style", fontWeight = FontWeight.Bold)
+                    Text(
+                        "How a todo's alarm sounds when it comes due. Set the alarm itself on each todo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                TodoAlarmStyle.entries.forEachIndexed { index, style ->
+                    SegmentedButton(
+                        selected = style == selected,
+                        onClick = { onSelect(style) },
+                        shape = SegmentedButtonDefaults.itemShape(index, TodoAlarmStyle.entries.size)
+                    ) {
+                        Text(style.title)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                selected.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * Only appears when the system is refusing exact alarms (Android 12 with SCHEDULE_EXACT_ALARM
+ * revoked, or an OEM that denies it by default). Without exact alarms a todo alarm can arrive
+ * minutes late under Doze, which for a rent reminder is the difference that matters. Re-checked
+ * on every resume, since the grant is changed in a system screen and this one is what you come
+ * back to.
+ */
+@Composable
+private fun ExactAlarmPermissionRow(context: Context) {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+    var canExact by remember { mutableStateOf(TodoAlarmScheduler.canScheduleExactAlarms(context)) }
+    LifecycleResumeEffect(Unit) {
+        canExact = TodoAlarmScheduler.canScheduleExactAlarms(context)
+        onPauseOrDispose { }
+    }
+    if (canExact) return
+    SettingsNavigationRow(
+        title = "Allow Exact Alarms",
+        subtitle = "The system is currently delaying this app's alarms. Tap to allow exact alarms so todo alarms ring on time",
+        icon = Icons.Default.AlarmOff,
+        onClick = {
+            context.startActivity(
+                Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                }
+            )
+        }
+    )
 }
 
 @Composable

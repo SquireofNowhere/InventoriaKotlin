@@ -35,7 +35,8 @@ import com.inventoria.app.ui.screens.settings.*
 import com.inventoria.app.ui.screens.task.*
 import com.inventoria.app.ui.screens.today.TodayScreen
 import com.inventoria.app.ui.screens.today.TodayViewModel
-import com.inventoria.app.ui.screens.todo.TodoScreen
+import com.inventoria.app.ui.screens.todo.ScheduleViewModel
+import com.inventoria.app.ui.screens.todo.TodoHubScreen
 import com.inventoria.app.ui.screens.todo.TodoViewModel
 
 /**
@@ -383,10 +384,12 @@ fun InventoriaApp() {
                 )
             }
 
+            // Todos | Schedule, switched locally inside the hub -- same arrangement as InventoryHub,
+            // for the same save/restore reasons its KDoc gives.
             composable(Screen.Todos.route) {
-                val viewModel: TodoViewModel = hiltViewModel()
-                TodoScreen(
-                    viewModel = viewModel,
+                TodoHubScreen(
+                    todoViewModel = hiltViewModel<TodoViewModel>(),
+                    scheduleViewModel = hiltViewModel<ScheduleViewModel>(),
                     onNavigateToHelp = { openHelpFor(Screen.Todos.helpCategoryId) },
                     // "View on Tasks" is a tab switch, not a drill-down -- must not plain-push.
                     onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }

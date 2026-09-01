@@ -65,6 +65,10 @@ class SettingsRepository @Inject constructor(
     // key alone can't. clearAll() resetting this means the dialog may show once more after an
     // account wipe; accepted.
     private val LAST_SEEN_VERSION_CODE = intPreferencesKey("last_seen_version_code")
+    // TodoAlarmStyle.name -- whether a todo alarm arrives as an alarm-channel heads-up (alarm sound,
+    // vibration, lock screen) or an ordinary notification. Device-local: how loud this device gets
+    // is about this device.
+    private val TODO_ALARM_STYLE = stringPreferencesKey("todo_alarm_style")
 
     fun isDarkMode(): Flow<Boolean> = context.dataStore.data.map { it[IS_DARK_MODE] ?: false }
     fun getNotificationsEnabled(): Flow<Boolean> = context.dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -100,6 +104,11 @@ class SettingsRepository @Inject constructor(
     fun hasSeenFocusPrompt(): Flow<Boolean> = context.dataStore.data.map { it[FOCUS_PROMPT_SHOWN] ?: false }
     fun getLastSeenVersionCode(): Flow<Int> = context.dataStore.data.map { it[LAST_SEEN_VERSION_CODE] ?: 0 }
     fun getCollapsedTodoIds(): Flow<Set<String>> = context.dataStore.data.map { it[TODO_COLLAPSED_IDS] ?: emptySet() }
+    fun getTodoAlarmStyle(): Flow<String> = context.dataStore.data.map { it[TODO_ALARM_STYLE] ?: "ALARM" }
+
+    suspend fun setTodoAlarmStyle(name: String) {
+        context.dataStore.edit { it[TODO_ALARM_STYLE] = name }
+    }
 
     suspend fun setTodoHideCompleted(enabled: Boolean) {
         context.dataStore.edit { it[TODO_HIDE_COMPLETED] = enabled }
