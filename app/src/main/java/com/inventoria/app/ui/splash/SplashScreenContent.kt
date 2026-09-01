@@ -166,13 +166,24 @@ fun SplashScreenContent(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Inventoria",
+                text = "INVENTORIA",
                 color = Color.White,
-                fontSize = 44.sp,
-                fontWeight = FontWeight.ExtraBold
+                fontSize = 40.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 4.sp
+            )
+            // The tagline the mark illustrates: a hand taking hold of a clock.
+            Text(
+                text = "take a hold of your life",
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 1.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 2.dp)
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Show greeting if we have a name, or generic welcome if returning local user
             if (!showActions) {
