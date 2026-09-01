@@ -167,7 +167,16 @@ fun InventoriaApp() {
         )
     } else {
         pendingWhatsNew?.let { entries ->
-            WhatsNewDialog(entries = entries, onDismiss = { launchViewModel.dismissWhatsNew() })
+            WhatsNewDialog(
+                entries = entries,
+                onDismiss = { launchViewModel.dismissWhatsNew() },
+                // Dismiss first: the history screen shows the same entries, so reading them there
+                // counts as having seen them. Plain push -- it's a drill-down with its own back.
+                onSeeAll = {
+                    launchViewModel.dismissWhatsNew()
+                    navController.navigate("version_history")
+                }
+            )
         }
     }
 
@@ -414,8 +423,14 @@ fun InventoriaApp() {
                     // The bar's "?" aims at the Settings section; the screen's own "How To" row
                     // still opens the manual's index, which is what that row has always meant.
                     onNavigateToHelp = { openHelpFor(Screen.Settings.helpCategoryId) },
-                    onNavigateToHelpIndex = { navController.navigate("help") }
+                    onNavigateToHelpIndex = { navController.navigate("help") },
+                    onNavigateToVersionHistory = { navController.navigate("version_history") }
                 )
+            }
+
+            // Reached from Settings > About and from the What's New dialog's "See all".
+            composable("version_history") {
+                VersionHistoryScreen(onNavigateBack = { navController.popBackStack() })
             }
 
             // The manual. Static route first, matching the collection/create-before-collection/{id}

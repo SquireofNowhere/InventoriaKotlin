@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.ui.main.changelog.ChangelogEntry
+import com.inventoria.app.ui.main.changelog.ChangelogEntryContent
 
 /**
  * The one-time launch dialogs AppLaunchViewModel drives. Both are ordinary informational
@@ -72,11 +73,17 @@ fun FocusPromptDialog(
     )
 }
 
-/** The update log: every catalog entry newer than the last version this device acknowledged. */
+/**
+ * The update log: every catalog entry newer than the last version this device acknowledged.
+ *
+ * [onSeeAll] opens the full Version History screen; the caller is expected to dismiss (and so
+ * acknowledge) the dialog as part of that, since the same entries are what the screen shows.
+ */
 @Composable
 fun WhatsNewDialog(
     entries: List<ChangelogEntry>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSeeAll: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -85,20 +92,7 @@ fun WhatsNewDialog(
             Box(modifier = Modifier.heightIn(max = 400.dp)) {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     entries.forEach { entry ->
-                        Text(
-                            "Version ${entry.versionName}",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        entry.changes.forEach { change ->
-                            Text(
-                                "•  $change",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(bottom = 6.dp)
-                            )
-                        }
+                        ChangelogEntryContent(entry)
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -107,6 +101,11 @@ fun WhatsNewDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("Got it")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onSeeAll) {
+                Text("See all")
             }
         }
     )

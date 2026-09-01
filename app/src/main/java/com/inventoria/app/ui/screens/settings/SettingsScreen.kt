@@ -55,7 +55,9 @@ fun SettingsScreen(
     /** The top bar's "?": the Settings section of the manual. */
     onNavigateToHelp: () -> Unit,
     /** The "How To" row further down: the manual's index, as that row has always meant. */
-    onNavigateToHelpIndex: () -> Unit
+    onNavigateToHelpIndex: () -> Unit,
+    /** The About section's "Version History" row: every What's New entry, newest first. */
+    onNavigateToVersionHistory: () -> Unit
 ) {
     val context = LocalContext.current
     val focusArea by viewModel.focusArea.collectAsState()
@@ -243,6 +245,13 @@ fun SettingsScreen(
 
             SettingsCategoryHeader("About")
             AboutCard(context)
+            Spacer(Modifier.height(8.dp))
+            SettingsNavigationRow(
+                title = "Version History",
+                subtitle = "What changed in each update, from 2.13 on",
+                icon = Icons.Default.History,
+                onClick = onNavigateToVersionHistory
+            )
             
             Spacer(modifier = Modifier.height(32.dp))
         }
