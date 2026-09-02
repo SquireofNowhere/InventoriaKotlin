@@ -267,17 +267,31 @@ class FirebaseSyncRepository @Inject constructor(
         return job
     }
 
-    private suspend fun pushItemsToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
-        if (items.isEmpty()) return
+    /**
+     * Wraps one node type's push body with the syncStatus transitions every push should make --
+     * Syncing while it runs, Synced on success, Error on failure. Only [pushItemsToFirebase] used
+     * to do this, so the shared top-bar indicator only ever reflected item pushes and sat idle for
+     * everything else (see TECHNICAL_AUDIT.md #5's "second gap"). [label] names the node type in
+     * the log line; each pushXToFirebase still returns early on an empty list before calling this,
+     * so a no-op push never flickers the indicator.
+     */
+    private suspend fun withSyncStatus(label: String, block: suspend () -> Unit) {
         try {
             _syncStatus.value = SyncStatus.Syncing
+            block()
+            _syncStatus.value = SyncStatus.Synced
+        } catch (e: Exception) {
+            Log.e(TAG, "Push $label failed", e)
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
+        }
+    }
+
+    private suspend fun pushItemsToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
+        if (items.isEmpty()) return
+        withSyncStatus("items") {
             val updates = items.associate { it.id.toString() to it }
             ref.updateChildren(updates).await()
             inventoryDao.markItemsClean(items.map { it.id })
-            _syncStatus.value = SyncStatus.Synced
-        } catch (e: Exception) {
-            Log.e(TAG, "Push items failed", e)
-            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
         }
     }
 
@@ -307,12 +321,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushLinksToFirebase(ref: DatabaseReference, links: List<ItemLink>) {
         if (links.isEmpty()) return
-        try {
+        withSyncStatus("links") {
             val updates = links.associate { "${it.followerId}_${it.leaderId}" to it }
             ref.updateChildren(updates).await()
             itemLinkDao.markLinksClean(links)
-        } catch (e: Exception) {
-            Log.e(TAG, "Push links failed", e)
         }
     }
 
@@ -339,12 +351,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushTasksToFirebase(ref: DatabaseReference, tasks: List<Task>) {
         if (tasks.isEmpty()) return
-        try {
+        withSyncStatus("tasks") {
             val updates = tasks.associate { it.id to it }
             ref.updateChildren(updates).await()
             taskDao.markTasksClean(tasks.map { it.id })
-        } catch (e: Exception) {
-            Log.e(TAG, "Push tasks failed", e)
         }
     }
 
@@ -374,12 +384,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushCollectionsToFirebase(ref: DatabaseReference, collections: List<InventoryCollection>) {
         if (collections.isEmpty()) return
-        try {
+        withSyncStatus("collections") {
             val updates = collections.associate { it.id.toString() to it }
             ref.updateChildren(updates).await()
             collectionDao.markCollectionsClean(collections.map { it.id })
-        } catch (e: Exception) {
-            Log.e(TAG, "Push collections failed", e)
         }
     }
 
@@ -419,12 +427,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushCollectionItemsToFirebase(ref: DatabaseReference, items: List<InventoryCollectionItem>) {
         if (items.isEmpty()) return
-        try {
+        withSyncStatus("collection items") {
             val updates = items.associate { "${it.collectionId}_${it.itemId}" to it }
             ref.updateChildren(updates).await()
             collectionDao.markCollectionItemsClean(items)
-        } catch (e: Exception) {
-            Log.e(TAG, "Push collection items failed", e)
         }
     }
 
@@ -451,12 +457,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushTodosToFirebase(ref: DatabaseReference, todos: List<Todo>) {
         if (todos.isEmpty()) return
-        try {
+        withSyncStatus("todos") {
             val updates = todos.associate { it.id to it }
             ref.updateChildren(updates).await()
             todoDao.markTodosClean(todos.map { it.id })
-        } catch (e: Exception) {
-            Log.e(TAG, "Push todos failed", e)
         }
     }
 
@@ -486,12 +490,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushTaskTypesToFirebase(ref: DatabaseReference, taskTypes: List<TaskType>) {
         if (taskTypes.isEmpty()) return
-        try {
+        withSyncStatus("task types") {
             val updates = taskTypes.associate { it.id to it }
             ref.updateChildren(updates).await()
             taskTypeDao.markTaskTypesClean(taskTypes.map { it.id })
-        } catch (e: Exception) {
-            Log.e(TAG, "Push task types failed", e)
         }
     }
 
@@ -521,12 +523,10 @@ class FirebaseSyncRepository @Inject constructor(
 
     private suspend fun pushScheduleBlocksToFirebase(ref: DatabaseReference, blocks: List<ScheduleBlock>) {
         if (blocks.isEmpty()) return
-        try {
+        withSyncStatus("schedule blocks") {
             val updates = blocks.associate { it.id to it }
             ref.updateChildren(updates).await()
             scheduleBlockDao.markBlocksClean(blocks.map { it.id })
-        } catch (e: Exception) {
-            Log.e(TAG, "Push schedule blocks failed", e)
         }
     }
 

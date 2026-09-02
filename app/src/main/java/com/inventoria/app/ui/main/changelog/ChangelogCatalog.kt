@@ -27,7 +27,8 @@ object ChangelogCatalog {
                     "The pencil next to a running task's name now opens that task's own edit screen directly, instead of routing through Session Details every time.",
                     "A collection's icon and colour circle now opens a picker instead of doing nothing when tapped.",
                     "Enable Notifications in Settings now actually silences todo alarms when off, instead of being ignored.",
-                    "A task you save to your calendar now really does auto-delete from local history 24 hours later, matching the countdown the app already showed."
+                    "A task you save to your calendar now really does auto-delete from local history 24 hours later, matching the countdown the app already showed.",
+                    "The sync indicator in the top bar now lights up for every kind of sync, not just inventory items."
                 )
             ),
             ChangelogEntry(
