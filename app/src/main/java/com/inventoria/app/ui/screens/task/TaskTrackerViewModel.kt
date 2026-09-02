@@ -516,17 +516,29 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    fun addNewTask() {
+    /**
+     * The groupId of a session the screen should open the detail dialog for, right after it was
+     * started. Only the FAB asks for this ([addNewTask] with openDetails): a freshly started
+     * "Task 7" is a placeholder, and the details dialog is where it gets its real name, kind and
+     * type -- so tapping Add should land there rather than leave a nameless timer running. Flow
+     * Mode's auto-start does not ask, since nobody tapped anything.
+     */
+    private val _openSessionDetails = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val openSessionDetails: SharedFlow<String> = _openSessionDetails.asSharedFlow()
+
+    fun addNewTask(openDetails: Boolean = false) {
         flowModeJob?.cancel()
         _isAutoStartPending.value = false
         if (_activeSessions.value.size >= TaskRepository.MAX_ACTIVE_SESSIONS) return
         viewModelScope.launch {
             // The repository re-checks the cap against the table, which matters when a widget
             // button and this screen race each other.
-            repository.startNewSession("Task $taskCounter") ?: return@launch
+            val task = repository.startNewSession("Task $taskCounter") ?: return@launch
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
             else { context.startService(intent) }
+
+            if (openDetails) _openSessionDetails.tryEmit(task.groupId)
 
             // Force immediate sync after insertion
             syncRepository.triggerFullSync()
