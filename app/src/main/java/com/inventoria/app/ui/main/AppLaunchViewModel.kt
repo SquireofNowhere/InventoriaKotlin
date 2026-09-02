@@ -86,7 +86,7 @@ class AppLaunchViewModel @Inject constructor(
     }
 
     /**
-     * Outside-tap, back, or "Use Inventory": keep the default and never ask again -- same
+     * Outside-tap, back, or "Use Task Tracker": keep the default and never ask again -- same
      * no-re-nag contract as the inner-task prompt's "Not Now".
      */
     fun dismissFocusPrompt() {
