@@ -654,4 +654,166 @@ Review of the Firebase security rules, both databases, after the invite-flow wor
 
 ---
 
-*Last Updated: 2026-08-16*
+## 🐞 40. The Todos Tab Became Unreachable After "View on Tasks"
+**Status:** ✅ Resolved (v2.10, 2026-08-15)
+
+### 📝 Problem
+Tapping the in-progress arrow on a todo row jumped to the Task Tracker as intended. From then on the Todos tab could not be reached at all: every tap on it landed back on Tasks.
+
+### 🔍 Root Cause
+The arrow called `navigate(Screen.Tasks.route)` directly, pushing a tab route on top of the current tab instead of replacing it. The stack became `[start, Todos, Tasks]`, so the next Todos tab tap popped both entries with `saveState` — and since `NavController` keys a saved sub-stack by its bottom-most entry, it recorded "Todos → [Todos, Tasks]". The same tap's `restoreState` replayed that pair, landing on Tasks; the restore rebuilt the identical stack, so every later tap repeated it. Same class of bug as the old Map / item-location-map conflation: a non-tab-tap jump to a tab route corrupting the nav bar's save/restore state.
+
+### 🛠️ Final Fix
+Every tab jump goes through a single `NavController.switchToTab` helper so the tab-tap options cannot drift between call sites. The Dashboard's "go to Inventory" shortcut uses it too — that one only avoided the worst symptom because Dashboard was the start destination, but still stacked duplicate entries and dropped the Inventory tab's saved state. Widget deep links (#49's era) later went through the same helper for the same reason.
+
+---
+
+## 🐞 41. Autofill Saved the Half-Typed Prefix, and Inherited Whatever Kind Was Used Last
+**Status:** ✅ Resolved (2026-08-15)
+
+### 📝 Problem
+Picking "testing" from the name dropdown after typing "tes" saved the task as "tes". Separately, retagging one "testing" run to a −1 Kind made every later autofill of "testing" come out −1.
+
+### 🔍 Root Cause
+One tap produced two writers for the same name: the pick itself, and the field's save-on-blur, fired by the `clearFocus()` the pick performs. The blur handler reads the text field as of the last composition — no recomposition happens between setting the text and clearing focus — so it could still hold the prefix, and whichever write landed second won. The Kind came from the *most recent* task with that name, so one retag redefined the name.
+
+### 🛠️ Final Fix
+The pick is the only writer: it writes first, then marks the blur that immediately follows it to stand down. Kind now comes from `modalKindFor` — the most common Kind across that name's whole history, ties to the most recent — matching what `modalTypeIdFor` already did for the type.
+
+---
+
+## 🐞 42. A Kind Edited After Picking a Name From Autofill Reverted on Stop
+**Status:** ✅ Resolved (2026-08-15)
+
+### 📝 Problem
+Pick a name from autofill, change the point category on the running card, tap Stop: the session froze its score against the *old* Kind and the card snapped back to it.
+
+### 🔍 Root Cause
+`groupId` was two things at once — a session, and a name. Renaming a session onto an existing name merged it into that name's group (`joinGroupAtomically`), which ended in `updateSessionKindAndResetCustom`: every task in the group was overwritten with the group's stored Kind and `isKindCustom` cleared. Any later rename write ran it again — including the one the name field fires when it loses focus as Stop is tapped. The same collapse had quieter costs: every sitting of a repeated name became one card carrying months of segments, `updateSessionKind`/`updateSessionTaskType` rewrote that whole history, and `getStreakCountForKind` (which counts distinct `groupId`s) saw a daily activity as a single session, so streaks came out short.
+
+### 🛠️ Final Fix
+Merge-by-name is retired: a `groupId` is one session, permanently. The useful half survives in the autofill path — `applyRecentSuggestion` copies the chosen name's wording, Kind and type onto *this* session and leaves its group alone. Task Types are the real "same activity" tier and aggregate across different names, which merging never could; "N sittings" activity grouping at display time replaces the card-level merge. `stopTaskAndSession` also now reads the Kind from the stored row instead of the caller's `RunningTaskUI` snapshot, so a Kind edited between the last emission and the tap on Stop cannot freeze a score computed against the previous one. Existing merged groups stay merged.
+
+---
+
+## 🐞 43. Deleting a Running Session Stranded Its Todo as Permanently "In Progress"
+**Status:** ✅ Resolved (2026-08-15)
+
+### 📝 Problem
+Start a session from a todo, then delete the session rather than stopping it. The todo showed "in progress" forever, with no Start button and no way back.
+
+### 🔍 Root Cause
+`Todo.activeSessionGroupId` was a stored pointer at the session, written on start and cleared on stop. Delete never cleared it. It also made two independently-synced entities each responsible for half of one fact, converging last-write-wins separately.
+
+### 🛠️ Final Fix
+The task rows are the fact. `TodoViewModel.todoIdsWithActiveSession` derives the set from tasks with an `originTodoId` and an active session, so a deleted session simply stops matching. The double-start guard checks the table rather than the derived flow, which is subscription-dependent and one emission behind — a fast double tap could otherwise open two sessions for one todo. The column stays, unread and unwritten, documented as vestigial: dropping it needs a full table rebuild, since SQLite cannot reliably `DROP COLUMN` across the API levels this app supports.
+
+---
+
+## 🐞 44. Bumping the Database Version Silently Wiped Local Data — and the Fix Crashed Every Launch
+**Status:** ✅ Resolved (2026-08-16)
+
+### 📝 Problem
+Two halves, one day apart. First: `fallbackToDestructiveMigration()` applied to every version, so bumping the version and forgetting the migration recreated the database on next launch. Recoverable for a signed-in user (the data re-pulls), total for a local-only one, and nobody found out until their todos were gone. Second: the fix for that took the app down behind the splash screen on every launch, for everyone.
+
+### 🔍 Root Cause
+The crash was
+```
+IllegalArgumentException: Inconsistency detected. A Migration was supplied to addMigration(...)
+that has a start or end version equal to a start version supplied to
+fallbackToDestructiveMigrationFrom(...). Start version: 3
+```
+`MIGRATION_3_4` and the new `LEGACY_UNMIGRATABLE_VERSIONS` both claimed version 3. Room checks that at `build()`, regardless of what version anyone's database is actually at — and the first thing to ask for the database is `SyncWorker` on a WorkManager thread, where `InventoriaApplication`'s global handler turns any uncaught throwable into `System.exit(1)`. `MIGRATION_3_4` was already documented as unreachable (4→5 through 11→12 were never written), so registering it only ever asserted a capability that did not exist.
+
+### 🛠️ Final Fix
+- The fallback is scoped with `fallbackToDestructiveMigrationFrom(1..11)` — the versions that genuinely cannot be brought forward. A missing migration from any future version is now an `IllegalStateException` at startup: loud, immediate, during development. `fallbackToDestructiveMigrationOnDowngrade` covers installing an older build over a newer one.
+- `MIGRATION_3_4` removed, and the invariant Room enforces is written down where the version list is declared; `DatabaseMigrationConfigTest` asserts it.
+- `exportSchema = true` from version 15, with `app/schemas/` committed, and `InventoryDatabaseMigrationTest` migrating from the earliest exported schema forward. See [TECHNICAL_AUDIT.md #18](TECHNICAL_AUDIT.md).
+
+---
+
+## 🐞 45. Invite Codes Were Brute-Forceable, and Two Account Actions Pointed at the Wrong Database
+**Status:** ✅ Resolved (2026-08-16; rules paste required)
+
+### 📝 Problem
+Follow-ups to #38 and #39. Any authenticated user — including the anonymous account the app hands to every installer — could probe `invites/<guess>` unthrottled, and needed no particular code, just any live one; six characters is ~2.2 billion combinations, so what bounded the risk was how many codes were alive at once, which was "all of them, forever". Separately, while connected to someone else's database via a code, Settings still offered to generate an invite code and to delete the account — both of which act on *this device's own* account, the one database not on screen.
+
+### 🛠️ Final Fix
+- `invites/{code}` is now `{ uid, expiresAt }`, enforced by the database: the validator bounds `expiresAt` to strictly-future and under 48h (24h lifetime plus clock-skew slack), and the `sharedWith` write rule checks it against `now`. Expired slots may be overwritten, so they recycle. Expiry gates *joining*, not access — someone who joined before the code died stays connected until revoked, and the UI says so. Legacy string-shaped codes stop working with nothing to migrate; the owner is shown "your code has expired".
+- Generate is disabled while externally connected, with a line naming which database the section refers to; retiring an existing code stays available so a leaked code can be killed without disconnecting.
+- Delete is withheld entirely while connected, pointing at Clear External Sync instead. That made `deleteAccountCopy`'s external-sync branch unreachable, so it is gone.
+
+---
+
+## 🐞 46. Deleting an Account Did Not Stick
+**Status:** ✅ Resolved (2026-08-17; rules paste required, client must ship first)
+
+### 📝 Problem
+Delete the account — from the app or the console — and `users/$uid` reappeared moments later, sometimes with someone else attached to it.
+
+### 🔍 Root Cause
+Absence was authoritative nowhere. Pulls are insert-only and `triggerFullSync` pushes every row on every backgrounding, so a second device recreated the node from its own local copy. A live invite code let a stranger do the same, because the join rule only consulted `invites`. (The inverse problem — accidental deletes being unrecoverable — turned out to have the data for a fix sitting there the whole time: every delete is a tombstone that survives the purge window.)
+
+### 🛠️ Final Fix
+- `deletedAccounts/{uid}`: written *outside* the node it kills, so deleting the node cannot destroy the evidence; write-once and undeletable by rule. Every write grant under `users/$uid` checks it, leaving the owner only the ability to delete. `deleteUserAccount()` writes it first, which makes the rest of the sequence safe to fail partway — whatever survives is already inert.
+- `syncOnAppOpen` checks the tombstone on every app open and background sync: our own account wipes the device and signs out; an account we were only reading over a code clears its data and drops the connection — the first time a joiner is told anything rather than silently failing to sync forever.
+- The other half: `restoreTaskById`/`restoreTodoById` (isDeleted = 0 with a bumped, dirty `updatedAt`, so the un-deletion wins the merge), `UndoableDeleteController` holding exactly one pending restore, and an Undo snackbar on the Todos, Tracker and History screens. Retention moves from a bare `86_400_000` copied at four call sites to one `DELETED_ROW_RETENTION_MILLIS` of 30 days.
+
+---
+
+## 🐞 47. Drops Over Empty Space Landed on Hidden Todos, and a Synced Parent Cycle Spun Forever
+**Status:** ✅ Resolved (2026-08-17)
+
+### 📝 Problem
+Found while adding hide-completed and collapsible parents to the Todos screen. Dragging a todo and dropping it over blank space sometimes parented it under a todo that was not on screen. And a todo whose `parentTodoId` chain looped — impossible to create locally, but a sync pull had nothing stopping it — hung the screen.
+
+### 🔍 Root Cause
+Rows only ever *added* their Y range to the drag-target bounds map, so a row folded under a collapsed parent or hidden with the completed work left its last known range behind, and a drag over that empty space resolved to it. `effectiveSectionDay` and the ancestor walk had no visited guard: cycles are prevented when parents are assigned, but one arriving from another device was never checked.
+
+### 🛠️ Final Fix
+Rendered ids are pruned from the bounds map (`itemBoundsY.keys.retainAll(renderedTodoIds)`) whenever the visible set changes. Both walks carry a visited set and stop on revisit.
+
+---
+
+## 🐞 48. A Running Session Had No Delete, and Calendar Rows Pretended to Have One
+**Status:** ✅ Resolved (2026-08-17)
+
+### 📝 Problem
+Reported as "the three task cards are inconsistent". They were, though not quite where it looked: the completed and single-segment cards both already carried a delete. The real gaps were the running card, which had none at all, and anything calendar-sourced, which showed only "Open in Calendar" where the delete sits on every other card.
+
+### 🛠️ Final Fix
+- `ActiveSessionCard` gets a discard in the same trailing slot. `discardSession()` shares `stopTask()`'s chain collapse — an interruption on top has nothing left to return to, an interrupted parent underneath still wants resuming — but deliberately not its two tails: the Todo check-in and Flow Mode's auto-start both follow up on work that happened, and neither applies to a session being thrown away. It is the one action here that confirms first, because the accrued time exists nowhere else.
+- Calendar rows cannot be deleted: `observeTasks` rebuilds them from the system calendar on every refresh, and the app holds `READ_CALENDAR` only. They get a distinct dismiss — "Remove from Inventoria (keeps the calendar event)" — backed by a device-local set of hidden ids.
+- Deliberately not added: a second "delete entire session" inside `SessionDetailDialog`. Both cards that open it now carry the action; a duplicate path to the same destructive operation is more surface, not more consistency.
+
+---
+
+## 🐞 49. Flow Mode Started a Task on App Open With Nothing Running
+**Status:** ✅ Resolved (2026-08-31)
+
+### 📝 Problem
+With Flow Mode on, opening the app or navigating to the tracker with no session active started a fresh "Task N" by itself, unrelated to stopping anything.
+
+### 🔍 Root Cause
+The auto-start had two triggers. The intended one chains into a new task on Stop. A second fired on the first data load whenever no session was active — which is exactly the state of a cold start.
+
+### 🛠️ Final Fix
+The load-time trigger is removed; stopping a task with Flow Mode on is the only path. (Compare #20, the earlier Flow Mode bug, where the auto-start *hung* rather than fired too eagerly.)
+
+---
+
+## 🐞 50. Changes Shipped From a Session That Cannot Compile
+**Status:** ⚠️ Recurring — a process note, not a single bug
+
+### 📝 Problem
+Five commits since 2.10 exist only to fix compile errors in the commit before them: `7854c13` (RepositoryModule positional args after Task Types), `3ce1e84` (icon references in the Help catalog), `6f7f766` (`--` inside an XML manifest comment), `25715a2` (a `CalloutKind.Info` that does not exist) and `612071a` (a parameter not threaded to the composable that used it, plus two missing imports).
+
+### 🔍 Root Cause
+Gradle cannot open its daemon socket inside the Claude Code sandbox on this machine, so every change made there is pushed unverified by a compiler; the Android Studio build is the first one that runs. The errors are all of the same shape — a name assumed rather than checked, a signature changed in one place and not the other — which a compiler catches in seconds and a reader does not.
+
+### 🛠️ Mitigation
+No CI build (deliberately: see the README's Building section). The working rule is that the commit message says the change is uncompiled, the next Android Studio build is treated as part of the change, and its errors are fixed in an immediate follow-up commit rather than folded into unrelated work. `RepositoryModule`'s providers use named arguments since `7854c13` so that class of breakage cannot recur silently.
+
+---
+
+*Last Updated: 2026-09-02*
