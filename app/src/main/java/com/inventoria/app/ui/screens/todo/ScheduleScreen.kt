@@ -65,14 +65,17 @@ private val HOUR_HEIGHT = 64.dp
 private val GUTTER_WIDTH = 44.dp
 
 /**
- * The Schedule segment: a week strip to pick a day, and that day as a 24-hour timeline in two
- * lanes -- Planned (schedule blocks, and the todos due that day) and Actual (tracked task
- * segments). Designated time on the left, used time on the right, same hour scale, so a glance
- * shows how the plan and the day compared.
+ * The Schedule segment: a week strip to pick a day, and that day as one 24-hour timeline.
  *
- * Blocks are created by tapping an empty hour in the Planned lane (or the FAB) and edited by
- * tapping the block. Todos here are read-mostly: tapping one ticks it off, editing stays on the
- * Todos segment (see ScheduleViewModel's KDoc). Tasks are display only -- the tracker owns them.
+ * Schedule blocks are painted flat and translucent across the full width, as if drawn on the
+ * calendar paper itself -- they are what the time was *for*. Tracked task segments sit in front
+ * as solid cards -- what the time was *used* for. Tasks never reach the right edge: a strip down
+ * that side belongs to the blocks alone, so whatever plan a task is covering still shows as a
+ * colour beside it. Todos due at a time are hairlines across everything.
+ *
+ * Blocks are created by tapping an empty hour (or the FAB) and edited by tapping the block. Todos
+ * here are read-mostly: tapping one ticks it off, editing stays on the Todos segment (see
+ * ScheduleViewModel's KDoc). Tasks are display only -- the tracker owns them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,7 +131,6 @@ fun ScheduleScreen(viewModel: ScheduleViewModel) {
             if (day.allDayTodos.isNotEmpty()) {
                 AllDayTodoStrip(day.allDayTodos, onToggle = { viewModel.toggleTodoComplete(it) })
             }
-            LaneHeaders()
             DayTimeline(
                 day = day,
                 isToday = selectedDay == todayStart,
@@ -334,26 +336,8 @@ private fun AllDayTodoStrip(todos: List<Todo>, onToggle: (Todo) -> Unit) {
 
 // ---- Day timeline -----------------------------------------------------------------------------
 
-@Composable
-private fun LaneHeaders() {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 2.dp)
-    ) {
-        Spacer(Modifier.width(GUTTER_WIDTH))
-        LaneHeader("Planned", "what the time is for", Modifier.weight(1f))
-        LaneHeader("Actual", "what it was used for", Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun LaneHeader(title: String, caption: String, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
+/** The right-edge strip tasks never cover, where the block underneath always shows through. */
+private val PEEK_STRIP_WIDTH = 10.dp
 
 @Composable
 private fun DayTimeline(
@@ -393,8 +377,6 @@ private fun DayTimeline(
                     val y = hour * hourHeightPx
                     drawLine(gridColor, Offset(gutter, y), Offset(size.width, y), stroke)
                 }
-                val mid = gutter + (size.width - gutter) / 2f
-                drawLine(gridColor, Offset(mid, 0f), Offset(mid, size.height), stroke)
             }
             Column(Modifier.width(GUTTER_WIDTH)) {
                 for (hour in 0 until 24) {
@@ -415,28 +397,16 @@ private fun DayTimeline(
                     }
                 }
             }
-            Row(
-                Modifier
+            DayLane(
+                day = day,
+                nowMinuteOfDay = nowMinuteOfDay,
+                onTapEmptyMinute = onTapEmptyMinute,
+                onBlockClick = onBlockClick,
+                onTodoClick = onTodoClick,
+                modifier = Modifier
                     .fillMaxSize()
                     .padding(start = GUTTER_WIDTH)
-            ) {
-                PlannedLane(
-                    day = day,
-                    onTapEmptyMinute = onTapEmptyMinute,
-                    onBlockClick = onBlockClick,
-                    onTodoClick = onTodoClick,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                )
-                ActualLane(
-                    tasks = day.tasks,
-                    nowMinuteOfDay = nowMinuteOfDay,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                )
-            }
+            )
             if (isToday) {
                 val y = HOUR_HEIGHT * (nowMinuteOfDay / 60f)
                 Box(
@@ -459,17 +429,23 @@ private fun DayTimeline(
     }
 }
 
+/**
+ * The single lane, back to front: flat blocks across the full width, then task cards (lane-packed
+ * among themselves, stopping short of the right-edge strip), then todo hairlines over everything.
+ * Compose draws children in order, so this ordering is the layering.
+ */
 @Composable
-private fun PlannedLane(
+private fun DayLane(
     day: ScheduleDay,
+    nowMinuteOfDay: Int,
     onTapEmptyMinute: (Int) -> Unit,
     onBlockClick: (ScheduleBlock) -> Unit,
     onTodoClick: (Todo) -> Unit,
     modifier: Modifier
 ) {
     val hourHeightPx = with(LocalDensity.current) { HOUR_HEIGHT.toPx() }
-    // Taps on a block or a todo marker are consumed by their own clickables before reaching this,
-    // so whatever arrives here really did land on empty space.
+    // Blocks, tasks and todo markers each consume their own taps before they reach this, so
+    // whatever arrives here really did land on empty paper.
     BoxWithConstraints(
         modifier.pointerInput(Unit) {
             detectTapGestures { offset ->
@@ -477,8 +453,10 @@ private fun PlannedLane(
             }
         }
     ) {
-        val laneWidth = maxWidth
-        if (day.blocks.isEmpty() && day.timedTodos.isEmpty()) {
+        val fullWidth = maxWidth
+        val taskAreaWidth = fullWidth - PEEK_STRIP_WIDTH
+
+        if (day.blocks.isEmpty() && day.timedTodos.isEmpty() && day.tasks.isEmpty()) {
             Text(
                 "Tap an hour to block it out",
                 style = MaterialTheme.typography.labelSmall,
@@ -489,24 +467,45 @@ private fun PlannedLane(
                     .padding(top = 8.dp)
             )
         }
-        val slots = remember(day.blocks) {
-            packIntoLanes(day.blocks, start = { it.startMinuteOfDay.toFloat() }, end = { it.endMinuteOfDay.toFloat() })
-        }
-        slots.forEach { slot ->
-            val block = slot.item
-            val width = laneWidth / slot.laneCount
+
+        // Blocks: the plan, painted on the paper. Full width, so the peek strip is simply the part
+        // of a block nothing else is allowed to cover.
+        day.blocks.forEach { block ->
             val top = HOUR_HEIGHT * (block.startMinuteOfDay / 60f)
             val height = HOUR_HEIGHT * ((block.endMinuteOfDay - block.startMinuteOfDay) / 60f)
-            ScheduleBlockCard(
+            FlatScheduleBlock(
                 block = block,
                 modifier = Modifier
-                    .offset(x = width * slot.lane, y = top)
-                    .width(width)
-                    .height(maxOf(height, 24.dp))
-                    .padding(horizontal = 2.dp, vertical = 1.dp),
+                    .offset(y = top)
+                    .fillMaxWidth()
+                    .height(maxOf(height, 20.dp)),
                 onClick = { onBlockClick(block) }
             )
         }
+
+        // Tasks: what actually happened, solid and in front. A running one ends "now", resolved
+        // here on the minute ticker so a live session visibly grows down the day.
+        val resolved = remember(day.tasks, nowMinuteOfDay) {
+            day.tasks.map { it to (it.endMinute ?: nowMinuteOfDay.toFloat().coerceAtLeast(it.startMinute)) }
+        }
+        val slots = remember(resolved) {
+            packIntoLanes(resolved, start = { it.first.startMinute }, end = { it.second })
+        }
+        slots.forEach { slot ->
+            val (segment, endMinute) = slot.item
+            val width = taskAreaWidth / slot.laneCount
+            TaskSegmentCard(
+                task = segment.task,
+                isRunning = segment.endMinute == null,
+                modifier = Modifier
+                    .offset(x = width * slot.lane, y = HOUR_HEIGHT * (segment.startMinute / 60f))
+                    .width(width)
+                    .height(maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp))
+                    .padding(horizontal = 2.dp, vertical = 1.dp)
+            )
+        }
+
+        // Todos: a deadline is a moment, so a hairline across everything at that minute.
         day.timedTodos.forEach { todo ->
             val minute = todo.deadlineMinuteOfDay ?: return@forEach
             TodoDueMarker(
@@ -520,59 +519,69 @@ private fun PlannedLane(
     }
 }
 
-/** A designated stretch of time: a wash of its kind's colour with a solid edge, title and span.
- * Translucent on purpose -- it is a plan, and the Actual lane next door is the fact. */
+/**
+ * A designated stretch of time, drawn as if on the calendar paper: a faint wash of its kind's
+ * colour edge to edge, a solid hairline at its top so the boundary reads even under a task, the
+ * title and span in the top-left, and the right-edge peek strip in a stronger tint of the same
+ * colour. Tasks stop short of that strip, so when one covers this block the strip still says
+ * what the hour was meant for.
+ */
 @Composable
-private fun ScheduleBlockCard(block: ScheduleBlock, modifier: Modifier, onClick: () -> Unit) {
+private fun FlatScheduleBlock(block: ScheduleBlock, modifier: Modifier, onClick: () -> Unit) {
     val kindColor = Color(block.kind.colorValue)
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
-        color = kindColor.copy(alpha = 0.22f)
+    Box(
+        modifier
+            .background(kindColor.copy(alpha = 0.16f))
+            .clickable(onClick = onClick)
     ) {
-        Row(Modifier.fillMaxSize()) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .background(kindColor)
-            )
-            Column(
-                Modifier
-                    .padding(horizontal = 5.dp, vertical = 3.dp)
-                    .fillMaxSize()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        block.title,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (block.repeatWeekly) {
-                        Spacer(Modifier.width(3.dp))
-                        Icon(
-                            Icons.Default.Repeat,
-                            contentDescription = "Repeats weekly",
-                            modifier = Modifier.size(11.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+        HorizontalDivider(
+            modifier = Modifier.align(Alignment.TopStart),
+            thickness = 1.5.dp,
+            color = kindColor.copy(alpha = 0.7f)
+        )
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .width(PEEK_STRIP_WIDTH)
+                .fillMaxHeight()
+                .background(kindColor.copy(alpha = 0.65f))
+        )
+        Column(
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 6.dp, top = 3.dp, end = PEEK_STRIP_WIDTH + 4.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    block.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                if (block.repeatWeekly) {
+                    Spacer(Modifier.width(3.dp))
+                    Icon(
+                        Icons.Default.Repeat,
+                        contentDescription = "Repeats weekly",
+                        modifier = Modifier.size(11.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
+            Text(
+                "${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
         }
     }
 }
 
-/** A todo due at a time of day: a hairline across the Planned lane at that minute, in the todo's
+/** A todo due at a time of day: a hairline across the whole day at that minute, in the todo's
  * priority-tier colour, with a small label hanging under it. A deadline is a moment, not a span,
  * which is why this is a line and not a box. */
 @Composable
@@ -618,55 +627,18 @@ private fun TodoDueMarker(todo: Todo, modifier: Modifier, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun ActualLane(tasks: List<DayTaskSegment>, nowMinuteOfDay: Int, modifier: Modifier) {
-    BoxWithConstraints(modifier) {
-        val laneWidth = maxWidth
-        if (tasks.isEmpty()) {
-            Text(
-                "Nothing tracked",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-            )
-        }
-        // A running segment ends "now"; resolving that here (keyed on the minute ticker) is what
-        // makes a live session visibly grow down the lane.
-        val resolved = remember(tasks, nowMinuteOfDay) {
-            tasks.map { it to (it.endMinute ?: nowMinuteOfDay.toFloat().coerceAtLeast(it.startMinute)) }
-        }
-        val slots = remember(resolved) {
-            packIntoLanes(resolved, start = { it.first.startMinute }, end = { it.second })
-        }
-        slots.forEach { slot ->
-            val (segment, endMinute) = slot.item
-            val width = laneWidth / slot.laneCount
-            TaskSegmentCard(
-                task = segment.task,
-                isRunning = segment.endMinute == null,
-                modifier = Modifier
-                    .offset(x = width * slot.lane, y = HOUR_HEIGHT * (segment.startMinute / 60f))
-                    .width(width)
-                    .height(maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp))
-                    .padding(horizontal = 2.dp, vertical = 1.dp)
-            )
-        }
-    }
-}
-
-/** Used time: a solid bar in the task's kind colour. Solid where blocks are translucent, because
- * this actually happened. Text flips to black on the lighter kinds (Banana, Tangerine). */
+/** Used time: a solid card in the task's kind colour, in front of the flat blocks because this
+ * actually happened. Text flips to black on the lighter kinds (Banana, Tangerine). Consumes its
+ * tap so touching a task never reads as "add a block here". */
 @Composable
 private fun TaskSegmentCard(task: Task, isRunning: Boolean, modifier: Modifier) {
     val kindColor = Color(task.kind.colorValue)
     val textColor = if (kindColor.luminance() > 0.5f) Color.Black else Color.White
     Surface(
-        modifier = modifier,
+        modifier = modifier.clickable(onClick = {}),
         shape = RoundedCornerShape(6.dp),
-        color = kindColor.copy(alpha = 0.9f)
+        color = kindColor.copy(alpha = 0.92f),
+        shadowElevation = 1.dp
     ) {
         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
             Text(
