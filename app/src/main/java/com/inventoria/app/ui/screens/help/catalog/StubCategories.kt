@@ -6,7 +6,6 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
 import com.inventoria.app.ui.screens.help.model.ArticleStatus
@@ -83,12 +82,6 @@ private val comingSoonCategory = HelpCategory(
  * visible but not enterable, so nobody taps into a blank screen.
  */
 internal val stubCategories = listOf(
-    HelpCategory(
-        id = "inventory",
-        title = "Inventory & Items",
-        summary = "Items, containers, photos, searching and filtering, in the Inventory tab",
-        icon = Icons.Default.Inventory
-    ),
     HelpCategory(
         id = "collections",
         title = "Collections & Readiness",

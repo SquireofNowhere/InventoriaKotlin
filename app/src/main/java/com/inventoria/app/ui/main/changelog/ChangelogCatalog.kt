@@ -30,7 +30,8 @@ object ChangelogCatalog {
                     "A task you save to your calendar now really does auto-delete from local history 24 hours later, matching the countdown the app already showed.",
                     "The sync indicator in the top bar now lights up for every kind of sync, not just inventory items.",
                     "The in-app How To manual now covers Todos in full, including the Schedule segment -- tap the ? on the Todos tab.",
-                    "The in-app How To manual now covers Today in full too -- tap the ? on the Today tab."
+                    "The in-app How To manual now covers Today in full too -- tap the ? on the Today tab.",
+                    "The in-app How To manual now covers Inventory & Items in full -- tap the ? on the Inventory tab."
                 )
             ),
             ChangelogEntry(
