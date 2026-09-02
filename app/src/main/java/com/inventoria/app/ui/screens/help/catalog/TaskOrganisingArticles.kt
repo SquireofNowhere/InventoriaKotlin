@@ -212,7 +212,7 @@ internal val taskOrganisingArticles = listOf(
                 )
             ),
             HelpBlock.Callout(
-                CalloutKind.Info,
+                CalloutKind.Note,
                 "Only segments that follow each other can be merged: ticking the first and third but not the second is refused, because the result would overlap the one you skipped."
             ),
             HelpBlock.Callout(
