@@ -73,17 +73,18 @@ private val GUTTER_WIDTH = 44.dp
  *
  * Schedule blocks are painted flat and translucent across the full width, as if drawn on the
  * calendar paper itself -- they are what the time was *for*. Tracked task segments sit in front
- * as solid cards -- what the time was *used* for. Tasks never reach the right edge: a strip down
- * that side belongs to the blocks alone, so whatever plan a task is covering still shows as a
- * colour beside it. Todos due at a time are hairlines across everything.
+ * as solid cards on the right half of the timeline, past a divider line -- what the time was
+ * *used* for -- so the block underneath still shows through on the left. Todos due at a time are
+ * hairlines across everything.
  *
  * Blocks are created by tapping an empty hour (or the FAB) and edited by tapping the block. Todos
  * here are read-mostly: tapping one ticks it off, editing stays on the Todos segment (see
- * ScheduleViewModel's KDoc). Tasks are display only -- the tracker owns them.
+ * ScheduleViewModel's KDoc). Tasks are display only here too -- tapping one hands off to the
+ * tracker's own task edit screen via [onOpenTaskDetail] rather than opening anything locally.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleScreen(viewModel: ScheduleViewModel) {
+fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> Unit) {
     val day by viewModel.day.collectAsState()
     val weekDays by viewModel.weekDays.collectAsState()
     val weekStart by viewModel.weekStart.collectAsState()
@@ -145,6 +146,7 @@ fun ScheduleScreen(viewModel: ScheduleViewModel) {
                 taskTypeNames = taskTypeNames,
                 onBlockClick = { viewModel.startEditingBlock(it) },
                 onTodoClick = { viewModel.toggleTodoComplete(it) },
+                onTaskClick = { onOpenTaskDetail(it.id) },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -356,6 +358,7 @@ private fun DayTimeline(
     taskTypeNames: Map<String, String>,
     onBlockClick: (ScheduleBlock) -> Unit,
     onTodoClick: (Todo) -> Unit,
+    onTaskClick: (Task) -> Unit,
     modifier: Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -386,6 +389,9 @@ private fun DayTimeline(
                     val y = hour * hourHeightPx
                     drawLine(gridColor, Offset(gutter, y), Offset(size.width, y), stroke)
                 }
+                // Splits the day into a blocks side and a tasks side, behind everything else.
+                val mid = gutter + (size.width - gutter) / 2f
+                drawLine(gridColor, Offset(mid, 0f), Offset(mid, size.height), stroke)
             }
             Column(Modifier.width(GUTTER_WIDTH)) {
                 for (hour in 0 until 24) {
@@ -413,6 +419,7 @@ private fun DayTimeline(
                 taskTypeNames = taskTypeNames,
                 onBlockClick = onBlockClick,
                 onTodoClick = onTodoClick,
+                onTaskClick = onTaskClick,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(start = GUTTER_WIDTH)
@@ -440,9 +447,9 @@ private fun DayTimeline(
 }
 
 /**
- * The single lane, back to front: flat blocks across the full width, then task cards (lane-packed
- * among themselves, stopping short of the right-edge strip), then todo hairlines over everything.
- * Compose draws children in order, so this ordering is the layering.
+ * The single lane, back to front: flat blocks across the full width, then task cards confined to
+ * the right half (lane-packed among themselves, stopping short of the right-edge strip), then todo
+ * hairlines over everything. Compose draws children in order, so this ordering is the layering.
  */
 @Composable
 private fun DayLane(
@@ -452,6 +459,7 @@ private fun DayLane(
     taskTypeNames: Map<String, String>,
     onBlockClick: (ScheduleBlock) -> Unit,
     onTodoClick: (Todo) -> Unit,
+    onTaskClick: (Task) -> Unit,
     modifier: Modifier
 ) {
     val hourHeightPx = with(LocalDensity.current) { HOUR_HEIGHT.toPx() }
@@ -465,7 +473,8 @@ private fun DayLane(
         }
     ) {
         val fullWidth = maxWidth
-        val taskAreaWidth = fullWidth - PEEK_STRIP_WIDTH
+        val taskLaneStart = fullWidth / 2
+        val taskAreaWidth = (fullWidth - taskLaneStart) - PEEK_STRIP_WIDTH
 
         if (day.blocks.isEmpty() && day.timedTodos.isEmpty() && day.tasks.isEmpty()) {
             Text(
@@ -510,10 +519,11 @@ private fun DayLane(
                 task = segment.task,
                 isRunning = segment.endMinute == null,
                 modifier = Modifier
-                    .offset(x = width * slot.lane, y = HOUR_HEIGHT * (segment.startMinute / 60f))
+                    .offset(x = taskLaneStart + width * slot.lane, y = HOUR_HEIGHT * (segment.startMinute / 60f))
                     .width(width)
                     .height(maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp))
-                    .padding(horizontal = 2.dp, vertical = 1.dp)
+                    .padding(horizontal = 2.dp, vertical = 1.dp),
+                onClick = { onTaskClick(segment.task) }
             )
         }
 
@@ -649,14 +659,14 @@ private fun TodoDueMarker(todo: Todo, modifier: Modifier, onClick: () -> Unit) {
 }
 
 /** Used time: a solid card in the task's kind colour, in front of the flat blocks because this
- * actually happened. Text flips to black on the lighter kinds (Banana, Tangerine). Consumes its
- * tap so touching a task never reads as "add a block here". */
+ * actually happened. Text flips to black on the lighter kinds (Banana, Tangerine). Tapping one
+ * opens that task's edit screen on the Task Tracker tab. */
 @Composable
-private fun TaskSegmentCard(task: Task, isRunning: Boolean, modifier: Modifier) {
+private fun TaskSegmentCard(task: Task, isRunning: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val kindColor = Color(task.kind.colorValue)
     val textColor = if (kindColor.luminance() > 0.5f) Color.Black else Color.White
     Surface(
-        modifier = modifier.clickable(onClick = {}),
+        modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(6.dp),
         color = kindColor.copy(alpha = 0.92f),
         shadowElevation = 1.dp

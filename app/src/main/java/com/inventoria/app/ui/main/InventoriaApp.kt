@@ -166,6 +166,14 @@ fun InventoriaApp(
 
     val showFocusPrompt by launchViewModel.showFocusPrompt.collectAsState()
     val pendingWhatsNew by launchViewModel.pendingWhatsNew.collectAsState()
+    val pendingTaskDetail by launchViewModel.pendingTaskDetail.collectAsState()
+    // Schedule (a different tab's ViewModel) can't reach into Tasks' own TaskTrackerViewModel
+    // directly, so the request goes through the activity-scoped launch ViewModel instead -- see
+    // its pendingTaskDetail KDoc for why that's a sticky StateFlow rather than a one-shot event.
+    val onOpenTaskDetail: (String) -> Unit = { taskId ->
+        launchViewModel.requestTaskDetail(taskId)
+        navController.switchToTab(Screen.Tasks.route)
+    }
     // Strictly sequential, never stacked: the focus choice reshapes the tabs and dashboard the
     // changelog describes, so it goes first and What's New waits for it to be answered.
     if (showFocusPrompt) {
@@ -381,7 +389,9 @@ fun InventoriaApp(
                     onNavigateToHelp = { openHelpFor(Screen.Tasks.helpCategoryId) },
                     onNavigateToStats = { navController.navigate("productivity_stats") },
                     onNavigateToHistory = { navController.navigate("task_history") },
-                    onNavigateToClock = { navController.navigate("timers_alarms") }
+                    onNavigateToClock = { navController.navigate("timers_alarms") },
+                    openTaskId = pendingTaskDetail,
+                    onOpenTaskIdConsumed = { launchViewModel.consumeTaskDetailRequest() }
                 )
             }
 
@@ -409,7 +419,8 @@ fun InventoriaApp(
                     scheduleViewModel = hiltViewModel<ScheduleViewModel>(),
                     onNavigateToHelp = { openHelpFor(Screen.Todos.helpCategoryId) },
                     // "View on Tasks" is a tab switch, not a drill-down -- must not plain-push.
-                    onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
+                    onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) },
+                    onOpenTaskDetail = onOpenTaskDetail
                 )
             }
 

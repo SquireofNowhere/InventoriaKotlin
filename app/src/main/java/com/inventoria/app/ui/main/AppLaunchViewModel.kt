@@ -51,6 +51,23 @@ class AppLaunchViewModel @Inject constructor(
     private val _pendingWhatsNew = MutableStateFlow<List<ChangelogEntry>?>(null)
     val pendingWhatsNew: StateFlow<List<ChangelogEntry>?> = _pendingWhatsNew.asStateFlow()
 
+    /** A task id another tab (currently just Schedule) wants the Task Tracker tab to open in its
+     * edit dialog on arrival. A sticky StateFlow rather than a one-shot event: the Tasks tab's own
+     * composition can be torn down and rebuilt by the nav bar's saveState/restoreState between the
+     * request and the tab actually collecting it, and only a StateFlow is guaranteed to still hand
+     * a late collector the value. [consumeTaskDetailRequest] clears it once the tab has acted on it
+     * so switching tabs again later doesn't reopen the same task. */
+    private val _pendingTaskDetail = MutableStateFlow<String?>(null)
+    val pendingTaskDetail: StateFlow<String?> = _pendingTaskDetail.asStateFlow()
+
+    fun requestTaskDetail(taskId: String) {
+        _pendingTaskDetail.value = taskId
+    }
+
+    fun consumeTaskDetailRequest() {
+        _pendingTaskDetail.value = null
+    }
+
     init {
         viewModelScope.launch {
             if (!settingsRepository.hasSeenFocusPrompt().first()) {

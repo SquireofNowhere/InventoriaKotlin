@@ -42,7 +42,8 @@ fun TodoHubScreen(
     todoViewModel: TodoViewModel,
     scheduleViewModel: ScheduleViewModel,
     onNavigateToHelp: () -> Unit,
-    onNavigateToTasks: () -> Unit
+    onNavigateToTasks: () -> Unit,
+    onOpenTaskDetail: (String) -> Unit
 ) {
     var segment by rememberSaveable { mutableStateOf(TodoSegment.TODOS) }
 
@@ -119,7 +120,10 @@ fun TodoHubScreen(
                         viewModel = todoViewModel,
                         onNavigateToTasks = onNavigateToTasks
                     )
-                    TodoSegment.SCHEDULE -> ScheduleScreen(viewModel = scheduleViewModel)
+                    TodoSegment.SCHEDULE -> ScheduleScreen(
+                        viewModel = scheduleViewModel,
+                        onOpenTaskDetail = onOpenTaskDetail
+                    )
                 }
             }
         }

@@ -20,6 +20,14 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 97,
+                versionName = "2.16",
+                changes = listOf(
+                    "Schedule's timeline is split again: blocks on the left, tracked tasks on the right past a divider line. Tapping a task opens its edit screen on Task Tracker.",
+                    "The pencil next to a running task's name now opens that task's own edit screen directly, instead of routing through Session Details every time."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 96,
                 versionName = "2.15",
                 changes = listOf(

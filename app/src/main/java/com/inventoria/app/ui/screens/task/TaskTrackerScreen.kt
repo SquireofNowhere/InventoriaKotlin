@@ -113,7 +113,9 @@ fun TaskTrackerScreen(
     onNavigateToHelp: () -> Unit,
     onNavigateToStats: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToClock: () -> Unit
+    onNavigateToClock: () -> Unit,
+    openTaskId: String? = null,
+    onOpenTaskIdConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -156,6 +158,16 @@ fun TaskTrackerScreen(
     // new session arrives in activeSessions, then the dialog appears; no waiting needed here.
     LaunchedEffect(Unit) {
         viewModel.openSessionDetails.collect { groupId -> selectedSessionGroupId = groupId }
+    }
+
+    // Tapping a task on the Schedule tab hands off here via AppLaunchViewModel's sticky request
+    // (see openTaskId's caller) -- open its edit dialog once, then tell the caller to clear the
+    // request so switching tabs again later doesn't reopen the same task.
+    LaunchedEffect(openTaskId) {
+        if (openTaskId != null) {
+            selectedTaskId = openTaskId
+            onOpenTaskIdConsumed()
+        }
     }
     var showProductivityDialog by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
@@ -384,6 +396,7 @@ fun TaskTrackerScreen(
                                 }
                             },
                             onSessionClick = { selectedSessionGroupId = session.groupId },
+                            onEditTask = { selectedTaskId = it },
                             onToggleStreak = { task, enabled -> viewModel.setInnerTaskCountsForStreak(task, enabled) }
                         )
                     }
@@ -1182,7 +1195,7 @@ private fun SegmentRow(
 
 
 @Composable
-fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onDiscard: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, TaskKind, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
+fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourceTasks: List<Task>, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, isFlowModeEnabled: Boolean, depth: Int = 0, parentName: String? = null, onStop: () -> Unit, onPauseResume: () -> Unit, onDiscard: () -> Unit, onUpdateName: (String) -> Unit, onAutocompleteSelect: (String, TaskKind, String?) -> Unit, onTaskTypeSelect: (String) -> Unit, onTaskTypeChange: (String?) -> Unit, onUpdateKind: (TaskKind) -> Unit, onSessionClick: () -> Unit, onEditTask: (String) -> Unit, onToggleStreak: (Task, Boolean) -> Unit) {
     val isExpanded by session.isExpanded.collectAsState(); val activeSegment = session.activeSegment; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val activeElapsed by (activeSegment?.elapsedTime?.collectAsState() ?: remember { mutableStateOf(0L) }); val refTask = activeSegment?.task ?: session.segments.firstOrNull() ?: return; 
     
     val todayStart = getStartOfDay(currentTime)
@@ -1260,7 +1273,9 @@ fun ActiveSessionCard(session: TaskSessionUI, currentTime: Long, suggestionSourc
                             }
                         }
                     }
-                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                    IconButton(onClick = { onEditTask(refTask.id) }, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit task", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 IconButton(onClick = onSessionClick, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.MoreVert, null, tint = Color.Gray) }
             }
