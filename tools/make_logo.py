@@ -277,4 +277,52 @@ def adaptive_preview(size):
 
 
 adaptive_preview(512).save(os.path.join(here, "preview_adaptive.png"))
+
+
+# ---- Design exports (tools/export/, gitignored): high-res PNGs and SVGs for use outside the app ----
+
+def mark_only(size):
+    """The hand-and-clock alone on a transparent canvas, wrist clipped at the bottom edge."""
+    ss = 4
+    big = size * ss
+    artl = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    draw_art(ImageDraw.Draw(artl), art(**FULL), big / 128.0, 0, 0)
+    return artl.resize((size, size), Image.LANCZOS)
+
+
+def svg(prims, background):
+    """The same primitives as an SVG on a 128x128 viewBox, optionally on the gradient tile."""
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="1024" height="1024">']
+    out.append('<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
+               '<stop offset="0" stop-color="#8b5cf6"/><stop offset="0.5" stop-color="#a855f7"/>'
+               '<stop offset="1" stop-color="#c084fc"/></linearGradient>'
+               '<clipPath id="tile"><rect x="0" y="0" width="128" height="128" rx="23"/></clipPath></defs>')
+    if background:
+        out.append('<rect x="0" y="0" width="128" height="128" rx="23" fill="url(#bg)"/>')
+    out.append('<g clip-path="url(#tile)">')
+    for prim in prims:
+        kind = prim[0]
+        if kind == "disc":
+            _, x, y, r, c = prim
+            out.append(f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(r)}" fill="{c}"/>')
+        elif kind == "seg":
+            _, x0, y0, x1, y1, w, c = prim
+            out.append(f'<line x1="{f(x0)}" y1="{f(y0)}" x2="{f(x1)}" y2="{f(y1)}" stroke="{c}" stroke-width="{f(w)}" stroke-linecap="round"/>')
+        elif kind == "qcurve":
+            _, x0, y0, qx, qy, x1, y1, w, c = prim
+            out.append(f'<path d="M {f(x0)} {f(y0)} Q {f(qx)} {f(qy)} {f(x1)} {f(y1)}" fill="none" stroke="{c}" stroke-width="{f(w)}" stroke-linecap="round"/>')
+        elif kind == "rrect":
+            _, x0, y0, x1, y1, r, c = prim
+            out.append(f'<rect x="{f(x0)}" y="{f(y0)}" width="{f(x1 - x0)}" height="{f(y1 - y0)}" rx="{f(r)}" fill="{c}"/>')
+    out.append("</g></svg>")
+    return "\n".join(out)
+
+
+export = os.path.join(here, "export")
+os.makedirs(export, exist_ok=True)
+legacy_icon(1024, False).save(os.path.join(export, "inventoria-icon-1024.png"))
+legacy_icon(1024, True).save(os.path.join(export, "inventoria-icon-round-1024.png"))
+mark_only(1024).save(os.path.join(export, "inventoria-mark-transparent-1024.png"))
+write(os.path.join(export, "inventoria-icon.svg"), svg(art(**FULL), background=True))
+write(os.path.join(export, "inventoria-mark.svg"), svg(art(**FULL), background=False))
 print("done")

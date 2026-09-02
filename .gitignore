@@ -11,3 +11,4 @@ app/google-services.json
 
 # Logo generator previews (tools/make_logo.py)
 tools/preview_*.png
+tools/export/
