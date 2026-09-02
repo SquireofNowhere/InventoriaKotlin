@@ -511,6 +511,7 @@ class TaskTrackerViewModel @Inject constructor(
         viewModelScope.launch {
             while (isActive) {
                 repository.purgeOldDeletedTasks(deletedRowPurgeThreshold())
+                repository.purgeExpiredCalendarSaves()
                 delay(60000)
             }
         }

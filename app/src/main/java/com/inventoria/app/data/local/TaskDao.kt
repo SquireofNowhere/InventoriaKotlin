@@ -86,4 +86,10 @@ interface TaskDao {
 
     @Query("DELETE FROM Task WHERE isDeleted = 1 AND updatedAt < :threshold")
     suspend fun purgeOldDeletedTasks(threshold: Long)
+
+    /** Soft-deletes (not purges outright) every task whose calendar-save window has expired --
+     * same tombstone path a manual delete takes, so it is still recoverable for the usual
+     * DELETED_ROW_RETENTION_MILLIS window even though nobody tapped Delete. */
+    @Query("UPDATE Task SET isDeleted = 1, updatedAt = :timestamp, isDirty = 1 WHERE savedToCalendar = 1 AND savedToCalendarAt IS NOT NULL AND savedToCalendarAt < :cutoff AND isDeleted = 0")
+    suspend fun purgeExpiredCalendarSaves(cutoff: Long, timestamp: Long)
 }

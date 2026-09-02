@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import com.inventoria.app.data.CALENDAR_SAVE_RETENTION_MILLIS
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
@@ -990,7 +991,7 @@ fun CompletedSessionCard(
                     )
                     if (allSaved && !isCalendarSession) {
                         val latestSaveAt = segments.mapNotNull { it.savedToCalendarAt }.maxOrNull() ?: 0L
-                        val remaining = 86400000 - (currentTime - latestSaveAt)
+                        val remaining = CALENDAR_SAVE_RETENTION_MILLIS - (currentTime - latestSaveAt)
                         if (remaining > 0) {
                             Text(text = "Auto-delete in: ${formatDetailedDuration(remaining)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                         }
@@ -1627,7 +1628,7 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<S
                         Spacer(Modifier.width(8.dp)); Text(text = "Loaded from your device calendar. Tap to view.", style = MaterialTheme.typography.labelSmall, color = Color(0xFF4285F4)) 
                     } 
                 }
-                if (task.savedToCalendar && task.savedToCalendarAt != null && !isCalendarTask) { val remaining = 86400000 - (currentTime - task.savedToCalendarAt!!); if (remaining > 0) { Text(text = "Auto-delete in: ${formatDetailedDuration(remaining)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error) } }
+                if (task.savedToCalendar && task.savedToCalendarAt != null && !isCalendarTask) { val remaining = CALENDAR_SAVE_RETENTION_MILLIS - (currentTime - task.savedToCalendarAt!!); if (remaining > 0) { Text(text = "Auto-delete in: ${formatDetailedDuration(remaining)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error) } }
             }
         }
     )

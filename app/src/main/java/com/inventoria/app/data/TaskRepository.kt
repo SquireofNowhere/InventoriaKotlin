@@ -261,6 +261,15 @@ class TaskRepository @Inject constructor(
         taskDao.purgeOldDeletedTasks(threshold)
     }
 
+    /** Acts on the "Auto-delete in…" countdown the calendar-save UI shows -- see
+     * CALENDAR_SAVE_RETENTION_MILLIS's KDoc for why this is a tombstone, not a hard delete. */
+    suspend fun purgeExpiredCalendarSaves() {
+        taskDao.purgeExpiredCalendarSaves(
+            cutoff = System.currentTimeMillis() - CALENDAR_SAVE_RETENTION_MILLIS,
+            timestamp = getNextTimestamp()
+        )
+    }
+
     // ---- Session operations ------------------------------------------------------------------
     //
     // A "session" is every Task row sharing a groupId. These read the table rather than any

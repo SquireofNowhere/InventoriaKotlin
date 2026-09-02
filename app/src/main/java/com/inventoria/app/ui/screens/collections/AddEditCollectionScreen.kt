@@ -4,6 +4,7 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -35,6 +36,7 @@ fun AddEditCollectionScreen(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val isEditing = collectionId != null && collectionId != 0L
+    var showIconColorPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.eventFlow.collectLatest { event ->
@@ -84,7 +86,7 @@ fun AddEditCollectionScreen(
                         .size(80.dp)
                         .clip(CircleShape)
                         .background(Color(viewModel.color).copy(alpha = 0.2f))
-                        .clickable { /* Show Icon/Color Picker Dialog */ },
+                        .clickable { showIconColorPicker = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(viewModel.icon, fontSize = 40.sp)
@@ -147,4 +149,105 @@ fun AddEditCollectionScreen(
             }
         }
     }
+
+    if (showIconColorPicker) {
+        IconColorPickerDialog(
+            currentIcon = viewModel.icon,
+            currentColor = viewModel.color,
+            onDismiss = { showIconColorPicker = false },
+            onConfirm = { icon, color ->
+                viewModel.icon = icon
+                viewModel.color = color
+                showIconColorPicker = false
+            }
+        )
+    }
 }
+
+/** A curated emoji + a curated palette rather than a full picker -- collections are a small,
+ * personal set of things (kits, outfits, gear), not a place that needs millions of emoji or an
+ * arbitrary hue wheel. [currentColor] is only used to highlight the selection; there is no free
+ * colour entry, so it will always be one of [COLLECTION_COLOR_OPTIONS]. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun IconColorPickerDialog(
+    currentIcon: String,
+    currentColor: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (String, Int) -> Unit
+) {
+    var icon by remember { mutableStateOf(currentIcon) }
+    var color by remember { mutableStateOf(currentColor) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Icon & Color") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(Color(color).copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(icon, fontSize = 32.sp)
+                }
+                Text("Icon", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    COLLECTION_ICON_OPTIONS.forEach { option ->
+                        val selected = option == icon
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(if (selected) Color(color).copy(alpha = 0.25f) else Color.Transparent)
+                                .then(
+                                    if (selected) Modifier.border(2.dp, Color(color), CircleShape)
+                                    else Modifier
+                                )
+                                .clickable { icon = option },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(option, fontSize = 22.sp)
+                        }
+                    }
+                }
+                Text("Color", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    COLLECTION_COLOR_OPTIONS.forEach { option ->
+                        val selected = option == color
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(option))
+                                .then(
+                                    if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                    else Modifier
+                                )
+                                .clickable { color = option }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(icon, color) }) { Text("Done") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+private val COLLECTION_ICON_OPTIONS = listOf(
+    "📦", "🎒", "🧳", "⚙️", "🏕️", "👔", "🚨", "🎮",
+    "🔧", "🏠", "📷", "🎨", "⚽", "💊", "🎣", "🧰"
+)
+
+private val COLLECTION_COLOR_OPTIONS = listOf(
+    0xFFE53935.toInt(), 0xFFFB8C00.toInt(), 0xFFFDD835.toInt(), 0xFF43A047.toInt(),
+    0xFF00ACC1.toInt(), 0xFF2196F3.toInt(), 0xFF5E35B1.toInt(), 0xFF8E24AA.toInt(),
+    0xFFD81B60.toInt(), 0xFF6D4C41.toInt(), 0xFF546E7A.toInt(), 0xFF212121.toInt()
+)

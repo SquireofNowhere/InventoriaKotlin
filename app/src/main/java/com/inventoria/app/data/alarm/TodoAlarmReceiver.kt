@@ -81,6 +81,10 @@ class TodoAlarmReceiver : BroadcastReceiver() {
             Log.d(TAG, "Alarm for $todoId fired but the todo is gone or done; staying quiet")
             return
         }
+        if (!settingsRepository.getNotificationsEnabled().first()) {
+            Log.d(TAG, "Notifications disabled in app settings; alarm for '${todo.title}' suppressed")
+            return
+        }
         val style = TodoAlarmStyle.fromName(settingsRepository.getTodoAlarmStyle().first())
         ensureChannels(context)
         val manager = NotificationManagerCompat.from(context)

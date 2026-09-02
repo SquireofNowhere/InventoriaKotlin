@@ -24,7 +24,10 @@ object ChangelogCatalog {
                 versionName = "2.16",
                 changes = listOf(
                     "Schedule's timeline is split again: blocks on the left, tracked tasks on the right past a divider line. Tapping a task opens its edit screen on Task Tracker.",
-                    "The pencil next to a running task's name now opens that task's own edit screen directly, instead of routing through Session Details every time."
+                    "The pencil next to a running task's name now opens that task's own edit screen directly, instead of routing through Session Details every time.",
+                    "A collection's icon and colour circle now opens a picker instead of doing nothing when tapped.",
+                    "Enable Notifications in Settings now actually silences todo alarms when off, instead of being ignored.",
+                    "A task you save to your calendar now really does auto-delete from local history 24 hours later, matching the countdown the app already showed."
                 )
             ),
             ChangelogEntry(

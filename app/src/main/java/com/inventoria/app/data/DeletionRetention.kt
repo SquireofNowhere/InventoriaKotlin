@@ -20,3 +20,12 @@ val DELETED_ROW_RETENTION_MILLIS: Long = TimeUnit.DAYS.toMillis(30)
 /** Cut-off to hand the `purgeOldDeleted*` queries: anything tombstoned before this is expendable. */
 fun deletedRowPurgeThreshold(now: Long = System.currentTimeMillis()): Long =
     now - DELETED_ROW_RETENTION_MILLIS
+
+/**
+ * How long a task the user marked "saved to calendar" stays in local history before it
+ * auto-deletes -- the point of saving it there is that the calendar entry is now the durable
+ * record, so the app's own copy is free to clean itself up. TaskDetailDialog and
+ * CompletedSessionCard both show a countdown built from this same constant, and
+ * TaskRepository.purgeExpiredCalendarSaves is what actually acts on it.
+ */
+val CALENDAR_SAVE_RETENTION_MILLIS: Long = TimeUnit.HOURS.toMillis(24)

@@ -195,7 +195,7 @@ fun SettingsScreen(
             SettingsCategoryHeader("Notifications")
             SettingsToggleRow(
                 title = "Enable Notifications",
-                subtitle = "Receive alerts for task timers and stock levels",
+                subtitle = "Ring todo alarms. Off silences them even if the system allows notifications.",
                 icon = Icons.Default.Notifications,
                 checked = notificationsEnabled,
                 onCheckedChange = { viewModel.toggleNotifications(it) }
