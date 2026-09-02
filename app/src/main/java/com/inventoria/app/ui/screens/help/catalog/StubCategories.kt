@@ -2,7 +2,6 @@ package com.inventoria.app.ui.screens.help.catalog
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.HourglassEmpty
@@ -61,19 +60,6 @@ private val comingSoonCategory = HelpCategory(
                 "stays consistent. The Dark Mode toggle in Settings is the theming that does work."
         ),
         comingSoon(
-            id = "soon-notifications-toggle",
-            title = "The Enable Notifications switch",
-            summary = "The setting saves, but nothing reads it.",
-            detail = "Turning it off does not currently stop any notification. The running-task notification is " +
-                "part of the background timer and always shows while a task runs."
-        ),
-        comingSoon(
-            id = "soon-collection-icon",
-            title = "Collection icon and colour",
-            summary = "The circle on the collection form is tappable but does nothing.",
-            detail = "There is no picker behind it yet, so a collection's icon and colour cannot be changed."
-        ),
-        comingSoon(
             id = "soon-collection-quick-actions",
             title = "Collection quick actions",
             summary = "Equip or pack a whole collection from the list.",
@@ -86,13 +72,6 @@ private val comingSoonCategory = HelpCategory(
             summary = "No control exposes it.",
             detail = "The inventory list can expand or collapse every container at once, but nothing in the UI " +
                 "triggers it. Containers still expand individually with their chevron."
-        ),
-        comingSoon(
-            id = "soon-auto-delete",
-            title = "Auto-delete after saving to calendar",
-            summary = "The countdown is shown, but nothing acts on it.",
-            detail = "A task saved to your calendar shows an \"Auto-delete in…\" countdown. Nothing removes the " +
-                "task when it reaches zero — the local copy stays until you delete it."
         )
     )
 )
@@ -130,12 +109,6 @@ internal val stubCategories = listOf(
         title = "Locations & Map",
         summary = "Where your things are and how locations are inherited, in the Inventory tab",
         icon = Icons.Default.Map
-    ),
-    HelpCategory(
-        id = "todos",
-        title = "Todos",
-        summary = "Deadlines, priorities, sub-todos and starting work from them, in the Plan tab",
-        icon = Icons.Default.Checklist
     ),
     HelpCategory(
         id = "productivity",
