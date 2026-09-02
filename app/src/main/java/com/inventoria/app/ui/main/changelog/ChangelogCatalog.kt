@@ -27,7 +27,8 @@ object ChangelogCatalog {
                     "Todo alarms. Give a todo a deadline and it rings -- at the due time, or 10 minutes, an hour or a day before. Done and Snooze right from the notification. Pick Alarm or Notification style in Settings.",
                     "In the todo dialog the time picker is always there. Pick a time first and the date fills in as today.",
                     "New look: a hand taking hold of a clock, and a tagline to match -- take a hold of your life. Task Tracker is now the default focus for new installs.",
-                    "Today leads with a Now card: what's running, or what your schedule says this hour is for with a one-tap Start. Below it, today's tracked time broken down by kind.",
+                    "Today leads with a Now card: what's running, or what your schedule says this hour is for with a one-tap Start. Then Up Next with countdowns, and today's tracked time broken down by kind.",
+                    "A red banner tops Today whenever a todo is overdue, past its time, or due within the hour -- so a deadline is on the home screen before the alarm rings.",
                     "Settings > About has a Version History with every update note."
                 )
             ),

@@ -9,8 +9,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.NotificationImportant
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -35,6 +37,7 @@ import com.inventoria.app.ui.components.KindBreakdownDonut
 import com.inventoria.app.ui.components.LinearProductivityChart
 import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TaskKindChip
+import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.ui.screens.todo.TodoDayHeader
 import com.inventoria.app.ui.screens.todo.TodoRow
 import com.inventoria.app.ui.screens.todo.TodoViewModel
@@ -69,6 +72,8 @@ fun TodayScreen(
 ) {
     val tasks by todayViewModel.tasks.collectAsState()
     val nowState by todayViewModel.nowState.collectAsState()
+    val upNext by todayViewModel.upNext.collectAsState()
+    val nudge by todayViewModel.nudge.collectAsState()
     val focusArea by todayViewModel.focusArea.collectAsState()
     val todoSections by todoViewModel.todoSections.collectAsState()
     val taskTypeNames by todoViewModel.taskTypeNamesById.collectAsState()
@@ -170,6 +175,20 @@ fun TodayScreen(
             item(key = "kinds") { KindBreakdownCard(tasks) }
         }
 
+        // Only present when there is something to show; an empty "Up next" would just repeat what
+        // the Idle Now card already says.
+        fun LazyListScope.upNextItem() {
+            if (upNext.isEmpty()) return
+            item(key = "up_next") {
+                UpNextCard(
+                    items = upNext,
+                    nowMinuteOfDay = nowMinuteOfDay,
+                    onOpenSchedule = onNavigateToTodos,
+                    onOpenTodos = onNavigateToTodos
+                )
+            }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -177,6 +196,11 @@ fun TodayScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Above everything, whatever the focus: a deadline about to be missed outranks any
+            // dashboard card.
+            nudge?.let { n ->
+                item(key = "nudge") { NudgeBanner(n, nowMinuteOfDay, onClick = onNavigateToTodos) }
+            }
             when (focusArea) {
                 FocusArea.INVENTORY -> {
                     item(key = "inventory_summary") {
@@ -189,18 +213,21 @@ fun TodayScreen(
                         InventoryFocusCard(totalValue, showValue, itemCount, collectionCount)
                     }
                     nowItem()
+                    upNextItem()
                     todoListItems()
                     timelineItem(afterTodos = true)
                     kindsItem()
                 }
                 FocusArea.TASKS -> {
                     nowItem()
+                    upNextItem()
                     timelineItem(afterTodos = false)
                     kindsItem()
                     todoListItems()
                 }
                 FocusArea.TODOS -> {
                     nowItem()
+                    upNextItem()
                     todoListItems()
                     timelineItem(afterTodos = true)
                     kindsItem()
@@ -534,6 +561,165 @@ private fun formatElapsed(ms: Long): String {
     val s = totalSeconds % 60
     return if (h > 0) String.format(Locale.getDefault(), "%d:%02d:%02d", h, m, s)
     else String.format(Locale.getDefault(), "%02d:%02d", m, s)
+}
+
+/** "in 5 min", "in 2 h 15 min", or "now" once the minute has arrived. */
+private fun countdownLabel(minuteOfDay: Int, nowMinuteOfDay: Int): String {
+    val diff = minuteOfDay - nowMinuteOfDay
+    if (diff <= 0) return "now"
+    val h = diff / 60
+    val m = diff % 60
+    return when {
+        h == 0 -> "in $m min"
+        m == 0 -> "in $h h"
+        else -> "in $h h $m min"
+    }
+}
+
+/**
+ * The red banner: overdue todos, todos already past their time today, and anything due or
+ * ringing within the hour. One line of counts, one line naming the soonest thing. Tapping it goes
+ * to the Todos list, where all of this can be dealt with.
+ */
+@Composable
+private fun NudgeBanner(nudge: Nudge, nowMinuteOfDay: Int, onClick: () -> Unit) {
+    val counts = buildList {
+        if (nudge.overdueCount > 0) add("${nudge.overdueCount} overdue")
+        if (nudge.lateTodayCount > 0) add("${nudge.lateTodayCount} past due today")
+        if (nudge.dueSoon.isNotEmpty()) add("${nudge.dueSoon.size} due within the hour")
+    }.joinToString(" · ")
+    val soonest = nudge.dueSoon.firstOrNull()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
+        )
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.NotificationImportant, contentDescription = null)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(counts, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                if (soonest != null) {
+                    val time = soonest.deadlineMinuteOfDay
+                    val detail = buildString {
+                        append(soonest.title)
+                        if (time != null) append(" · ${formatMinuteOfDay(time)}, ${countdownLabel(time, nowMinuteOfDay)}")
+                        if (soonest.reminderOffsetMinutes != null) append(" · alarm set")
+                    }
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Open Todos")
+        }
+    }
+}
+
+/** The next few things on today's clock -- blocks starting later and todos due at a time -- each
+ * with its clock time and a countdown. Blocks open the Todos hub (Schedule segment is one tap
+ * further, see NowCard), todos open the list. */
+@Composable
+private fun UpNextCard(
+    items: List<UpNextItem>,
+    nowMinuteOfDay: Int,
+    onOpenSchedule: () -> Unit,
+    onOpenTodos: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "Up next",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(8.dp))
+            items.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                when (item) {
+                    is UpNextItem.Block -> UpNextRow(
+                        time = item.minuteOfDay,
+                        nowMinuteOfDay = nowMinuteOfDay,
+                        title = item.block.title,
+                        caption = "Schedule · until ${formatMinuteOfDay(item.block.endMinuteOfDay)}",
+                        accent = Color(item.block.kind.colorValue),
+                        hasAlarm = false,
+                        onClick = onOpenSchedule
+                    )
+                    is UpNextItem.Due -> UpNextRow(
+                        time = item.minuteOfDay,
+                        nowMinuteOfDay = nowMinuteOfDay,
+                        title = item.todo.title,
+                        caption = "Todo due",
+                        accent = todoPriorityTierColor(item.todo.priority),
+                        hasAlarm = item.todo.reminderOffsetMinutes != null,
+                        onClick = onOpenTodos
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpNextRow(
+    time: Int,
+    nowMinuteOfDay: Int,
+    title: String,
+    caption: String,
+    accent: Color,
+    hasAlarm: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.width(64.dp)) {
+            Text(formatMinuteOfDay(time), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(
+                countdownLabel(time, nowMinuteOfDay),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(32.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(accent)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (hasAlarm) {
+            Icon(
+                Icons.Default.Alarm,
+                contentDescription = "Alarm set",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 /** Today's tracked minutes by kind -- see KindBreakdownDonut. */

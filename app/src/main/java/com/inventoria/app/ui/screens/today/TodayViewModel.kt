@@ -7,10 +7,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.ScheduleBlockRepository
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.model.modalTypeIdFor
+import com.inventoria.app.data.model.reminderTriggerAt
 import com.inventoria.app.data.repository.CollectionRepository
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
@@ -50,6 +54,36 @@ sealed interface NowState {
     data class Idle(val nextBlock: ScheduleBlock?) : NowState
 }
 
+/** One row of the Up Next card: a schedule block starting later today, or a todo due at a time
+ * later today. Ordered by [minuteOfDay]. */
+sealed interface UpNextItem {
+    val minuteOfDay: Int
+
+    data class Block(val block: ScheduleBlock) : UpNextItem {
+        override val minuteOfDay: Int get() = block.startMinuteOfDay
+    }
+
+    data class Due(val todo: Todo) : UpNextItem {
+        override val minuteOfDay: Int get() = todo.deadlineMinuteOfDay ?: 0
+    }
+}
+
+/**
+ * What the red banner at the top of Today has to say. Only built when at least one field is
+ * non-empty; the screen shows nothing otherwise.
+ *
+ * [dueSoon] is the rent case: incomplete todos whose alarm will ring, or whose due time falls,
+ * within the next hour. The banner exists so that a deadline you are about to miss is on the
+ * home screen before the alarm, not only in it.
+ */
+data class Nudge(
+    val overdueCount: Int,
+    val lateTodayCount: Int,
+    val dueSoon: List<Todo>
+)
+
+private const val SOON_MINUTES = 60
+
 /**
  * Everything the Today screen needs that isn't a todo: the task list behind the 24-hour timeline
  * and the kind breakdown, the Now card's state, the top bar's refresh, the focus preference that
@@ -73,6 +107,7 @@ class TodayViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val taskRepository: TaskRepository,
     scheduleBlockRepository: ScheduleBlockRepository,
+    todoRepository: TodoRepository,
     inventoryRepository: InventoryRepository,
     collectionRepository: CollectionRepository,
     settingsRepository: SettingsRepository,
@@ -98,6 +133,52 @@ class TodayViewModel @Inject constructor(
         computeNow(taskList, blockList)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NowState.Idle(null))
+
+    // Read here as well as in TodoViewModel (which owns the list): this screen's Up Next and
+    // nudge only need the raw rows, and sharing the other ViewModel's instance is exactly what
+    // TodayScreen's KDoc rules out.
+    private val todos: StateFlow<List<Todo>> = todoRepository.getVisibleTodos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The next few things on today's clock after this minute, soonest first, at most three. */
+    val upNext: StateFlow<List<UpNextItem>> = combine(blocks, todos, minuteTicker) { blockList, todoList, _ ->
+        val todayStart = getStartOfDay(System.currentTimeMillis())
+        val minute = currentMinuteOfDay()
+        val laterBlocks = blockList
+            .filter { it.occursOn(todayStart) && it.startMinuteOfDay > minute }
+            .map { UpNextItem.Block(it) }
+        val laterTodos = todoList
+            .filter {
+                it.state != TodoState.COMPLETE && it.deadline == todayStart &&
+                    (it.deadlineMinuteOfDay ?: -1) > minute
+            }
+            .map { UpNextItem.Due(it) }
+        (laterBlocks + laterTodos).sortedBy { it.minuteOfDay }.take(3)
+    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Null when there is nothing to nag about, which should be most of the time. */
+    val nudge: StateFlow<Nudge?> = combine(todos, minuteTicker) { todoList, _ ->
+        val now = System.currentTimeMillis()
+        val todayStart = getStartOfDay(now)
+        val minute = currentMinuteOfDay()
+        val open = todoList.filter { it.state != TodoState.COMPLETE }
+        val overdue = open.count { (it.deadline ?: Long.MAX_VALUE) < todayStart }
+        val lateToday = open.count {
+            it.deadline == todayStart && it.deadlineMinuteOfDay != null && it.deadlineMinuteOfDay!! < minute
+        }
+        val soonEnd = now + SOON_MINUTES * 60_000L
+        val dueSoon = open.filter { todo ->
+            val ringsSoon = todo.reminderTriggerAt()?.let { it > now && it <= soonEnd } == true
+            val dueTime = todo.deadlineMinuteOfDay
+            val dueSoonToday = todo.deadline == todayStart && dueTime != null &&
+                dueTime > minute && dueTime <= minute + SOON_MINUTES
+            ringsSoon || dueSoonToday
+        }.sortedBy { it.deadlineMinuteOfDay ?: Int.MAX_VALUE }
+        if (overdue == 0 && lateToday == 0 && dueSoon.isEmpty()) null
+        else Nudge(overdue, lateToday, dueSoon)
+    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private fun computeNow(taskList: List<Task>, blockList: List<ScheduleBlock>): NowState {
         val running = taskList.filter { it.isRunning }.sortedByDescending { it.startTime }
