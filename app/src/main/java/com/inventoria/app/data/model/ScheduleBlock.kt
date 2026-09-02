@@ -11,8 +11,11 @@ import java.util.Calendar
  * Deep work". The Schedule segment draws these next to tracked [Task] segments, which are what the
  * time was actually *used* for, so plan and reality sit side by side.
  *
- * Deliberately cosmetic: a block scores nothing, starts no session and is linked to no task or
- * todo. It says what an hour was meant to be for, and that is all.
+ * Deliberately cosmetic: a block scores nothing, starts no session by itself and is linked to no
+ * task or todo. It says what an hour was meant to be for, and that is all. The one thing it does
+ * carry forward is [taskTypeId]: when Today's Now card starts a session from a block, the task
+ * lands typed the way the block says, so planned hours count under the same activity as tracked
+ * ones instead of guessing from the name.
  *
  * [dayStart] is a start-of-day timestamp in the device's zone, the same convention as
  * Todo.deadline, and the times are minutes since midnight, the same as Todo.deadlineMinuteOfDay.
@@ -27,6 +30,10 @@ data class ScheduleBlock(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: String = "",
     @get:PropertyName("title") @set:PropertyName("title") var title: String = "",
     @get:PropertyName("kind") @set:PropertyName("kind") var kind: TaskKind = TaskKind.GRAPHITE,
+    /** The activity this block is set aside for, same tier as Todo.taskTypeId and Task.taskTypeId.
+     * Null is "no particular type": a session started from the block then falls back to whatever
+     * type the title has already settled on, exactly as a todo without a type does. */
+    @get:PropertyName("taskTypeId") @set:PropertyName("taskTypeId") var taskTypeId: String? = null,
     /** Start-of-day millis of the day this block was created for. With [repeatWeekly] set it is
      * also the first day the block shows on -- never earlier. */
     @get:PropertyName("dayStart") @set:PropertyName("dayStart") var dayStart: Long = 0L,

@@ -200,15 +200,20 @@ internal val taskOrganisingArticles = listOf(
     HelpArticle(
         id = "tasks-flatten",
         title = "Flatten a session",
-        summary = "Merge every segment into one continuous block.",
-        whatItIs = "Flattening collapses a multi-segment session into a single stretch, discarding the pauses.",
+        summary = "Merge some or all of a session's segments into one continuous block.",
+        whatItIs = "Flattening collapses chosen segments of a session into a single stretch, discarding the pauses between them.",
         blocks = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep("Open the session detail dialog."),
-                    HelpStep("Choose \"Flatten into one segment\" at the bottom."),
-                    HelpStep("Confirm. The action cannot be undone.")
+                    HelpStep("Choose \"Flatten segments…\" at the bottom."),
+                    HelpStep("Every segment starts ticked. Untick any you want to keep separate — a break that was real, say."),
+                    HelpStep("Tap Flatten. The action cannot be undone.")
                 )
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Info,
+                "Only segments that follow each other can be merged: ticking the first and third but not the second is refused, because the result would overlap the one you skipped."
             ),
             HelpBlock.Callout(
                 CalloutKind.Caution,

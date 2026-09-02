@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.ScheduleBlockRepository
 import com.inventoria.app.data.TaskRepository
+import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.components.UndoableDeleteController
@@ -81,8 +83,18 @@ fun weekStartOf(day: Long): Long {
 class ScheduleViewModel @Inject constructor(
     private val scheduleBlockRepository: ScheduleBlockRepository,
     private val todoRepository: TodoRepository,
-    taskRepository: TaskRepository
+    taskRepository: TaskRepository,
+    taskTypeRepository: TaskTypeRepository
 ) : ViewModel() {
+
+    /** For the block dialog's type picker and the type label on blocks -- the same visible-only
+     * list TodoViewModel exposes, so a soft-deleted type reads as unset here too. */
+    val taskTypes: StateFlow<List<TaskType>> = taskTypeRepository.getVisibleTaskTypes()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val taskTypeNamesById: StateFlow<Map<String, String>> = taskTypes
+        .map { types -> types.associate { it.id to it.name } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _selectedDay = MutableStateFlow(getStartOfDay(System.currentTimeMillis()))
     val selectedDay: StateFlow<Long> = _selectedDay.asStateFlow()
@@ -171,6 +183,7 @@ class ScheduleViewModel @Inject constructor(
     fun saveBlock(
         title: String,
         kind: TaskKind,
+        taskTypeId: String?,
         dayStart: Long,
         startMinuteOfDay: Int,
         endMinuteOfDay: Int,
@@ -184,6 +197,7 @@ class ScheduleViewModel @Inject constructor(
             id = pending.id.ifBlank { UUID.randomUUID().toString() },
             title = trimmed,
             kind = kind,
+            taskTypeId = taskTypeId,
             dayStart = dayStart,
             startMinuteOfDay = startMinuteOfDay,
             endMinuteOfDay = endMinuteOfDay,

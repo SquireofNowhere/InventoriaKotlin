@@ -906,20 +906,42 @@ class TaskTrackerViewModel @Inject constructor(
         }
     }
 
-    fun flattenSession(groupId: String) {
+    /**
+     * Merges segments of one session into a single stretch. With [segmentIds] null every segment
+     * goes; otherwise only those named, which must be at least two and follow each other in time
+     * (the dialog enforces both, this re-checks). The earliest chosen segment survives, stretched
+     * to the latest one's end and carrying their summed duration; the rest are soft-deleted.
+     * Segments left out are untouched, so "flatten the three false starts, keep the real break"
+     * is one action rather than three.
+     */
+    fun flattenSession(groupId: String, segmentIds: Set<String>? = null) {
         viewModelScope.launch {
-            val tasks = _completedSessions.value.find { it.firstOrNull()?.groupId == groupId } 
+            val tasks = _completedSessions.value.find { it.firstOrNull()?.groupId == groupId }
                 ?: _activeSessions.value.find { it.groupId == groupId }?.segments
                 ?: return@launch
             if (tasks.size <= 1) return@launch
+            val sortedAll = tasks.sortedBy { it.startTime }
+            val chosen = if (segmentIds == null) sortedAll else sortedAll.filter { it.id in segmentIds }
+            if (chosen.size <= 1 || !areContiguous(sortedAll, chosen)) return@launch
             _isLoading.value = true
-            val sorted = tasks.sortedBy { it.startTime }
-            val first = sorted.first()
-            val last = sorted.last()
-            val flattened = first.copy(endTime = last.endTime, duration = tasks.sumOf { it.duration })
+            val first = chosen.first()
+            val last = chosen.last()
+            val flattened = first.copy(endTime = last.endTime, duration = chosen.sumOf { it.duration })
             repository.updateTask(flattened)
-            tasks.filter { it.id != first.id }.forEach { repository.softDeleteTask(it.id) }
+            chosen.filter { it.id != first.id }.forEach { repository.softDeleteTask(it.id) }
             _isLoading.value = false
+        }
+    }
+
+    companion object {
+        /** True when [chosen] is a run of neighbours within [sortedAll] (both by start time) --
+         * merging segments with an unchosen one in between would produce a stretch that overlaps
+         * the segment it skipped. Shared with the dialog so the button and the action agree. */
+        fun areContiguous(sortedAll: List<Task>, chosen: List<Task>): Boolean {
+            if (chosen.isEmpty()) return false
+            val positions = chosen.map { c -> sortedAll.indexOfFirst { it.id == c.id } }
+            if (positions.any { it < 0 }) return false
+            return positions.max() - positions.min() + 1 == chosen.size
         }
     }
 

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AlarmOff
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LinkOff
@@ -278,9 +279,36 @@ fun TodoScreen(
         }
     }
 
+    // "Started" pop-up: see TodoViewModel.taskStarted. Plain state rather than a snackbar because
+    // the tracker offer deserves a real button, and because a snackbar would fight the undo one.
+    var startedTodo by remember { mutableStateOf<Todo?>(null) }
+    LaunchedEffect(Unit) {
+        viewModel.taskStarted.collect { startedTodo = it }
+    }
+    startedTodo?.let { todo ->
+        AlertDialog(
+            onDismissRequest = { startedTodo = null },
+            icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+            title = { Text("Tracking started") },
+            text = {
+                Text(
+                    "\"${todo.title}\" is now running on the Task Tracker. Stop it there when you're " +
+                        "done and you'll be asked whether the todo is complete."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { startedTodo = null; onNavigateToTasks() }) { Text("Open Tracker") }
+            },
+            dismissButton = {
+                TextButton(onClick = { startedTodo = null }) { Text("Stay here") }
+            }
+        )
+    }
+
     if (isAddingNew) {
         TodoEditDialog(
             initialTitle = "",
+            initialDescription = "",
             initialKind = TaskKind.GRAPHITE,
             initialTaskTypeId = null,
             taskTypes = taskTypes,
@@ -294,8 +322,8 @@ fun TodoScreen(
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
-                viewModel.addTodo(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
+                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
             }
         )
     }
@@ -304,6 +332,7 @@ fun TodoScreen(
         val invalidParentIds = remember(todo.id, allTodos) { viewModel.invalidParentIds(todo.id, allTodos) }
         TodoEditDialog(
             initialTitle = todo.title,
+            initialDescription = todo.description,
             initialKind = todo.kind,
             initialTaskTypeId = todo.taskTypeId,
             taskTypes = taskTypes,
@@ -315,8 +344,8 @@ fun TodoScreen(
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
-                viewModel.saveEditedTodo(todo, title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
+                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
             }
         )
     }
@@ -340,6 +369,7 @@ internal fun reminderLabel(offsetMinutes: Int?): String =
 @Composable
 private fun TodoEditDialog(
     initialTitle: String,
+    initialDescription: String,
     initialKind: TaskKind,
     initialTaskTypeId: String?,
     taskTypes: List<TaskType>,
@@ -351,9 +381,10 @@ private fun TodoEditDialog(
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, TaskKind, String?, Long?, Int?, Int?, String?, TodoPriority?) -> Unit
+    onSave: (String, String, TaskKind, String?, Long?, Int?, Int?, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
+    var description by remember { mutableStateOf(initialDescription) }
     var kind by remember { mutableStateOf(initialKind) }
     var taskTypeId by remember { mutableStateOf(initialTaskTypeId) }
     var deadline by remember { mutableStateOf(initialDeadline) }
@@ -374,6 +405,16 @@ private fun TodoEditDialog(
                     label = { Text("Title") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                // Multi-line on purpose: this is where the title's shorthand gets unpacked. The
+                // row shows the first two lines, the rest lives here.
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (optional)") },
+                    minLines = 1,
+                    maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
                 )
                 TaskKindDropdownMenu(selectedKind = kind, onKindSelected = { kind = it })
@@ -462,7 +503,7 @@ private fun TodoEditDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminderOffsetMinutes, parentId, priority) },
+                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminderOffsetMinutes, parentId, priority) },
                 enabled = title.isNotBlank()
             ) {
                 Text("Save")

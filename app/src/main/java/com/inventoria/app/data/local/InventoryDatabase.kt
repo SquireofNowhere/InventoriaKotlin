@@ -23,7 +23,7 @@ import com.inventoria.app.data.model.Todo
         TaskType::class,
         ScheduleBlock::class
     ],
-    version = 16,
+    version = 17,
     // Exported to app/schemas/ and committed. Room writes one JSON file per version, which is what
     // makes a migration reviewable in a diff and testable at all -- without it there is nothing to
     // compare a migration against, and a wrong ALTER TABLE only shows up as a crash on a real
@@ -32,7 +32,8 @@ import com.inventoria.app.data.model.Todo
     //
     // The exported history starts at 15, because this flag was turned on at that version -- 12, 13
     // and 14 have migrations but no schema to check them against. 15 -> 16 (schedule blocks and
-    // todo alarms) is the first bump that can actually be diffed.
+    // todo alarms) is the first bump that can actually be diffed; 16 -> 17 adds Todo.description
+    // and ScheduleBlock.taskTypeId.
     exportSchema = true
 )
 @TypeConverters(Converters::class)

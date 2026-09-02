@@ -225,12 +225,13 @@ class TodayViewModel @Inject constructor(
     }
 
     /**
-     * "Start this": a tracked session named after the block, in the block's kind. Same shape as
-     * TodoViewModel.startTaskFromTodo minus the todo linkage -- a block is a plan, not a todo, so
-     * there is nothing to check in on when the session stops.
+     * "Start this": a tracked session named after the block, in the block's kind and type. Same
+     * shape as TodoViewModel.startTaskFromTodo minus the todo linkage -- a block is a plan, not a
+     * todo, so there is nothing to check in on when the session stops. The type is what makes a
+     * planned hour and the hour actually spent land under the same activity.
      */
     fun startTaskFromBlock(block: ScheduleBlock) {
-        startSession(block.title, block.kind)
+        startSession(block.title, block.kind, block.taskTypeId)
     }
 
     /**
@@ -259,7 +260,8 @@ class TodayViewModel @Inject constructor(
         startSession(title, TaskKind.GRAPHITE)
     }
 
-    private fun startSession(title: String, kind: TaskKind) {
+    /** [taskTypeId] wins when given (a typed block); otherwise the name's learned type applies. */
+    private fun startSession(title: String, kind: TaskKind, taskTypeId: String? = null) {
         viewModelScope.launch {
             val name = title.trim().ifBlank { "Task" }
             // Checked against the table rather than the derived flow, so a double tap before the
@@ -272,7 +274,7 @@ class TodayViewModel @Inject constructor(
                 groupId = UUID.randomUUID().toString(),
                 name = name,
                 kind = kind,
-                taskTypeId = learnedTypeIdForName(name),
+                taskTypeId = taskTypeId ?: learnedTypeIdForName(name),
                 isRunning = true,
                 startTime = System.currentTimeMillis()
             )

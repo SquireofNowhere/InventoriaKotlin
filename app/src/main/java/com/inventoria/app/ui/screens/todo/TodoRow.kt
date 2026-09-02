@@ -260,6 +260,18 @@ internal fun TodoRow(
                         textDecoration = if (entry.effectiveState == TodoState.COMPLETE) TextDecoration.LineThrough else null,
                         color = if (entry.effectiveState == TodoState.INCOMPLETE) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // The description, clipped: the row is a list entry, the full text is in the
+                    // edit dialog a tap away. Hidden entirely when blank so untouched rows stay
+                    // as tight as they were.
+                    if (todo.description.isNotBlank()) {
+                        Text(
+                            text = todo.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     // Due time and, when one is set, the alarm -- the icon is the only place the
                     // list says "this one will ring", so it sits right next to the time it rings
                     // for. An all-day todo with an alarm shows the icon alone.

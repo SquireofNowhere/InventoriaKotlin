@@ -115,12 +115,26 @@ object DatabaseModule {
     }
 
     /**
+     * Todo descriptions and typed schedule blocks (v17). Two nullable-or-defaulted columns, both
+     * additive. `description` is NOT NULL on the entity, so the ALTER carries a '' default for the
+     * rows that already exist -- Room accepts a database-side default the entity does not declare,
+     * and '' is what "no description" means everywhere the field is read. `taskTypeId` is nullable
+     * like its Todo counterpart: an existing block simply has no type.
+     */
+    private val MIGRATION_16_17 = object : Migration(16, 17) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE Todo ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE ScheduleBlock ADD COLUMN taskTypeId TEXT")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
 
     @Provides
     @Singleton

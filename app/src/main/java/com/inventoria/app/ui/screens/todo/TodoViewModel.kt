@@ -194,6 +194,7 @@ class TodoViewModel @Inject constructor(
 
     fun addTodo(
         title: String,
+        description: String,
         kind: TaskKind,
         taskTypeId: String?,
         deadline: Long?,
@@ -211,6 +212,7 @@ class TodoViewModel @Inject constructor(
                 Todo(
                     id = UUID.randomUUID().toString(),
                     title = trimmed,
+                    description = description.trim(),
                     kind = kind,
                     taskTypeId = taskTypeId,
                     deadline = deadline,
@@ -227,6 +229,7 @@ class TodoViewModel @Inject constructor(
     fun saveEditedTodo(
         todo: Todo,
         title: String,
+        description: String,
         kind: TaskKind,
         taskTypeId: String?,
         deadline: Long?,
@@ -247,6 +250,7 @@ class TodoViewModel @Inject constructor(
             todoRepository.updateTodo(
                 todo.copy(
                     title = trimmed,
+                    description = description.trim(),
                     kind = kind,
                     taskTypeId = taskTypeId,
                     deadline = deadline,
@@ -283,6 +287,15 @@ class TodoViewModel @Inject constructor(
         return if (sameName.isEmpty()) null else modalTypeIdFor(sameName)
     }
 
+    /**
+     * The todo a session was just started for, so the screen can say so. Tapping Start on a row
+     * used to change nothing visible but the icon, and the timer itself runs on another tab -- the
+     * pop-up confirms it took, and offers the tracker for anyone who wants to watch it run. Only
+     * this screen's Start emits; a widget start has its own feedback.
+     */
+    private val _taskStarted = MutableSharedFlow<Todo>(extraBufferCapacity = 1)
+    val taskStarted: SharedFlow<Todo> = _taskStarted.asSharedFlow()
+
     /** Kicks off a real tracked session from this todo -- same shape as
      * TaskTrackerViewModel.addNewTask(), just seeded with the todo's title/kind and tagged with
      * Task.originTodoId so the completion check-in can find its way back to this todo once the
@@ -310,6 +323,7 @@ class TodoViewModel @Inject constructor(
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
             else { context.startService(intent) }
+            _taskStarted.tryEmit(todo)
             syncRepository.triggerFullSync()
         }
     }

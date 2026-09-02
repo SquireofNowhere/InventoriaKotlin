@@ -23,6 +23,11 @@ enum class TodoPriority { A1, A2, A3, B1, B2, B3, C1, C2, C3 }
 data class Todo(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: String = "",
     @get:PropertyName("title") @set:PropertyName("title") var title: String = "",
+    // Free text under the title: the "what does this actually involve" a one-line title cannot
+    // hold. Blank means none; the row hides it. Non-null with a '' default so an old row (or a
+    // Firebase node written before this existed, where the setter is simply never called) reads
+    // as "no description" rather than as a nullable third state nothing needs.
+    @get:PropertyName("description") @set:PropertyName("description") var description: String = "",
     @get:PropertyName("kind") @set:PropertyName("kind") var kind: TaskKind = TaskKind.GRAPHITE,
     // The activity this todo is an instance of, same tier as Task.taskTypeId -- carried onto the
     // task when one is started from here, so work run out of the Todos screen lands typed instead

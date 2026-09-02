@@ -20,7 +20,8 @@ import java.io.IOException
  * That is 15: `exportSchema` was turned on at that version, so 12, 13 and 14 have migrations but
  * nothing to check them against, and [MigrationTestHelper.createDatabase] cannot build a starting
  * database without the schema JSON. 15 -> 16 (the ScheduleBlock table and Todo.reminderOffsetMinutes)
- * is the first bump these tests actually cover.
+ * is the first bump these tests actually cover; 16 -> 17 (Todo.description, ScheduleBlock.taskTypeId)
+ * is checked the same way.
  *
  * Neither test names a target version. Both hand the database to Room's own builder and let it
  * migrate as far as [InventoryDatabase]'s `@Database(version = ...)` says, so adding a migration is
@@ -100,13 +101,18 @@ class InventoryDatabaseMigrationTest {
                 // Added by MIGRATION_15_16. Null here is the difference between "no alarm" and a
                 // pre-existing todo suddenly ringing at 09:00 on the morning after an update.
                 assertNull(todo?.reminderOffsetMinutes)
+                // Added by MIGRATION_16_17 as NOT NULL DEFAULT '': a pre-existing todo reads as
+                // "no description", not as a crash on a null String.
+                assertEquals("", todo?.description)
 
                 // The table MIGRATION_15_16 creates has to be usable through its DAO, not merely
                 // present -- a column with the wrong affinity passes CREATE TABLE and fails here.
+                // taskTypeId (MIGRATION_16_17) must round-trip too, not just exist.
                 db.scheduleBlockDao().insertBlock(
                     ScheduleBlock(
                         id = "block-1",
                         title = "Gym",
+                        taskTypeId = "type-1",
                         dayStart = 3000,
                         startMinuteOfDay = 360,
                         endMinuteOfDay = 420,
@@ -115,6 +121,7 @@ class InventoryDatabaseMigrationTest {
                 )
                 val block = db.scheduleBlockDao().getBlockById("block-1")
                 assertEquals("Gym", block?.title)
+                assertEquals("type-1", block?.taskTypeId)
                 assertEquals(true, block?.repeatWeekly)
             }
         } finally {

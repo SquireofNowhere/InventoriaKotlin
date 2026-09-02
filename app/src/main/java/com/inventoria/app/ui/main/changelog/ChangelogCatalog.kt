@@ -20,6 +20,16 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 96,
+                versionName = "2.15",
+                changes = listOf(
+                    "Todos have a description. Unpack the title in the todo dialog; the row shows the first couple of lines.",
+                    "Starting a todo now says so: a pop-up confirms tracking has begun, with a button straight to the Task Tracker.",
+                    "Flatten a session with choice: tick which segments to merge and keep the rest. All are ticked to begin with, so the old one-tap flatten is still there.",
+                    "Schedule blocks can carry a task type. A session started from the Now card lands under that type, so planned hours and tracked hours count as the same activity."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 95,
                 versionName = "2.14",
                 changes = listOf(

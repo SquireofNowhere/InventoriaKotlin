@@ -42,9 +42,13 @@ import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
+import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
+import com.inventoria.app.ui.screens.task.TaskTypeLabel
+import com.inventoria.app.ui.screens.task.taskTypeColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.util.currentMinuteOfDay
 import com.inventoria.app.util.formatMinuteOfDay
@@ -85,6 +89,8 @@ fun ScheduleScreen(viewModel: ScheduleViewModel) {
     val weekStart by viewModel.weekStart.collectAsState()
     val selectedDay by viewModel.selectedDay.collectAsState()
     val pendingBlock by viewModel.pendingBlock.collectAsState()
+    val taskTypes by viewModel.taskTypes.collectAsState()
+    val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
     // Same once-a-minute ticker TodoScreen runs: moves the now-line and grows a running task.
     val nowMinuteOfDay by produceState(currentMinuteOfDay()) {
@@ -136,6 +142,7 @@ fun ScheduleScreen(viewModel: ScheduleViewModel) {
                 isToday = selectedDay == todayStart,
                 nowMinuteOfDay = nowMinuteOfDay,
                 onTapEmptyMinute = { minute -> viewModel.startAddingBlock((minute / 60) * 60) },
+                taskTypeNames = taskTypeNames,
                 onBlockClick = { viewModel.startEditingBlock(it) },
                 onTodoClick = { viewModel.toggleTodoComplete(it) },
                 modifier = Modifier.weight(1f)
@@ -147,10 +154,11 @@ fun ScheduleScreen(viewModel: ScheduleViewModel) {
         ScheduleBlockDialog(
             block = block,
             isNew = block.id.isBlank(),
+            taskTypes = taskTypes,
             onDismiss = { viewModel.dismissDialog() },
             onDelete = { viewModel.deleteBlock(block) },
-            onSave = { title, kind, dayStart, start, end, repeatWeekly, notes ->
-                viewModel.saveBlock(title, kind, dayStart, start, end, repeatWeekly, notes)
+            onSave = { title, kind, taskTypeId, dayStart, start, end, repeatWeekly, notes ->
+                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeatWeekly, notes)
             }
         )
     }
@@ -345,6 +353,7 @@ private fun DayTimeline(
     isToday: Boolean,
     nowMinuteOfDay: Int,
     onTapEmptyMinute: (Int) -> Unit,
+    taskTypeNames: Map<String, String>,
     onBlockClick: (ScheduleBlock) -> Unit,
     onTodoClick: (Todo) -> Unit,
     modifier: Modifier
@@ -475,6 +484,7 @@ private fun DayLane(
             val height = HOUR_HEIGHT * ((block.endMinuteOfDay - block.startMinuteOfDay) / 60f)
             FlatScheduleBlock(
                 block = block,
+                typeName = block.taskTypeId?.let { taskTypeNames[it] },
                 modifier = Modifier
                     .offset(y = top)
                     .fillMaxWidth()
@@ -527,7 +537,7 @@ private fun DayLane(
  * what the hour was meant for.
  */
 @Composable
-private fun FlatScheduleBlock(block: ScheduleBlock, modifier: Modifier, onClick: () -> Unit) {
+private fun FlatScheduleBlock(block: ScheduleBlock, typeName: String?, modifier: Modifier, onClick: () -> Unit) {
     val kindColor = Color(block.kind.colorValue)
     Box(
         modifier
@@ -571,12 +581,21 @@ private fun FlatScheduleBlock(block: ScheduleBlock, modifier: Modifier, onClick:
                     )
                 }
             }
-            Text(
-                "${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                // The activity the hour is for, in the type's own colour -- the same chip a todo
+                // row and a tracker card use, so a typed block reads as the plan for a typed task.
+                val typeId = block.taskTypeId
+                if (typeName != null && typeId != null) {
+                    Spacer(Modifier.width(6.dp))
+                    TaskTypeLabel(typeName, iconSize = 10.dp, color = taskTypeColor(typeId))
+                }
+            }
         }
     }
 }
@@ -667,12 +686,14 @@ private fun TaskSegmentCard(task: Task, isRunning: Boolean, modifier: Modifier) 
 private fun ScheduleBlockDialog(
     block: ScheduleBlock,
     isNew: Boolean,
+    taskTypes: List<TaskType>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onSave: (String, TaskKind, Long, Int, Int, Boolean, String) -> Unit
+    onSave: (String, TaskKind, String?, Long, Int, Int, Boolean, String) -> Unit
 ) {
     var title by remember { mutableStateOf(block.title) }
     var kind by remember { mutableStateOf(block.kind) }
+    var taskTypeId by remember { mutableStateOf(block.taskTypeId) }
     var dayStart by remember { mutableStateOf(block.dayStart) }
     var startMinute by remember { mutableStateOf(block.startMinuteOfDay) }
     var endMinute by remember { mutableStateOf(block.endMinuteOfDay) }
@@ -700,6 +721,13 @@ private fun ScheduleBlockDialog(
                 )
                 // Colour only -- a block never scores. The chip is the familiar way to pick one.
                 TaskKindDropdownMenu(selectedKind = kind, onKindSelected = { kind = it })
+                // The activity this hour is for. Carried onto the task when Today's Now card
+                // starts one from the block; left unset, the task takes the title's learned type.
+                TaskTypeDropdownMenu(
+                    selectedTypeId = taskTypeId,
+                    taskTypes = taskTypes,
+                    onTypeSelected = { taskTypeId = it }
+                )
                 PickerRow(
                     icon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     text = "${getDayLabel(dayStart)} · ${formatSimpleDate(dayStart)}",
@@ -764,7 +792,7 @@ private fun ScheduleBlockDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, kind, dayStart, startMinute, endMinute, repeatWeekly, notes) },
+                onClick = { onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeatWeekly, notes) },
                 enabled = title.isNotBlank() && spanValid
             ) {
                 Text("Save")

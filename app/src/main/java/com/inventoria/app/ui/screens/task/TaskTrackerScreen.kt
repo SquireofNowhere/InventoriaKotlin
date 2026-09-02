@@ -13,6 +13,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -528,7 +530,7 @@ fun TaskTrackerScreen(
                 )
             },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
-            onFlatten = { viewModel.flattenSession(segments.first().groupId) },
+            onFlatten = { ids -> viewModel.flattenSession(segments.first().groupId, ids) },
             onNavigateToTaskDetail = { selectedTaskId = it }, // Bypassing route, using dialog
             onDeleteSegment = { viewModel.deleteSegment(it) }
         )
@@ -1318,10 +1320,10 @@ fun SessionDetailDialog(
     onUpdateSessionName: (String) -> Unit, onUpdateSessionKind: (TaskKind) -> Unit,
     onUpdateSessionTaskType: (String?) -> Unit,
     onToggleCalendar: (Task) -> Unit,
-    onFlatten: () -> Unit, onNavigateToTaskDetail: (String) -> Unit,
+    onFlatten: (Set<String>) -> Unit, onNavigateToTaskDetail: (String) -> Unit,
     onDeleteSegment: (Task) -> Unit
 ) {
-    val sessionRef = segments.first(); var sessionNameInput by remember { mutableStateOf(sessionRef.name) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; var showFlattenConfirm by remember { mutableStateOf(false) }
+    val sessionRef = segments.first(); var sessionNameInput by remember { mutableStateOf(sessionRef.name) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; var showFlattenPicker by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { focusManager.clearFocus(); if (sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput); onDismiss() },
         title = { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Filled.List, null); Spacer(Modifier.width(8.dp)); Text("Session Details") } },
@@ -1369,13 +1371,72 @@ fun SessionDetailDialog(
                         Text(text = "${formatDetailedDuration(segment.duration)} \u2022 ${formatStartEndRange(segment.startTime, segment.endTime)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray, modifier = Modifier.padding(start = 16.dp))
                     }
                 }
-                if (segments.size > 1) { TextButton(onClick = { showFlattenConfirm = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Default.Merge, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Flatten into one segment") } }
+                if (segments.size > 1) { TextButton(onClick = { showFlattenPicker = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Default.Merge, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Flatten segments…") } }
             }
         },
         confirmButton = { TextButton(onClick = { focusManager.clearFocus(); if (sessionNameInput != sessionRef.name) onUpdateSessionName(sessionNameInput); onDismiss() }) { Text("Close") } },
         dismissButton = { TextButton(onClick = { focusManager.clearFocus(); onDismiss() }) { Text("Cancel") } }
     )
-    if (showFlattenConfirm) { AlertDialog(onDismissRequest = { showFlattenConfirm = false }, title = { Text("Flatten Session?") }, text = { Text("This will merge all segments into a single continuous task. This action cannot be undone.") }, confirmButton = { Button(onClick = { onFlatten(); showFlattenConfirm = false; onDismiss() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Flatten") } }, dismissButton = { TextButton(onClick = { showFlattenConfirm = false }) { Text("Cancel") } }) }
+    if (showFlattenPicker) {
+        FlattenSegmentsDialog(
+            segments = segments,
+            onDismiss = { showFlattenPicker = false },
+            onFlatten = { ids -> onFlatten(ids); showFlattenPicker = false; onDismiss() }
+        )
+    }
+}
+
+/**
+ * Which segments to merge. Everything starts ticked, so the old "flatten the whole session" is
+ * still one tap -- but a break that was real can be unticked and kept. Only a run of neighbours
+ * can be merged (see TaskTrackerViewModel.areContiguous); pick two that skip one and the button
+ * greys out with a note saying why.
+ */
+@Composable
+private fun FlattenSegmentsDialog(segments: List<Task>, onDismiss: () -> Unit, onFlatten: (Set<String>) -> Unit) {
+    val sorted = remember(segments) { segments.sortedBy { it.startTime } }
+    val chosenIds = remember(segments) { mutableStateListOf<String>().apply { addAll(sorted.map { it.id }) } }
+    val chosen = sorted.filter { it.id in chosenIds }
+    val contiguous = TaskTrackerViewModel.areContiguous(sorted, chosen)
+    val canFlatten = chosen.size > 1 && contiguous
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Flatten segments") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Tick the segments to merge into one continuous stretch. Their pauses are discarded. This cannot be undone.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { chosenIds.clear(); chosenIds.addAll(sorted.map { it.id }) }, enabled = chosenIds.size < sorted.size) { Text("All") }
+                    TextButton(onClick = { chosenIds.clear() }, enabled = chosenIds.isNotEmpty()) { Text("None") }
+                }
+                sorted.forEach { segment ->
+                    val ticked = segment.id in chosenIds
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { if (ticked) chosenIds.remove(segment.id) else chosenIds.add(segment.id) }
+                    ) {
+                        Checkbox(checked = ticked, onCheckedChange = { if (it) chosenIds.add(segment.id) else chosenIds.remove(segment.id) })
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(segment.kind.colorValue))); Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(segment.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${formatDetailedDuration(segment.duration)} • ${formatStartEndRange(segment.startTime, segment.endTime)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        }
+                    }
+                }
+                if (chosen.size > 1 && !contiguous) {
+                    Text("Only segments that follow each other can be merged -- tick the one in between, or leave it out with the rest.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                } else if (chosen.size < 2) {
+                    Text("Tick at least two segments.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onFlatten(chosenIds.toSet()) }, enabled = canFlatten, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                Text(if (chosen.size == sorted.size) "Flatten all" else "Flatten ${chosen.size}")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

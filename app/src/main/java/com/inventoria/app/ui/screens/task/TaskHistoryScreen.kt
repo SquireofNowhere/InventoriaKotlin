@@ -330,7 +330,7 @@ fun TaskHistoryScreen(
                 )
             },
             onToggleCalendar = { viewModel.setSegmentCalendarStatus(it, !it.savedToCalendar) },
-            onFlatten = { viewModel.flattenSession(segments.first().groupId) },
+            onFlatten = { ids -> viewModel.flattenSession(segments.first().groupId, ids) },
             onNavigateToTaskDetail = { selectedTaskId = it },
             onDeleteSegment = { viewModel.deleteSegment(it) }
         )

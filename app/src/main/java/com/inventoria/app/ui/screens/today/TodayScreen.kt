@@ -43,6 +43,8 @@ import com.inventoria.app.ui.components.KindBreakdownDonut
 import com.inventoria.app.ui.components.LinearProductivityChart
 import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TaskKindChip
+import com.inventoria.app.ui.screens.task.TaskTypeLabel
+import com.inventoria.app.ui.screens.task.taskTypeColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.ui.screens.todo.TodoDayHeader
 import com.inventoria.app.ui.screens.todo.TodoRow
@@ -170,6 +172,7 @@ fun TodayScreen(
             item(key = "now") {
                 NowCard(
                     state = nowState,
+                    taskTypeNames = taskTypeNames,
                     onStartBlock = { todayViewModel.startTaskFromBlock(it) },
                     onOpenTracker = onNavigateToTasks,
                     onOpenSchedule = onNavigateToTodos
@@ -386,6 +389,7 @@ private fun InventoryFocusCard(
 @Composable
 private fun NowCard(
     state: NowState,
+    taskTypeNames: Map<String, String>,
     onStartBlock: (ScheduleBlock) -> Unit,
     onOpenTracker: () -> Unit,
     onOpenSchedule: () -> Unit
@@ -427,6 +431,9 @@ private fun NowCard(
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
+                            block.taskTypeId?.let { typeId ->
+                                taskTypeNames[typeId]?.let { TaskTypeLabel(it, color = taskTypeColor(typeId)) }
+                            }
                             Text(
                                 block.title,
                                 style = MaterialTheme.typography.titleMedium,
