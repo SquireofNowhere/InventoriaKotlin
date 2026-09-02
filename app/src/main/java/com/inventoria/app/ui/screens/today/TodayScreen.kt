@@ -7,8 +7,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.EventNote
@@ -18,6 +21,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,7 +29,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -175,6 +181,17 @@ fun TodayScreen(
             item(key = "kinds") { KindBreakdownCard(tasks) }
         }
 
+        // One field to get a thought down without leaving the home screen: a todo due today, or
+        // a session started on the spot.
+        fun LazyListScope.quickCaptureItem() {
+            item(key = "quick_capture") {
+                QuickCaptureCard(
+                    onAddTodo = { todayViewModel.addQuickTodo(it) },
+                    onStartTask = { todayViewModel.startQuickTask(it) }
+                )
+            }
+        }
+
         // Only present when there is something to show; an empty "Up next" would just repeat what
         // the Idle Now card already says.
         fun LazyListScope.upNextItem() {
@@ -213,6 +230,7 @@ fun TodayScreen(
                         InventoryFocusCard(totalValue, showValue, itemCount, collectionCount)
                     }
                     nowItem()
+                    quickCaptureItem()
                     upNextItem()
                     todoListItems()
                     timelineItem(afterTodos = true)
@@ -220,6 +238,7 @@ fun TodayScreen(
                 }
                 FocusArea.TASKS -> {
                     nowItem()
+                    quickCaptureItem()
                     upNextItem()
                     timelineItem(afterTodos = false)
                     kindsItem()
@@ -227,6 +246,7 @@ fun TodayScreen(
                 }
                 FocusArea.TODOS -> {
                     nowItem()
+                    quickCaptureItem()
                     upNextItem()
                     todoListItems()
                     timelineItem(afterTodos = true)
@@ -561,6 +581,51 @@ private fun formatElapsed(ms: Long): String {
     val s = totalSeconds % 60
     return if (h > 0) String.format(Locale.getDefault(), "%d:%02d:%02d", h, m, s)
     else String.format(Locale.getDefault(), "%02d:%02d", m, s)
+}
+
+/**
+ * Quick capture. Type, then either add it as a todo due today (Enter, or the plus) or start
+ * tracking it this second (the play button). The field clears itself; the result shows up in the
+ * list below or in the Now card above, which is the confirmation.
+ */
+@Composable
+private fun QuickCaptureCard(onAddTodo: (String) -> Unit, onStartTask: (String) -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+    val canSubmit = text.isNotBlank()
+
+    fun submit(action: (String) -> Unit) {
+        if (!canSubmit) return
+        action(text)
+        text = ""
+        focusManager.clearFocus()
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        placeholder = { Text("Add a todo for today, or start a task…") },
+        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+        trailingIcon = {
+            Row {
+                IconButton(onClick = { submit(onAddTodo) }, enabled = canSubmit) {
+                    Icon(Icons.Default.Checklist, contentDescription = "Add as a todo due today")
+                }
+                IconButton(onClick = { submit(onStartTask) }, enabled = canSubmit) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = "Start tracking this now",
+                        tint = if (canSubmit) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                    )
+                }
+            }
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { submit(onAddTodo) }),
+        shape = MaterialTheme.shapes.medium
+    )
 }
 
 /** "in 5 min", "in 2 h 15 min", or "now" once the minute has arrived. */

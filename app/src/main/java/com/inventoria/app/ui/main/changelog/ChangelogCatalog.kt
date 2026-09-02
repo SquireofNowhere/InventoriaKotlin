@@ -29,6 +29,7 @@ object ChangelogCatalog {
                     "New look: a hand taking hold of a clock, and a tagline to match -- take a hold of your life. Task Tracker is now the default focus for new installs.",
                     "Today leads with a Now card: what's running, or what your schedule says this hour is for with a one-tap Start. Then Up Next with countdowns, and today's tracked time broken down by kind.",
                     "A red banner tops Today whenever a todo is overdue, past its time, or due within the hour -- so a deadline is on the home screen before the alarm rings.",
+                    "Quick capture on Today: type a thought, hit Enter to make it a todo due today, or the play button to start tracking it on the spot.",
                     "Settings > About has a Version History with every update note."
                 )
             ),

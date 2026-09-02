@@ -11,6 +11,7 @@ import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.model.modalTypeIdFor
@@ -107,7 +108,7 @@ class TodayViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val taskRepository: TaskRepository,
     scheduleBlockRepository: ScheduleBlockRepository,
-    todoRepository: TodoRepository,
+    private val todoRepository: TodoRepository,
     inventoryRepository: InventoryRepository,
     collectionRepository: CollectionRepository,
     settingsRepository: SettingsRepository,
@@ -229,10 +230,40 @@ class TodayViewModel @Inject constructor(
      * there is nothing to check in on when the session stops.
      */
     fun startTaskFromBlock(block: ScheduleBlock) {
+        startSession(block.title, block.kind)
+    }
+
+    /**
+     * Quick capture, the todo half: a todo titled [title], due today, all-day, with the same
+     * default alarm a todo created in the dialog gets. Kind and priority stay at their defaults;
+     * this is for getting the thought down, the row can be opened and filled in later.
+     */
+    fun addQuickTodo(title: String) {
+        val trimmed = title.trim()
+        if (trimmed.isBlank()) return
         viewModelScope.launch {
-            val name = block.title.trim().ifBlank { "Task" }
+            todoRepository.insertTodo(
+                Todo(
+                    id = UUID.randomUUID().toString(),
+                    title = trimmed,
+                    deadline = getStartOfDay(System.currentTimeMillis()),
+                    reminderOffsetMinutes = 0
+                )
+            )
+        }
+    }
+
+    /** Quick capture, the task half: start tracking [title] right now, untyped and in the
+     * neutral kind (the tracker's own new-task default); the name's learned type still applies. */
+    fun startQuickTask(title: String) {
+        startSession(title, TaskKind.GRAPHITE)
+    }
+
+    private fun startSession(title: String, kind: TaskKind) {
+        viewModelScope.launch {
+            val name = title.trim().ifBlank { "Task" }
             // Checked against the table rather than the derived flow, so a double tap before the
-            // next emission can't open two sessions for one block.
+            // next emission can't open two sessions with one name.
             val alreadyRunning = taskRepository.getVisibleTasksList()
                 .any { it.isRunning && it.name.trim().equals(name, ignoreCase = true) }
             if (alreadyRunning) return@launch
@@ -240,7 +271,7 @@ class TodayViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 groupId = UUID.randomUUID().toString(),
                 name = name,
-                kind = block.kind,
+                kind = kind,
                 taskTypeId = learnedTypeIdForName(name),
                 isRunning = true,
                 startTime = System.currentTimeMillis()
