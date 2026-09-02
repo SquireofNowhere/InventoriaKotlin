@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Today
 import com.inventoria.app.ui.screens.help.model.ArticleStatus
 import com.inventoria.app.ui.screens.help.model.HelpArticle
 import com.inventoria.app.ui.screens.help.model.HelpCategory
@@ -74,14 +73,6 @@ private val comingSoonCategory = HelpCategory(
                 "triggers it. Containers still expand individually with their chevron."
         )
     )
-)
-
-/** The home screen, listed first in the index because it's where the app opens. */
-internal val todayCategory = HelpCategory(
-    id = "today",
-    title = "Today",
-    summary = "Your day at a glance: what's due, and the 24-hour timeline",
-    icon = Icons.Default.Today
 )
 
 /**

@@ -13,8 +13,8 @@ import com.inventoria.app.ui.screens.help.model.HelpSearchResult
  */
 object HelpCatalog {
 
-    // Ordered to match the app's information architecture: the home screen, then the two tabs
-    // that carry written articles, then everything else.
+    // Ordered to match the app's information architecture: the home screen, then the tabs that
+    // carry written articles, then everything else.
     val categories: List<HelpCategory> by lazy {
         listOf(todayCategory, taskTrackingCategory, todosCategory) + stubCategories
     }
