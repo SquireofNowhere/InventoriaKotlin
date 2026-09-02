@@ -41,7 +41,6 @@ import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
-import java.util.Calendar
 
 /**
  * The todo list row and its day header, shared by the Plan screen (TodoScreen, the full editable
@@ -52,9 +51,6 @@ import java.util.Calendar
  * effectiveState, and the play/arrow swap on an active session. Today opts out of the parts that
  * only make sense on a screen that owns the list, via showDragHandle/showDelete.
  */
-internal fun currentMinuteOfDay(): Int = Calendar.getInstance().let {
-    it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
-}
 
 /** Day section header: which day it was, its date, and (when this day actually had todos due
  * on it, as opposed to only hosting carried-over overdue rows) an "X% Done" progress bar --

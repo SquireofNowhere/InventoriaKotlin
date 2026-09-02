@@ -43,6 +43,7 @@ import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
+import com.inventoria.app.util.currentMinuteOfDay
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getStartOfDay

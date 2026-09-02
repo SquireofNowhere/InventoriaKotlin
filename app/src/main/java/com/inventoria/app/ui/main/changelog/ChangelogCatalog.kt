@@ -26,7 +26,8 @@ object ChangelogCatalog {
                     "Todos now has a Schedule view: a week strip and a day timeline where you block out what each hour is for, next to what your tracked tasks actually used it for. Todos due that day show up there too.",
                     "Todo alarms. Give a todo a deadline and it rings -- at the due time, or 10 minutes, an hour or a day before. Done and Snooze right from the notification. Pick Alarm or Notification style in Settings.",
                     "In the todo dialog the time picker is always there. Pick a time first and the date fills in as today.",
-                    "New look: a hand taking hold of a clock, and a tagline to match -- take a hold of your life. The app now opens on the Task Tracker, and Task Tracker is the default focus for new installs.",
+                    "New look: a hand taking hold of a clock, and a tagline to match -- take a hold of your life. Task Tracker is now the default focus for new installs.",
+                    "Today leads with a Now card: what's running, or what your schedule says this hour is for with a one-tap Start. Below it, today's tracked time broken down by kind.",
                     "Settings > About has a Version History with every update note."
                 )
             ),

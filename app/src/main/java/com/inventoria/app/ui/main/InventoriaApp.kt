@@ -124,10 +124,9 @@ private fun NavController.switchToTab(route: String) {
 }
 
 /**
- * Nav bar/rail order for a chosen focus: Today stays first (it's the dashboard), the focus tab
- * comes right after it, the other two areas keep their canonical relative order, Settings stays
- * last. TODOS reproduces the pre-focus order exactly. The start destination is the Task Tracker
- * regardless of focus -- see the NavHost below.
+ * Nav bar/rail order for a chosen focus: Today stays first (it's the start destination and the
+ * dashboard), the focus tab comes right after it, the other two areas keep their canonical
+ * relative order, Settings stays last. TODOS reproduces the pre-focus order exactly.
  *
  * Order is all this changes -- every tab is always in the list, the NavHost's composable()
  * registrations stay put, and switching focus performs no navigation, which is what keeps the
@@ -263,10 +262,7 @@ fun InventoriaApp(
         ) { innerPadding ->
         NavHost(
             navController = navController,
-            // The app opens on the Task Tracker: it is a time-management app first, and the
-            // tracker is where the time gets managed. Today stays the first tab in the bar (the
-            // dashboard is still one tap away); this only decides where a cold start lands.
-            startDestination = Screen.Tasks.route,
+            startDestination = Screen.Today.route,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Today.route) {

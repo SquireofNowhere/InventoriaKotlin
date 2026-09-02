@@ -21,6 +21,11 @@ fun getStartOfDay(timestamp: Long): Long = Calendar.getInstance().apply {
     set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
 }.timeInMillis
 
+/** The wall clock as minutes since midnight, the unit todo due times and schedule blocks use. */
+fun currentMinuteOfDay(): Int = Calendar.getInstance().let {
+    it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE)
+}
+
 /** Originally written assuming timestamps are always in the past (Task History never shows
  * anything but completed/historical data), so the "just show the weekday name" window only had a
  * lower bound. Reused for future-dated Todo deadlines too now, so the window is symmetric: within

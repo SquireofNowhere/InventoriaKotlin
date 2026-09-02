@@ -97,8 +97,7 @@ private val comingSoonCategory = HelpCategory(
     )
 )
 
-/** The dashboard and first tab in the bar, listed first in the index for the same reason. (The
- * app itself opens on the Task Tracker; Today is one tap away.) */
+/** The home screen, listed first in the index because it's where the app opens. */
 internal val todayCategory = HelpCategory(
     id = "today",
     title = "Today",

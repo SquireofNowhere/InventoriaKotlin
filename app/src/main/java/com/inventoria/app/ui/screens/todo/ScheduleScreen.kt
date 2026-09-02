@@ -46,6 +46,7 @@ import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
+import com.inventoria.app.util.currentMinuteOfDay
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel

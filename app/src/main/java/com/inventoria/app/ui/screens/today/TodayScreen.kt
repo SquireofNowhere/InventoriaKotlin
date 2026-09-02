@@ -1,37 +1,50 @@
 package com.inventoria.app.ui.screens.today
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.FocusArea
+import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.ui.components.InventoriaTopBar
+import com.inventoria.app.ui.components.KindBreakdownDonut
 import com.inventoria.app.ui.components.LinearProductivityChart
 import com.inventoria.app.ui.main.Screen
+import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.todo.TodoDayHeader
 import com.inventoria.app.ui.screens.todo.TodoRow
 import com.inventoria.app.ui.screens.todo.TodoViewModel
-import com.inventoria.app.ui.screens.todo.currentMinuteOfDay
+import com.inventoria.app.util.currentMinuteOfDay
+import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
 import kotlinx.coroutines.delay
 import java.text.NumberFormat
+import java.util.Locale
 
 /**
  * The app's home: what's on today, and how the day has actually gone so far.
@@ -55,6 +68,7 @@ fun TodayScreen(
     onNavigateToTasks: () -> Unit
 ) {
     val tasks by todayViewModel.tasks.collectAsState()
+    val nowState by todayViewModel.nowState.collectAsState()
     val focusArea by todayViewModel.focusArea.collectAsState()
     val todoSections by todoViewModel.todoSections.collectAsState()
     val taskTypeNames by todoViewModel.taskTypeNamesById.collectAsState()
@@ -139,6 +153,23 @@ fun TodayScreen(
             }
         }
 
+        // What is happening right now -- always near the top, whatever the focus, because it is
+        // the one thing on this screen that changes minute to minute.
+        fun LazyListScope.nowItem() {
+            item(key = "now") {
+                NowCard(
+                    state = nowState,
+                    onStartBlock = { todayViewModel.startTaskFromBlock(it) },
+                    onOpenTracker = onNavigateToTasks,
+                    onOpenSchedule = onNavigateToTodos
+                )
+            }
+        }
+
+        fun LazyListScope.kindsItem() {
+            item(key = "kinds") { KindBreakdownCard(tasks) }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -157,16 +188,22 @@ fun TodayScreen(
                         val collectionCount by todayViewModel.collectionCount.collectAsState()
                         InventoryFocusCard(totalValue, showValue, itemCount, collectionCount)
                     }
+                    nowItem()
                     todoListItems()
                     timelineItem(afterTodos = true)
+                    kindsItem()
                 }
                 FocusArea.TASKS -> {
+                    nowItem()
                     timelineItem(afterTodos = false)
+                    kindsItem()
                     todoListItems()
                 }
                 FocusArea.TODOS -> {
+                    nowItem()
                     todoListItems()
                     timelineItem(afterTodos = true)
+                    kindsItem()
                 }
             }
         }
@@ -286,6 +323,232 @@ private fun InventoryFocusCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The Now card: what is running, what is paused, what the schedule says this hour is for, or
+ * nothing -- see [NowState]. It can start a session (a plain insert, like a todo's Start button)
+ * but never pauses or stops one; those run the tracker's interruption/flow-mode/check-in logic,
+ * so a running or paused session taps through to the tracker instead.
+ *
+ * "Schedule" lands on the Todos hub rather than its Schedule segment: the segment is local
+ * rememberSaveable state, not a route, so there is nothing to deep-link to. One extra tap.
+ */
+@Composable
+private fun NowCard(
+    state: NowState,
+    onStartBlock: (ScheduleBlock) -> Unit,
+    onOpenTracker: () -> Unit,
+    onOpenSchedule: () -> Unit
+) {
+    val tapsThrough = state is NowState.Running || state is NowState.Paused
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (tapsThrough) Modifier.clickable(onClick = onOpenTracker) else Modifier),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            when (state) {
+                is NowState.Running -> {
+                    NowOverline("Now", "Pause, stop and details on the Task Tracker", onOpenTracker)
+                    Spacer(Modifier.height(8.dp))
+                    state.sessions.forEach { task -> LiveSessionRow(task, running = true) }
+                }
+                is NowState.Paused -> {
+                    NowOverline("Paused", "Resume or stop on the Task Tracker", onOpenTracker)
+                    Spacer(Modifier.height(8.dp))
+                    state.sessions.forEach { task -> LiveSessionRow(task, running = false) }
+                }
+                is NowState.Planned -> {
+                    val block = state.block
+                    NowOverline(
+                        "Now · ${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
+                        "What your schedule set this hour aside for",
+                        null
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .width(3.dp)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color(block.kind.colorValue))
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                block.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (block.notes.isNotBlank()) {
+                                Text(
+                                    block.notes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        TaskKindChip(kind = block.kind, modifier = Modifier.scale(0.85f))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = { onStartBlock(block) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Start this")
+                        }
+                        TextButton(onClick = onOpenSchedule) {
+                            Icon(Icons.Default.EventNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Schedule")
+                        }
+                    }
+                }
+                is NowState.Idle -> {
+                    NowOverline("Now", null, null)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Nothing running.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    val next = state.nextBlock
+                    Text(
+                        if (next != null) "Next: ${next.title} at ${formatMinuteOfDay(next.startMinuteOfDay)}"
+                        else "Nothing planned for the rest of today.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = onOpenTracker) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Open tracker")
+                        }
+                        TextButton(onClick = onOpenSchedule) {
+                            Icon(Icons.Default.EventNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Plan the day")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Small caps-style header line for the Now card, with an optional trailing arrow when the card
+ * as a whole leads somewhere. */
+@Composable
+private fun NowOverline(title: String, subtitle: String?, onArrow: (() -> Unit)?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (onArrow != null) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = "Open the Task Tracker",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/** One running or paused segment: kind bar, name, chip, and a live elapsed clock. Elapsed is the
+ * same sum TaskTimerService's notification shows -- the segment's stored duration plus the time
+ * since its start -- re-read every second while running, frozen while paused. */
+@Composable
+private fun LiveSessionRow(task: Task, running: Boolean) {
+    val now by produceState(System.currentTimeMillis(), running) {
+        while (running) {
+            delay(1000)
+            value = System.currentTimeMillis()
+        }
+    }
+    val elapsedMs = if (running) task.duration + (now - task.startTime) else task.duration
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(36.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color(task.kind.colorValue).copy(alpha = if (running) 1f else 0.5f))
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                task.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (running) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (running) Icons.Default.PlayArrow else Icons.Default.Pause,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    formatElapsed(elapsedMs),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        TaskKindChip(kind = task.kind, modifier = Modifier.scale(0.85f))
+    }
+}
+
+private fun formatElapsed(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return if (h > 0) String.format(Locale.getDefault(), "%d:%02d:%02d", h, m, s)
+    else String.format(Locale.getDefault(), "%02d:%02d", m, s)
+}
+
+/** Today's tracked minutes by kind -- see KindBreakdownDonut. */
+@Composable
+private fun KindBreakdownCard(tasks: List<Task>) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "Today by kind",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(12.dp))
+            KindBreakdownDonut(tasks = tasks, modifier = Modifier.fillMaxWidth())
         }
     }
 }
