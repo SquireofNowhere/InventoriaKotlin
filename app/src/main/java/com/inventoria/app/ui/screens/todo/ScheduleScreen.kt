@@ -410,6 +410,7 @@ private fun DayTimeline(
                 day = day,
                 nowMinuteOfDay = nowMinuteOfDay,
                 onTapEmptyMinute = onTapEmptyMinute,
+                taskTypeNames = taskTypeNames,
                 onBlockClick = onBlockClick,
                 onTodoClick = onTodoClick,
                 modifier = Modifier
@@ -448,6 +449,7 @@ private fun DayLane(
     day: ScheduleDay,
     nowMinuteOfDay: Int,
     onTapEmptyMinute: (Int) -> Unit,
+    taskTypeNames: Map<String, String>,
     onBlockClick: (ScheduleBlock) -> Unit,
     onTodoClick: (Todo) -> Unit,
     modifier: Modifier
