@@ -21,9 +21,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -149,19 +151,15 @@ fun SplashScreenContent(
                 .alpha(alpha)
                 .scale(scale)
         ) {
-            Box(
+            // The designed tile is a complete rounded square (background and all, corners rounded
+            // inside the vector), so it stands on its own -- no translucent circle behind it.
+            Image(
+                painter = painterResource(R.drawable.ic_inventoria_logo),
+                contentDescription = "Inventoria Logo",
                 modifier = Modifier
-                    .size(160.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_inventoria_logo),
-                    contentDescription = "Inventoria Logo",
-                    modifier = Modifier.size(120.dp)
-                )
-            }
+                    .size(150.dp)
+                    .shadow(12.dp, RoundedCornerShape(30.dp))
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 

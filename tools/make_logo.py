@@ -1,9 +1,10 @@
-"""Generates the Inventoria mark: a hand rising from the bottom, gripping a clock whose hands make
-a check mark. "Take a hold of your life."
+"""The flat vector mark: a hand rising from the bottom, gripping a clock whose hands make a check
+mark. "Take a hold of your life."
 
-Writes the three vector drawables (adaptive foreground, monochrome layer, splash logo) and the
-legacy webp launcher icons for API 24/25 devices, all from one parametric description, so the
-launcher, the themed icon and the splash never drift apart. Run from anywhere:
+Since the designed icon arrived (tools/design/inventoria-icon-source.svg, converted by
+tools/svg_to_vector.py) this script writes only what that trace cannot provide: the monochrome
+themed-icon layer (a 289-path trace tints to mush; a flat silhouette does not), plus previews and
+high-res exports of the flat mark for use outside the app. Run from anywhere:
 
     python tools/make_logo.py
 
@@ -139,10 +140,6 @@ ADAPTIVE = dict(cx=64, cy=53, R=27)
 # Full-size art for the splash and the legacy icons, which draw their own padding.
 FULL = dict(cx=64, cy=44, R=35)
 
-write(os.path.join(RES, "drawable", "ic_launcher_foreground.xml"),
-      vector(108, vector_paths(art(**ADAPTIVE), "    "),
-             "The app icon: a hand coming up from the bottom, gripping a clock whose hands make a check mark."))
-
 # Monochrome layer: Android tints the alpha, so the face is left open (it would otherwise fill the
 # clock into a solid disc and swallow the check). Ring, ticks, hands and the hand silhouette only.
 mono_prims = [p for p in art(**ADAPTIVE) if not (p[0] == "disc" and p[-1] == FACE)]
@@ -158,12 +155,9 @@ write(os.path.join(RES, "drawable", "ic_launcher_monochrome.xml"),
       vector(108, "\n".join(mono_body_lines),
              "Themed-icon (monochrome) layer: alpha only, so the clock face is left open."))
 
-write(os.path.join(RES, "drawable", "ic_inventoria_logo.xml"),
-      vector(120, vector_paths(art(**FULL), "    "),
-             "Splash / in-app logo: the same hand-and-clock as the launcher icon, at full size."))
 
 
-# ---- Legacy launcher webps (pre-API-26, and launchers that ignore adaptive icons) -----------------
+# ---- Raster rendering of the flat mark, for the previews and exports below ----------------------
 
 def hex_rgb(h):
     h = h.lstrip("#")
@@ -247,11 +241,6 @@ def legacy_icon(size, round_shape):
     return out.resize((size, size), Image.LANCZOS)
 
 
-for folder, size in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
-    d = os.path.join(RES, f"mipmap-{folder}")
-    legacy_icon(size, False).save(os.path.join(d, "ic_launcher.webp"), "WEBP", lossless=True)
-    legacy_icon(size, True).save(os.path.join(d, "ic_launcher_round.webp"), "WEBP", lossless=True)
-    print("wrote", f"mipmap-{folder}")
 
 # Preview PNGs for eyeballing, written next to this script (gitignored).
 here = os.path.dirname(os.path.abspath(__file__))

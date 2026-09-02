@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "design-assets",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "tools/design"],
+      "port": 8765
+    },
+    {
+      "name": "design-save",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["tools/save_server.py", "8766"],
+      "port": 8766
+    }
+  ]
+}
