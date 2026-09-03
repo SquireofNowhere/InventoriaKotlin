@@ -70,7 +70,10 @@ fun InventoryHubScreen(
     inventoryViewModel: InventoryListViewModel,
     collectionsViewModel: CollectionsViewModel,
     hubViewModel: InventoryHubViewModel,
-    onNavigateToHelp: () -> Unit,
+    /** Takes the HelpCatalog category id to open -- Items, Collections and Map are three separate
+     * categories, so the "?" has to follow whichever segment is actually showing rather than
+     * always landing on Items' own section. */
+    onNavigateToHelp: (String) -> Unit,
     onAddItem: () -> Unit,
     onItemClick: (Long) -> Unit,
     onEditItem: (Long) -> Unit,
@@ -87,7 +90,14 @@ fun InventoryHubScreen(
         topBar = {
             InventoriaTopBar(
                 title = Screen.InventoryHub.title,
-                onNavigateToHelp = onNavigateToHelp
+                onNavigateToHelp = {
+                    val categoryId = when (segment) {
+                        InventorySegment.ITEMS -> Screen.InventoryHub.helpCategoryId
+                        InventorySegment.COLLECTIONS -> "collections"
+                        InventorySegment.MAP -> "map"
+                    }
+                    onNavigateToHelp(categoryId)
+                }
             )
         }
     ) { padding ->

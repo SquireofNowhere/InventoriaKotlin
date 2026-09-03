@@ -3,7 +3,6 @@ package com.inventoria.app.ui.screens.help.catalog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Map
@@ -64,6 +63,13 @@ private val comingSoonCategory = HelpCategory(
                 "list is not wired up."
         ),
         comingSoon(
+            id = "soon-collection-type-filter",
+            title = "Filtering collections by type",
+            summary = "The list can filter by Collection Type internally, but no control offers it.",
+            detail = "The Collections list's view model supports narrowing the list to one Collection Type, but " +
+                "no button, chip or menu on the screen triggers it -- search is the only filter actually reachable."
+        ),
+        comingSoon(
             id = "soon-expand-all",
             title = "Expand or collapse all containers",
             summary = "No control exposes it.",
@@ -81,12 +87,6 @@ private val comingSoonCategory = HelpCategory(
  * visible but not enterable, so nobody taps into a blank screen.
  */
 internal val stubCategories = listOf(
-    HelpCategory(
-        id = "collections",
-        title = "Collections & Readiness",
-        summary = "Sets of items, packing and equipping, in the Inventory tab",
-        icon = Icons.Default.Collections
-    ),
     HelpCategory(
         id = "map",
         title = "Locations & Map",

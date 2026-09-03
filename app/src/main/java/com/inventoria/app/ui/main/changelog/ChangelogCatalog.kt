@@ -32,7 +32,8 @@ object ChangelogCatalog {
                     "The in-app How To manual now covers Todos in full, including the Schedule segment -- tap the ? on the Todos tab.",
                     "The in-app How To manual now covers Today in full too -- tap the ? on the Today tab.",
                     "The in-app How To manual now covers Inventory & Items in full -- tap the ? on the Inventory tab.",
-                    "The in-app How To manual now covers Settings too -- all five tabs are fully documented."
+                    "The in-app How To manual now covers Settings too -- all five tabs are fully documented.",
+                    "The in-app How To manual now covers Collections & Readiness. The Inventory tab's \"?\" also now follows whichever segment you're on -- Items, Collections and Map each open their own section instead of always landing on Items."
                 )
             ),
             ChangelogEntry(

@@ -291,7 +291,7 @@ fun InventoriaApp(
                     inventoryViewModel = hiltViewModel<InventoryListViewModel>(),
                     collectionsViewModel = hiltViewModel<CollectionsViewModel>(),
                     hubViewModel = hiltViewModel<InventoryHubViewModel>(),
-                    onNavigateToHelp = { openHelpFor(Screen.InventoryHub.helpCategoryId) },
+                    onNavigateToHelp = { categoryId -> openHelpFor(categoryId) },
                     onAddItem = { navController.navigate("add_item") },
                     onItemClick = { id -> navController.navigate("item_detail/$id") },
                     onEditItem = { id -> navController.navigate("edit_item/$id") },
