@@ -253,7 +253,7 @@ internal val taskReviewArticles = listOf(
         ),
         whyItMatters = "The timer is the system's, not Inventoria's, so it keeps running and rings normally even " +
             "if this app is closed — but it also knows nothing about your session and will not pause when you do.",
-        related = listOf("tasks-start", "todos-deadline-time"),
+        related = listOf("tasks-start", "todos-alarm"),
         keywords = listOf("timer", "alarm", "countdown", "pomodoro", "clock")
     )
 )
