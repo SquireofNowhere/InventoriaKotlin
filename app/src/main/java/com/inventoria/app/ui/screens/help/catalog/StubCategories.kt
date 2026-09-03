@@ -7,7 +7,6 @@ import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Settings
 import com.inventoria.app.ui.screens.help.model.ArticleStatus
 import com.inventoria.app.ui.screens.help.model.HelpArticle
 import com.inventoria.app.ui.screens.help.model.HelpCategory
@@ -111,12 +110,6 @@ internal val stubCategories = listOf(
         title = "Sync & Accounts",
         summary = "Google sign-in, invite codes and connected devices",
         icon = Icons.Default.CloudSync
-    ),
-    HelpCategory(
-        id = "settings",
-        title = "Settings",
-        summary = "Appearance, currency, notifications and penalties",
-        icon = Icons.Default.Settings
     ),
     comingSoonCategory
 )

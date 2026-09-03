@@ -16,7 +16,7 @@ object HelpCatalog {
     // Ordered to match the app's information architecture: the home screen, then the tabs that
     // carry written articles, then everything else.
     val categories: List<HelpCategory> by lazy {
-        listOf(todayCategory, taskTrackingCategory, todosCategory, inventoryCategory) + stubCategories
+        listOf(todayCategory, taskTrackingCategory, todosCategory, inventoryCategory, settingsCategory) + stubCategories
     }
 
     private val articlesById: Map<String, HelpArticle> by lazy {
