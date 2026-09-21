@@ -108,12 +108,9 @@ fun TaskHistoryScreen(
         bucketByDay(activityGroups) { getStartOfDay(it.mostRecentStartTime) }
     }
 
-    // Per-day "should this row show its clock time" lookups, keyed by day then by task id --
-    // computed once here (remember requires composable context, unlike inside LazyListScope's
-    // plain content lambda) and just read as plain maps down in the list below.
-    val flatShowTimeByDay = remember(flatDayBuckets) {
-        flatDayBuckets.associate { day -> day.dayStart to showTimeFlagsById(day.items) { it.id to it.startTime } }
-    }
+    // Per-day "should this row show its clock time" lookups for the grouped view, keyed by day then
+    // by task id -- computed once here (remember requires composable context, unlike inside
+    // LazyListScope's plain content lambda) and just read as plain maps down in the list below.
     // Only single-segment sessions show a time gutter (CompletedSessionCard has no spot for
     // one), so the dedup chain only tracks those, skipping multi-segment sessions entirely
     // rather than comparing against a label nobody can see.
@@ -198,22 +195,20 @@ fun TaskHistoryScreen(
                     item(key = "day_${day.dayStart}") {
                         DayTimelineHeader(day.dayStart, day.items)
                     }
-                    val showTimeById = flatShowTimeByDay[day.dayStart] ?: emptyMap()
-                    items(day.items, key = { it.id }) { task ->
-                        TimelineTaskRow(
-                            task = task,
-                            isSelected = task.id in selectedTaskIds,
+                    // The whole day as one fixed-scale timeline -- see HistoryDayTimeline.
+                    item(key = "timeline_${day.dayStart}") {
+                        HistoryDayTimeline(
+                            dayStart = day.dayStart,
+                            tasks = day.items,
+                            selectedTaskIds = selectedTaskIds,
                             taskTypeNames = taskTypeNames,
-                            showTime = showTimeById[task.id] != false,
-                            onClick = {
+                            onClick = { task ->
                                 if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
                                 else selectedTaskId = task.id
                             },
-                            onLongClick = { viewModel.toggleTaskSelection(task.id) },
-                            onToggleCalendar = { viewModel.setSegmentCalendarStatus(task, !task.savedToCalendar) },
-                            onDelete = { viewModel.deleteSegment(task) },
-                            onAddToCalendar = { addToGoogleCalendar(context, task) },
-                            onHideCalendarItem = { viewModel.hideCalendarTask(task) }
+                            onLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
+                            onOpenCalendar = { task -> openInSystemCalendar(context, task) },
+                            onHideCalendarItem = { task -> viewModel.hideCalendarTask(task) }
                         )
                     }
                     item(key = "spacer_${day.dayStart}") { Spacer(Modifier.height(8.dp)) }

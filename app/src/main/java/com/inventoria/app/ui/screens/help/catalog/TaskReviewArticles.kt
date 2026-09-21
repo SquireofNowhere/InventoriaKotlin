@@ -102,8 +102,16 @@ internal val taskReviewArticles = listOf(
             ),
             HelpBlock.Callout(
                 CalloutKind.Tip,
-                "In the flat view the clock time on the left is hidden when it would repeat the row above, so a " +
-                    "burst of activity in one minute reads as a block rather than the same time over and over."
+                "The flat view is drawn to a fixed time scale: each card sits at the clock time the task " +
+                    "started and is as tall as the task was long, so a two-hour task is visibly four times a " +
+                    "half-hour one. Overlapping tasks sit side by side, and a quiet stretch of two hours or " +
+                    "more folds into a single \"nothing tracked\" line. Very short tasks are drawn at a " +
+                    "minimum height so they stay tappable. Tap a card for its details, long-press to select."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "The grouped view keeps its list of cards: one card can stand for several sittings, so it " +
+                    "has no single position or length to draw."
             )
         ),
         whyItMatters = "The mini timeline is drawn from the individual segments rather than session totals, " +

@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 104,
+                versionName = "2.23",
+                changes = listOf(
+                    "Task History (flat view) is now a real timeline on a fixed scale: each task sits at its start time and its card is as tall as the task was long. Overlapping tasks sit side by side, and long empty stretches fold away. Tap a card for details, long-press to select."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 103,
                 versionName = "2.22",
                 changes = listOf(
