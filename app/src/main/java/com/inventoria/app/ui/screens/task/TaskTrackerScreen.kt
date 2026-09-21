@@ -500,7 +500,6 @@ fun TaskTrackerScreen(
             personalScore = personalScore,
             socialScore = socialScore,
             onDismiss = { showProductivityDialog = false },
-            dampen = { raw -> viewModel.previewDampen(raw) }
         )
     }
 
@@ -770,7 +769,7 @@ fun TaskTrackerScreen(
 }
 
 @Composable
-fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, tasks: List<Task>, currentTime: Long, onClick: () -> Unit) {
+fun DailyScoreCard(totalScore: Double, personalScore: Double, socialScore: Double, tasks: List<Task>, currentTime: Long, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = MaterialTheme.shapes.medium,
@@ -786,7 +785,7 @@ fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, tasks:
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text("Today's Productivity", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
-                    Text(text = "$totalScore pts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(text = "${formatPoints(totalScore)} pts", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -798,9 +797,9 @@ fun DailyScoreCard(totalScore: Int, personalScore: Int, socialScore: Int, tasks:
 }
 
 @Composable
-fun ScoreMiniItem(label: String, score: Int, color: Color) {
+fun ScoreMiniItem(label: String, score: Double, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = if (score >= 0) "+$score" else "$score", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+        Text(text = formatPoints(score), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
         Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
     }
 }
@@ -869,10 +868,10 @@ fun SingleTaskItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = if (task.score >= 0) "+${task.score} pts" else "${task.score} pts",
+                        text = "${formatPoints(task.points)} pts",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
+                        color = if (isPositivePoints(task.points)) Success else Color(0xFFFF4D4D)
                     )
                 }
                 TaskKindChip(kind = task.kind)
@@ -943,7 +942,7 @@ fun CompletedSessionCard(
     val someSaved = segments.any { it.savedToCalendar }
     val isCalendarSession = segments.any { it.id.startsWith("cal_") }
     val hasTodoOrigin = segments.any { it.originTodoId != null }
-    val sessionScore = segments.sumOf { it.score }
+    val sessionScore = segments.sumOf { it.points }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -977,10 +976,10 @@ fun CompletedSessionCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = if (sessionScore >= 0) "+$sessionScore pts" else "$sessionScore pts",
+                        text = "${formatPoints(sessionScore)} pts",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (sessionScore >= 0) Success else Color(0xFFFF4D4D)
+                        color = if (isPositivePoints(sessionScore)) Success else Color(0xFFFF4D4D)
                     )
                     if (allSaved && !isCalendarSession) {
                         val latestSaveAt = segments.mapNotNull { it.savedToCalendarAt }.maxOrNull() ?: 0L
@@ -1164,7 +1163,7 @@ private fun SegmentRow(
                     }
                 }
                 Text(
-                    text = "${formatDetailedDuration(segment.duration)} • $percentage • ${if (segment.score >= 0) "+${segment.score} pts" else "${segment.score} pts"}",
+                    text = "${formatDetailedDuration(segment.duration)} • $percentage • ${formatPoints(segment.points)} pts",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1364,10 +1363,10 @@ fun SessionDetailDialog(
                             Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(segment.kind.colorValue))); Spacer(Modifier.width(8.dp))
                             Text(text = segment.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), modifier = Modifier.weight(1f))
                             Text(
-                                text = if (segment.score >= 0) "+${segment.score} pts" else "${segment.score} pts",
+                                text = "${formatPoints(segment.points)} pts",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (segment.score >= 0) Success else Color(0xFFFF4D4D),
+                                color = if (isPositivePoints(segment.points)) Success else Color(0xFFFF4D4D),
                                 modifier = Modifier.padding(end = 8.dp)
                             )
                             if (segment.id.startsWith("cal_")) {
@@ -1568,10 +1567,10 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<S
                         LaunchedEffect(liveDuration, task.kind) { livePreview = previewScore(task.kind, liveDuration) }
                         DetailItem("Kind Value", (if (task.kind.productivityValue >= 0) "+" else "") + task.kind.productivityValue)
                         Text(
-                            text = "Running total: ${if (livePreview >= 0) "+" else ""}$livePreview pts",
+                            text = "Running total: ${formatPoints(livePreview / 60.0)} pts",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (livePreview >= 0) Success else Color(0xFFFF4D4D)
+                            color = if (isPositivePoints(livePreview / 60.0)) Success else Color(0xFFFF4D4D)
                         )
                         Text(
                             text = "Updates live while running, using your current momentum streak for this Kind.",
@@ -1590,10 +1589,10 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<S
                         DetailItem("Kind Value", (if (task.kind.productivityValue >= 0) "+" else "") + task.kind.productivityValue)
                         DetailItem("Momentum Multiplier", "${"%.2f".format(impliedMultiplier)}x")
                         Text(
-                            text = "Total: ${if (task.score >= 0) "+" else ""}${task.score} pts",
+                            text = "Total: ${formatPoints(task.points)} pts",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
+                            color = if (isPositivePoints(task.points)) Success else Color(0xFFFF4D4D)
                         )
                     }
                 }

@@ -309,10 +309,10 @@ private fun HistoryTaskCard(
                             Spacer(Modifier.width(6.dp))
                         }
                         Text(
-                            text = if (task.score >= 0) "+${task.score} pts" else "${task.score} pts",
+                            text = "${formatPoints(task.points)} pts",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
+                            color = if (isPositivePoints(task.points)) Success else Color(0xFFFF4D4D)
                         )
                     }
                 }

@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 105,
+                versionName = "2.24",
+                changes = listOf(
+                    "Points now make sense across the app. Tracked time scores the Kind's value per hour, so an hour of a +3 Kind is worth one +3 todo, and the daily ceiling of about 5 is gone: a long focused day now counts for more than a short one. Lifetime uses the same terms as today (tracked time, completed todos and procrastination penalties), and a task that crosses midnight is split between the two days. Productivity Stats has a new Scoring tab that shows every term, for today and for your lifetime."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 104,
                 versionName = "2.23",
                 changes = listOf(

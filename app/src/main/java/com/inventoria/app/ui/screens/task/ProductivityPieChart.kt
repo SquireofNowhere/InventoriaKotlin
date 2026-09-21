@@ -261,11 +261,10 @@ fun ProductivityPieChart(
 @Composable
 fun DailyProductivityDialog(
     tasks: List<Task>,
-    totalScore: Int,
-    personalScore: Int,
-    socialScore: Int,
-    onDismiss: () -> Unit,
-    dampen: (Int) -> Int
+    totalScore: Double,
+    personalScore: Double,
+    socialScore: Double,
+    onDismiss: () -> Unit
 ) {
     var expandedBreakdown by remember { mutableStateOf(false) }
     // Keyed by task.id rather than remembered inside each row -- individualTasks is sorted by
@@ -298,13 +297,15 @@ fun DailyProductivityDialog(
         }.sortedByDescending { it.first.startTime }
     }
 
-    // Raw (pre-dampening) score total + task count per category, today -- matches
-    // categoryScoreToday's own grouping exactly, so the "category context" shown in each row's
-    // dropdown is consistent with the actual Personal/Social score computation.
-    val categoryRawTotals = remember(tasks) {
+    val todayEnd = todayStart + 24 * 60 * 60 * 1000L
+
+    // Tracked-points total + task count per category, today -- the same share-inside-today
+    // grouping the Personal/Social score uses, so the "category context" shown in each row's
+    // dropdown adds up to the tracked part of the score above.
+    val categoryTrackedTotals = remember(tasks, todayStart) {
         TaskCategory.entries.associateWith { category ->
             val categoryTasks = tasks.filter { it.kind.category == category }
-            categoryTasks.sumOf { it.score } to categoryTasks.size
+            categoryTasks.sumOf { it.pointsWithin(todayStart, todayEnd) } to categoryTasks.size
         }
     }
 
@@ -435,15 +436,15 @@ fun DailyProductivityDialog(
                                 }
                                 individualTasks.forEach { (task, duration) ->
                                     key(task.id) {
-                                        val (categoryRaw, categoryCount) = categoryRawTotals[task.kind.category] ?: (0 to 0)
+                                        val (categoryTotal, categoryCount) = categoryTrackedTotals[task.kind.category] ?: (0.0 to 0)
                                         TaskBreakdownRow(
                                             task = task,
                                             duration = duration,
+                                            todayPoints = task.pointsWithin(todayStart, todayEnd),
                                             expanded = expandedTaskIds[task.id] == true,
                                             onToggleExpand = { expandedTaskIds[task.id] = expandedTaskIds[task.id] != true },
-                                            categoryRawTotal = categoryRaw,
-                                            categoryTaskCount = categoryCount,
-                                            dampen = dampen
+                                            categoryTrackedTotal = categoryTotal,
+                                            categoryTaskCount = categoryCount
                                         )
                                     }
                                 }
@@ -457,7 +458,7 @@ fun DailyProductivityDialog(
 }
 
 @Composable
-fun ScoreSummaryItem(label: String, score: Int, color: Color) {
+fun ScoreSummaryItem(label: String, score: Double, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = label,
@@ -465,7 +466,7 @@ fun ScoreSummaryItem(label: String, score: Int, color: Color) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text = if (score >= 0) "+$score" else "$score",
+            text = formatPoints(score),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.ExtraBold,
             color = color
@@ -477,11 +478,11 @@ fun ScoreSummaryItem(label: String, score: Int, color: Color) {
 fun TaskBreakdownRow(
     task: Task,
     duration: Long,
+    todayPoints: Double,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
-    categoryRawTotal: Int,
-    categoryTaskCount: Int,
-    dampen: (Int) -> Int
+    categoryTrackedTotal: Double,
+    categoryTaskCount: Int
 ) {
     val isCalendarTask = task.id.startsWith("cal_")
 
@@ -515,10 +516,10 @@ fun TaskBreakdownRow(
                 )
             }
             Text(
-                text = if (task.score >= 0) "+${task.score}" else "${task.score}",
+                text = formatPoints(todayPoints),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = if (task.score >= 0) Success else Color(0xFFFF4D4D)
+                color = if (isPositivePoints(todayPoints)) Success else Color(0xFFFF4D4D)
             )
             if (!isCalendarTask) {
                 Icon(
@@ -536,6 +537,7 @@ fun TaskBreakdownRow(
             // task.duration (the full stored duration), NOT the today-clipped `duration` param
             // above -- the frozen score was computed from the full duration, so backing out the
             // multiplier from the clipped figure would be wrong for any task spanning midnight.
+            // The multiplier is unaffected by the minute->hour rescale: it's a ratio.
             val minutes = task.duration / 60000.0
             val impliedMultiplier = if (task.kind.productivityValue != 0 && minutes > 0) {
                 task.score / (task.kind.productivityValue * minutes)
@@ -564,7 +566,8 @@ fun TaskBreakdownRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "Raw Score: ${if (task.score >= 0) "+" else ""}${task.score} pts",
+                    text = "Points: ${formatPoints(task.points)} pts" +
+                        if (task.points != todayPoints) " (${formatPoints(todayPoints)} of it falls today)" else "",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -577,11 +580,9 @@ fun TaskBreakdownRow(
                     )
                 } else {
                     val categoryLabel = if (task.kind.category == TaskCategory.PERSONAL) "Personal" else "Social"
-                    val dampedCategory = dampen(categoryRawTotal)
                     Text(
-                        text = "Today's $categoryLabel raw total: ${if (categoryRawTotal >= 0) "+" else ""}$categoryRawTotal pts" +
-                            " from $categoryTaskCount task${if (categoryTaskCount == 1) "" else "s"}" +
-                            " → dampened to ${if (dampedCategory >= 0) "+" else ""}$dampedCategory pts",
+                        text = "Today's $categoryLabel tracked total: ${formatPoints(categoryTrackedTotal)} pts" +
+                            " from $categoryTaskCount task${if (categoryTaskCount == 1) "" else "s"}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

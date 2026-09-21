@@ -123,9 +123,10 @@ internal val taskReviewArticles = listOf(
     HelpArticle(
         id = "tasks-momentum",
         title = "How points are calculated",
-        summary = "Kind value, times minutes, times your momentum streak.",
-        whatItIs = "A task's score is its Kind's value per minute, multiplied by how long it ran, multiplied by a " +
-            "momentum bonus from consecutive sessions of the same Kind.",
+        summary = "Kind value, times hours, times your momentum streak.",
+        whatItIs = "A task's points are its Kind's value per hour, multiplied by how long it ran, multiplied by a " +
+            "momentum bonus from consecutive sessions of the same Kind. One hour of a +3 Kind is worth +3, " +
+            "the same as ticking off one +3 todo.",
         blocks = listOf(
             HelpBlock.Bullets(
                 listOf(
@@ -143,37 +144,40 @@ internal val taskReviewArticles = listOf(
         ),
         whyItMatters = "Draining Kinds compound faster than productive ones on purpose: it should take less " +
             "repetition for a bad pattern to show up in your score than for a good one.",
-        related = listOf("tasks-kind", "tasks-dampening", "tasks-stop"),
+        related = listOf("tasks-kind", "tasks-scoring", "tasks-stop"),
         keywords = listOf("score", "points", "streak", "multiplier", "momentum", "maths")
     ),
 
     HelpArticle(
-        id = "tasks-dampening",
-        title = "Why today's score is smaller than the sum",
-        summary = "A day's tracked points are squashed toward a ceiling of 5 per category.",
-        whatItIs = "Your Personal and Social scores for today are not the raw sum of the day's tasks. Each " +
-            "category's total is passed through a curve that approaches 5 without ever reaching it.",
+        id = "tasks-scoring",
+        title = "How today's score adds up",
+        summary = "Tracked hours, todos and penalties, all on one scale.",
+        whatItIs = "Your Personal and Social scores are the sum of a few terms: the points from tracked time, the " +
+            "value of todos you completed, minus penalties. Today's score and your lifetime score use the same " +
+            "terms, so they always agree with each other.",
         blocks = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep("Open Productivity Stats from the Tasks top bar."),
-                    HelpStep("Choose the Today range in Productivity Stats."),
-                    HelpStep("The curve is drawn with your own totals marked on it, and every term of the day's arithmetic is listed below.")
+                    HelpStep("Choose the Scoring tab."),
+                    HelpStep("Every term is listed for today and for your lifetime, one card per category.")
                 )
             ),
             HelpBlock.Bullets(
                 listOf(
-                    "Completed todos bypass the curve and add their full value.",
-                    "Overdue and procrastination penalties are subtracted afterwards.",
-                    "Lifetime totals are the plain historical sum — only a single day is ever dampened."
+                    "Tracked time scores the Kind's value per hour, with your momentum bonus. Two hours of a +3 Kind is +6.",
+                    "A completed todo adds its Kind's value once, whatever its size.",
+                    "A task that crosses midnight is split between the two days by how much of it fell on each.",
+                    "Overdue todos cost up to 5 points each per day while they stay late. That charge only applies to today: it can't be replayed for days that are over, so lifetime leaves it out.",
+                    "Procrastination penalties follow your current settings, so changing them re-scores your history."
                 )
             )
         ),
-        whyItMatters = "Without the curve, one very long session would decide the whole day: a four-hour Peacock " +
-            "stretch scores over a thousand raw points, which no amount of anything else could balance. Compressing " +
-            "the total keeps effort visible while stopping a single block from drowning out the day.",
+        whyItMatters = "Tracked time and todos are counted in the same units, so neither one drowns out the other, " +
+            "and a long day of focused work is worth more than a short one. Using the same rules for today and " +
+            "for your lifetime total means the two numbers can be compared directly.",
         related = listOf("tasks-momentum", "tasks-kind"),
-        keywords = listOf("dampening", "curve", "diminishing", "score too low", "ceiling")
+        keywords = listOf("score", "points", "today", "lifetime", "penalty", "overdue", "score too low")
     ),
 
     HelpArticle(

@@ -17,7 +17,7 @@ enum class TodoState { INCOMPLETE, IN_PROGRESS, COMPLETE }
 /** Franklin-Covey-style ABC-123 priority: letter tier (A most important) nested with a number
  * sub-rank (1 highest within its tier), forming one ordered scale from A1 (best) to C3 (worst).
  * Declared in that exact order so .ordinal doubles as the ranking -- see
- * TaskTrackerViewModel.categoryScoreToday's procrastination-penalty cutoff comparison. */
+ * TaskTrackerViewModel.categoryBreakdown's procrastination-penalty cutoff comparison. */
 enum class TodoPriority { A1, A2, A3, B1, B2, B3, C1, C2, C3 }
 
 @Entity
