@@ -221,6 +221,14 @@ internal val todoListArticles = listOf(
                 CalloutKind.Note,
                 "A todo can't be dropped onto itself or any of its own descendants -- that would loop the " +
                     "tree, so those drop targets simply don't respond."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "Start a sub-todo while its parent (or a grandparent) is being tracked and it runs as a " +
+                    "child of the parent's task: the parent pauses, the sub-todo's time is tracked under it, " +
+                    "and stopping the sub-todo resumes the parent. Sub-todos of the same parent can run " +
+                    "together; the parent resumes when the last one stops. A parent you paused yourself is " +
+                    "left alone, and the sub-todo starts as an ordinary task."
             )
         ),
         whyItMatters = "Dragging only ever changes the parent pointer -- a child's own deadline, priority " +

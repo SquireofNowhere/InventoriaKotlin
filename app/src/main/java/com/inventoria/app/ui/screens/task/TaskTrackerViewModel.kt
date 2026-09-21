@@ -833,7 +833,7 @@ class TaskTrackerViewModel @Inject constructor(
             ) { repository.restoreSession(session.groupId) }
 
             if (interruptedGroupId != null) {
-                repository.resumeSession(interruptedGroupId, System.currentTimeMillis())
+                repository.resumeAfterInterruption(interruptedGroupId, System.currentTimeMillis())
             }
         }
     }

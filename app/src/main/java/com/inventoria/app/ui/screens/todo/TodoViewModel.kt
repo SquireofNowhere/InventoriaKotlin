@@ -323,6 +323,34 @@ class TodoViewModel @Inject constructor(
     private val _taskStarted = MutableSharedFlow<Todo>(extraBufferCapacity = 1)
     val taskStarted: SharedFlow<Todo> = _taskStarted.asSharedFlow()
 
+    /**
+     * The group of the session to run this todo's session under, if any: the nearest ancestor
+     * todo (parent, then grandparent, ...) that has a tracked session going and is in a state to
+     * be interrupted -- see TaskRepository.beginInterruptionOf, which also pauses it. Null means
+     * this todo starts as an ordinary top-level session.
+     *
+     * Sub-todos are the parts of their parent, so working on one while the parent is being
+     * tracked is the parent's time being spent on a piece of it: it runs as a child of the
+     * parent's task (the same Interrupting-... nesting a pause-and-interrupt makes) instead of as
+     * an unrelated second clock alongside it.
+     */
+    private suspend fun ancestorSessionToInterrupt(todo: Todo): String? {
+        val groupByTodoId = taskRepository.getVisibleTasksList()
+            .filter { it.isSessionActive && it.originTodoId != null }
+            .groupBy { it.originTodoId }
+        if (groupByTodoId.isEmpty()) return null
+        val seen = mutableSetOf(todo.id)
+        var parentId = todo.parentTodoId
+        while (parentId != null && seen.add(parentId)) {
+            val groupId = groupByTodoId[parentId]?.firstOrNull()?.groupId
+            if (groupId != null && taskRepository.beginInterruptionOf(groupId, System.currentTimeMillis())) {
+                return groupId
+            }
+            parentId = todoRepository.getTodoById(parentId)?.parentTodoId
+        }
+        return null
+    }
+
     /** Kicks off a real tracked session from this todo -- same shape as
      * TaskTrackerViewModel.addNewTask(), just seeded with the todo's title/kind and tagged with
      * Task.originTodoId so the completion check-in can find its way back to this todo once the
@@ -335,6 +363,7 @@ class TodoViewModel @Inject constructor(
             val alreadyRunning = taskRepository.getVisibleTasksList()
                 .any { it.originTodoId == todo.id && it.isSessionActive }
             if (alreadyRunning) return@launch
+            val interruptedGroupId = ancestorSessionToInterrupt(todo)
             val groupId = UUID.randomUUID().toString()
             val task = Task(
                 id = UUID.randomUUID().toString(),
@@ -344,7 +373,11 @@ class TodoViewModel @Inject constructor(
                 taskTypeId = todo.taskTypeId ?: learnedTypeIdForName(todo.title),
                 isRunning = true,
                 startTime = System.currentTimeMillis(),
-                originTodoId = todo.id
+                originTodoId = todo.id,
+                // A sub-todo run under its parent's session: linked so stopping it resumes the
+                // parent. Deliberate work, unlike an involuntary interruption, so it counts.
+                interruptedGroupId = interruptedGroupId,
+                countsForStreak = interruptedGroupId != null
             )
             taskRepository.insertTask(task)
             val intent = Intent(context, TaskTimerService::class.java)

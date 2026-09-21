@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 102,
+                versionName = "2.21",
+                changes = listOf(
+                    "Starting a sub-todo while its parent todo is being tracked now runs it as a child of the parent's task: the parent pauses, and stopping the sub-todo resumes it. Sub-todos of one parent can run together."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 101,
                 versionName = "2.20",
                 changes = listOf(

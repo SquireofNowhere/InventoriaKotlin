@@ -293,16 +293,54 @@ class TaskRepository @Inject constructor(
      * dangling with nothing left to eventually return to.
      */
     suspend fun stopInterruptionChain(groupId: String, now: Long) {
+        // Every session interrupting [groupId], not just the first: a todo with several sub-todos
+        // running at once has one interrupter per child, and stopping the parent has to take all
+        // of them down.
         val interrupting = activeSessions().entries
-            .firstOrNull { (_, segments) -> segments.any { it.interruptedGroupId == groupId } }
-            ?: return
-        stopInterruptionChain(interrupting.key, now)
-        val running = interrupting.value.firstOrNull { it.isRunning }
-        if (running != null) {
-            stopTaskAndSession(running.id, interrupting.key, now, now - running.startTime, running.kind)
-        } else {
-            endSession(interrupting.key)
+            .filter { (_, segments) -> segments.any { it.interruptedGroupId == groupId } }
+        for ((interrupterGroupId, segments) in interrupting) {
+            stopInterruptionChain(interrupterGroupId, now)
+            val running = segments.firstOrNull { it.isRunning }
+            if (running != null) {
+                stopTaskAndSession(running.id, interrupterGroupId, now, now - running.startTime, running.kind)
+            } else {
+                endSession(interrupterGroupId)
+            }
         }
+    }
+
+    /** Whether any active session is currently interrupting [groupId]. */
+    private suspend fun hasActiveInterrupter(groupId: String): Boolean =
+        activeSessions().values.any { segments -> segments.any { it.interruptedGroupId == groupId } }
+
+    /**
+     * What to do for [groupId] once one of the sessions that was interrupting it has ended: resume
+     * it -- unless a sibling interruption is still running on top of it, in which case it stays
+     * paused until the last one is done. (Resuming outright would collapse that sibling too, see
+     * [resumeSession].) Call after the ending session is no longer active.
+     */
+    suspend fun resumeAfterInterruption(groupId: String, now: Long) {
+        if (hasActiveInterrupter(groupId)) return
+        resumeSession(groupId, now)
+    }
+
+    /**
+     * Readies [parentGroupId] to have a child session started on top of it, for a caller that is
+     * about to insert a task with interruptedGroupId = [parentGroupId]. Returns whether the link
+     * should be made at all.
+     *
+     * A running parent is paused, exactly as pausing it to start an interruption does. A parent
+     * that is paused only because another child is already running on it accepts a further child
+     * as-is. A parent the user paused by hand does not: stopping the child would resume it,
+     * which is not something they asked for.
+     */
+    suspend fun beginInterruptionOf(parentGroupId: String, now: Long): Boolean {
+        val segments = activeSessions()[parentGroupId] ?: return false
+        if (segments.any { it.isRunning }) {
+            pauseSession(parentGroupId, now)
+            return true
+        }
+        return hasActiveInterrupter(parentGroupId)
     }
 
     /**
@@ -367,7 +405,7 @@ class TaskRepository @Inject constructor(
             endSession(groupId)
         }
 
-        if (interruptedGroupId != null) resumeSession(interruptedGroupId, now)
+        if (interruptedGroupId != null) resumeAfterInterruption(interruptedGroupId, now)
         return originTodoId
     }
 
