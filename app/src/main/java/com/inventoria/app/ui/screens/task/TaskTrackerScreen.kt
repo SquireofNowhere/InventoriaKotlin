@@ -745,6 +745,11 @@ fun TaskTrackerScreen(
                 TextButton(onClick = { viewModel.renameInnerTask(innerTask, interruptionName.text, countsForStreak, interruptionKind, interruptionTypeId) }) {
                     Text("Save")
                 }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.discardInnerTask(innerTask) }) {
+                    Text("Not an interruption")
+                }
             }
         )
     }

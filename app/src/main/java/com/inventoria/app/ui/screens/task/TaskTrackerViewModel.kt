@@ -600,6 +600,15 @@ class TaskTrackerViewModel @Inject constructor(
         _pendingInnerTaskRename.value = null
     }
 
+    /** "Not an interruption": the pause was just a pause, so the inner task that started with it
+     * never happened. Tombstones it like [discardSession] does (nothing can be interrupting a
+     * task this new, so no chain to stop first); the paused parent is left exactly as it is.
+     * No undo offer -- it has run for the length of one dialog. */
+    fun discardInnerTask(task: Task) {
+        _pendingInnerTaskRename.value = null
+        viewModelScope.launch { repository.softDeleteSession(task.groupId) }
+    }
+
     /** Lets the user change their mind about whether a still-running (or already-renamed)
      * interruption should count toward streaks, from its session card, not just the initial dialog. */
     fun setInnerTaskCountsForStreak(task: Task, countsForStreak: Boolean) {

@@ -28,7 +28,8 @@ internal val taskOrganisingArticles = listOf(
                             confirmLabel = "Save"
                         )))
                     ),
-                    HelpStep("Name it and save. Stopping the interruption automatically resumes what you were doing.")
+                    HelpStep("Name it and save. Stopping the interruption automatically resumes what you were doing."),
+                    HelpStep("If you only paused and nothing interrupted you, choose Not an interruption. The timing interruption is discarded and your task stays paused.")
                 )
             ),
             HelpBlock.Callout(

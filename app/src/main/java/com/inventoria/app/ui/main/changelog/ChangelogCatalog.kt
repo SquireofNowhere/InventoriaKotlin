@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 106,
+                versionName = "2.25",
+                changes = listOf(
+                    "The \"What's interrupting you?\" dialog has a new \"Not an interruption\" button. If you only paused the task, tap it and the interruption that started timing is discarded, leaving your task paused."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 105,
                 versionName = "2.24",
                 changes = listOf(
