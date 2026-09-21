@@ -17,29 +17,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.ui.theme.Success
-import com.inventoria.app.util.packIntoLanes
+import com.inventoria.app.util.cascadeByDepth
 import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
  * Task History's flat view, one day at a time, on a fixed time scale: a task's card is as tall as
  * the task was long ([HOUR_HEIGHT] per hour, the same for every card on every day) and sits at
- * the clock time it actually started. Cards that overlap in time -- concurrent sessions -- sit
- * side by side rather than on top of each other.
+ * the clock time it actually started. Cards that overlap in time -- concurrent sessions, or a
+ * sub-task run inside its parent -- cascade: a card is indented one step for each task still
+ * running when it starts and runs to the right edge, on top of the earlier ones, so the earlier
+ * card's title stays readable (see [cascadeByDepth]).
  *
  * Two things keep a fixed scale usable. Only the stretch of the day that has tasks in it is drawn
  * (from the hour before the first to the hour after the last), and any quiet stretch of
  * [COLLAPSE_GAP_MINUTES] or more between tasks folds down to a one-line band saying how long it
  * was, so a morning and an evening entry don't drag a mostly-empty afternoon between them. And a
  * card never gets shorter than [MIN_CARD_HEIGHT], because a five-minute task at true scale would
- * be a hairline you cannot read or tap; when that would make it run into the next one, the lane
- * packing (done on those on-screen extents, not on the times) puts them side by side.
+ * be a hairline you cannot read or tap; when that would make it run into the next one, the
+ * cascade (worked out on those on-screen extents, not on the times) indents it.
  *
  * Only tasks that start on [dayStart] are drawn here, clipped at midnight -- the same "belongs to
  * the day it started" rule the rest of History uses.
@@ -49,6 +52,10 @@ private val GUTTER_WIDTH = 40.dp
 private val COLLAPSED_GAP_HEIGHT = 32.dp
 private const val COLLAPSE_GAP_MINUTES = 120
 private val MIN_CARD_HEIGHT = 28.dp
+
+/** How far each level of a cascade steps in, before it is squeezed so the deepest card keeps at
+ * least half the width. */
+private val CASCADE_STEP = 24.dp
 
 /** Taller than a normal minimum: a system-calendar event's card carries two icon buttons. */
 private val MIN_CALENDAR_CARD_HEIGHT = 56.dp
@@ -134,7 +141,7 @@ internal fun HistoryDayTimeline(
             PlacedTask(task, top, maxOf(scale.y(end) - top, minHeight))
         }
     }
-    val slots = remember(placed) { packIntoLanes(placed, start = { it.top }, end = { it.top + it.height }) }
+    val slots = remember(placed) { cascadeByDepth(placed, start = { it.top }, end = { it.top + it.height }) }
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val gapColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
 
@@ -203,14 +210,15 @@ internal fun HistoryDayTimeline(
         ) {
             slots.forEach { slot ->
                 val placedTask = slot.item
-                val width = maxWidth / slot.laneCount
+                val step = if (slot.maxLevel == 0) 0.dp else minOf(CASCADE_STEP, maxWidth / 2 / slot.maxLevel)
+                val indent = step * slot.level
                 HistoryTaskCard(
                     task = placedTask.task,
                     isSelected = placedTask.task.id in selectedTaskIds,
                     typeName = placedTask.task.taskTypeId?.let { taskTypeNames[it] },
                     modifier = Modifier
-                        .offset(x = width * slot.lane, y = placedTask.top.dp)
-                        .width(width)
+                        .offset(x = indent, y = placedTask.top.dp)
+                        .width(maxWidth - indent)
                         .height(placedTask.height.dp)
                         .padding(horizontal = 2.dp, vertical = 1.dp),
                     height = placedTask.height.dp,
@@ -261,7 +269,12 @@ private fun HistoryTaskCard(
     Surface(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(6.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else kindColor.copy(alpha = 0.18f),
+        // Opaque, or a cascaded card would show the one it sits on through its tint.
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            kindColor.copy(alpha = 0.18f).compositeOver(MaterialTheme.colorScheme.surface)
+        },
         shadowElevation = 1.dp
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -104,7 +104,8 @@ internal val taskReviewArticles = listOf(
                 CalloutKind.Tip,
                 "The flat view is drawn to a fixed time scale: each card sits at the clock time the task " +
                     "started and is as tall as the task was long, so a two-hour task is visibly four times a " +
-                    "half-hour one. Overlapping tasks sit side by side, and a quiet stretch of two hours or " +
+                    "half-hour one. Overlapping tasks cascade -- one that starts while another is still " +
+                    "running steps in and sits on top of it -- and a quiet stretch of two hours or " +
                     "more folds into a single \"nothing tracked\" line. Very short tasks are drawn at a " +
                     "minimum height so they stay tappable. Tap a card for its details, long-press to select."
             ),

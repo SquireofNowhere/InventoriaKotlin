@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -56,7 +57,7 @@ import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
-import com.inventoria.app.util.packIntoLanes
+import com.inventoria.app.util.cascadeByDepth
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -350,6 +351,10 @@ private fun AllDayTodoStrip(todos: List<Todo>, onToggle: (Todo) -> Unit) {
 /** The right-edge strip tasks never cover, where the block underneath always shows through. */
 private val PEEK_STRIP_WIDTH = 10.dp
 
+/** How far each level of an overlapping-task cascade steps in; the task area is only half the
+ * screen, so this is tighter than Task History's. */
+private val TASK_CASCADE_STEP = 16.dp
+
 @Composable
 private fun DayTimeline(
     day: ScheduleDay,
@@ -449,7 +454,7 @@ private fun DayTimeline(
 
 /**
  * The single lane, back to front: flat blocks across the full width, then task cards confined to
- * the right half (lane-packed among themselves, stopping short of the right-edge strip), then todo
+ * the right half (cascaded among themselves, stopping short of the right-edge strip), then todo
  * hairlines over everything. Compose draws children in order, so this ordering is the layering.
  */
 @Composable
@@ -511,17 +516,18 @@ private fun DayLane(
             day.tasks.map { it to (it.endMinute ?: nowMinuteOfDay.toFloat().coerceAtLeast(it.startMinute)) }
         }
         val slots = remember(resolved) {
-            packIntoLanes(resolved, start = { it.first.startMinute }, end = { it.second })
+            cascadeByDepth(resolved, start = { it.first.startMinute }, end = { it.second })
         }
         slots.forEach { slot ->
             val (segment, endMinute) = slot.item
-            val width = taskAreaWidth / slot.laneCount
+            val step = if (slot.maxLevel == 0) 0.dp else minOf(TASK_CASCADE_STEP, taskAreaWidth / 2 / slot.maxLevel)
+            val indent = step * slot.level
             TaskSegmentCard(
                 task = segment.task,
                 isRunning = segment.endMinute == null,
                 modifier = Modifier
-                    .offset(x = taskLaneStart + width * slot.lane, y = HOUR_HEIGHT * (segment.startMinute / 60f))
-                    .width(width)
+                    .offset(x = taskLaneStart + indent, y = HOUR_HEIGHT * (segment.startMinute / 60f))
+                    .width(taskAreaWidth - indent)
                     .height(maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp))
                     .padding(horizontal = 2.dp, vertical = 1.dp),
                 onClick = { onTaskClick(segment.task) }
@@ -669,7 +675,7 @@ private fun TaskSegmentCard(task: Task, isRunning: Boolean, modifier: Modifier, 
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(6.dp),
-        color = kindColor.copy(alpha = 0.92f),
+        color = kindColor.copy(alpha = 0.92f).compositeOver(MaterialTheme.colorScheme.surface),
         shadowElevation = 1.dp
     ) {
         Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {

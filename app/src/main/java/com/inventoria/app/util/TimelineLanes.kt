@@ -58,3 +58,46 @@ fun <T> packIntoLanes(items: List<T>, start: (T) -> Float, end: (T) -> Float): L
     flushCluster()
     return result
 }
+
+/** One item's place in a cascaded timeline: how many other items were still running when it
+ * started ([level]) and the deepest level anywhere in its overlap cluster ([maxLevel]), which the
+ * caller needs to size the indent step so the deepest card still has room. */
+data class CascadeSlot<T>(val item: T, val level: Int, val maxLevel: Int)
+
+/**
+ * Cascades overlapping intervals instead of splitting the width between them: an item is indented
+ * one step for every other item still running when it starts, and every card runs to the right
+ * edge. Items that start after everything else has finished sit at level 0 -- full width -- so
+ * sequential neighbours line up; a card that starts inside another sits on top of it, indented, so
+ * the earlier card's title (top-left) stays readable and a sub-task reads as nested in its parent.
+ *
+ * Unlike [packIntoLanes] a card never shrinks below the width left after its indent, so the caller
+ * caps the step at (available width / 2) / [CascadeSlot.maxLevel]. Output is ordered by start, then
+ * longest first, which is also the draw order: later starts land on top.
+ */
+fun <T> cascadeByDepth(items: List<T>, start: (T) -> Float, end: (T) -> Float): List<CascadeSlot<T>> {
+    val sorted = items.sortedWith(compareBy<T> { start(it) }.thenByDescending { end(it) })
+    val levels = IntArray(sorted.size) { index ->
+        val itemStart = start(sorted[index])
+        (0 until index).count { end(sorted[it]) > itemStart }
+    }
+
+    val result = ArrayList<CascadeSlot<T>>(sorted.size)
+    var clusterFirst = 0
+    var clusterEnd = Float.NEGATIVE_INFINITY
+    fun flushCluster(until: Int) {
+        val maxLevel = (clusterFirst until until).maxOfOrNull { levels[it] } ?: 0
+        for (i in clusterFirst until until) result.add(CascadeSlot(sorted[i], levels[i], maxLevel))
+        clusterFirst = until
+    }
+    sorted.forEachIndexed { index, item ->
+        if (start(item) >= clusterEnd) {
+            flushCluster(index)
+            clusterEnd = end(item)
+        } else {
+            clusterEnd = maxOf(clusterEnd, end(item))
+        }
+    }
+    flushCluster(sorted.size)
+    return result
+}
