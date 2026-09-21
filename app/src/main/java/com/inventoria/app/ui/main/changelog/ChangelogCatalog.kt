@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 99,
+                versionName = "2.18",
+                changes = listOf(
+                    "Todos can repeat. Give a todo a deadline, switch on Repeating, and pick Daily, Weekly or Monthly: it starts over each cycle. The row keeps count of how many cycles ended completed and how many ended missed."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 98,
                 versionName = "2.17",
                 changes = listOf(

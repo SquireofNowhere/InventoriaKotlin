@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
@@ -273,6 +275,24 @@ internal fun TodoRow(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    // Repeating todos say so, and carry their running tally: how many finished cycles
+                    // ended complete and how many ended not. Shown once there is anything to count.
+                    if (todo.repeatInterval != TodoRepeat.NONE) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Repeat,
+                                contentDescription = "Repeating",
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = repeatRowText(todo.repeatInterval, todo.repeatCompletedCount, todo.repeatMissedCount),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     // Due time and, when one is set, the alarm -- the icon is the only place the
                     // list says "this one will ring", so it sits right next to the time it rings
                     // for. An all-day todo with an alarm shows the icon alone.
@@ -341,4 +361,20 @@ internal fun TodoRow(
             }
         }
     }
+}
+
+/** "12 completed · 3 missed" -- the finished cycles of a repeating todo, split by how each ended.
+ * A cycle counts as missed if the todo was anything short of Complete when it ended. */
+internal fun repeatTallyText(completed: Int, missed: Int): String =
+    "$completed completed · $missed missed"
+
+/** The repeating todo's line on a row: its interval, then the tally once a cycle has finished. */
+internal fun repeatRowText(repeat: TodoRepeat, completed: Int, missed: Int): String {
+    val interval = when (repeat) {
+        TodoRepeat.NONE -> ""
+        TodoRepeat.DAILY -> "Daily"
+        TodoRepeat.WEEKLY -> "Weekly"
+        TodoRepeat.MONTHLY -> "Monthly"
+    }
+    return if (completed == 0 && missed == 0) interval else "$interval · ${repeatTallyText(completed, missed)}"
 }

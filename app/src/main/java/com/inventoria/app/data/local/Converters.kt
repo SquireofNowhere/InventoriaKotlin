@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken
 import com.inventoria.app.data.model.InventoryCollectionType
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
 import java.util.*
 
@@ -89,5 +90,17 @@ class Converters {
     @TypeConverter
     fun toTodoPriority(value: String?): TodoPriority? = value?.let {
         try { TodoPriority.valueOf(it) } catch (e: IllegalArgumentException) { null }
+    }
+
+    @TypeConverter
+    fun fromTodoRepeat(repeat: TodoRepeat): String = repeat.name
+
+    @TypeConverter
+    fun toTodoRepeat(value: String): TodoRepeat {
+        return try {
+            TodoRepeat.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            TodoRepeat.NONE
+        }
     }
 }

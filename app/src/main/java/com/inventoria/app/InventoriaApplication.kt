@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
 import com.google.firebase.database.FirebaseDatabase
+import com.inventoria.app.data.TodoCycleRoller
 import com.inventoria.app.data.alarm.TodoAlarmScheduler
 import com.inventoria.app.data.worker.SyncWorker
 import com.inventoria.app.widget.WidgetRefresher
@@ -21,6 +22,9 @@ class InventoriaApplication : Application(), Configuration.Provider {
 
     @Inject
     lateinit var todoAlarmScheduler: TodoAlarmScheduler
+
+    @Inject
+    lateinit var todoCycleRoller: TodoCycleRoller
 
     @Inject
     lateinit var widgetRefresher: WidgetRefresher
@@ -56,6 +60,9 @@ class InventoriaApplication : Application(), Configuration.Provider {
         // Also the whole reboot story: BootReceiver only brings the process up, and this is what
         // then re-arms every alarm the restart threw away.
         todoAlarmScheduler.start()
+
+        // Starts repeating todos over when their cycle ends, and counts the cycle as done or missed.
+        todoCycleRoller.start()
 
         // Same idea for the home-screen widgets: watch the tables, redraw whatever is placed.
         widgetRefresher.start()

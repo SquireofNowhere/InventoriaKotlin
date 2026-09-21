@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.firebase.database.Exclude
 import com.google.firebase.database.PropertyName
+import java.util.Calendar
 
 /** COMPLETE is only ever set directly (by the user, or a cascade from a completed ancestor).
  * IN_PROGRESS is a weaker "something above/below this says it's started" signal: a cascade from
@@ -66,6 +67,17 @@ data class Todo(
     // reliably DROP COLUMN across the API levels this app supports) -- old rows keep whatever
     // value they last had, and it is simply ignored.
     @get:PropertyName("activeSessionGroupId") @set:PropertyName("activeSessionGroupId") var activeSessionGroupId: String? = null,
+    // Starts the todo over each cycle: the deadline moves on one interval and the state resets to
+    // INCOMPLETE once the deadline day has passed -- see [settleCycles]. The deadline is the
+    // anchor, so this is meaningless (and always cleared) when deadline is null, same as the time
+    // and alarm above. Firebase reads an absent field as the default, so an older todo is NONE.
+    @get:PropertyName("repeatInterval") @set:PropertyName("repeatInterval") var repeatInterval: TodoRepeat = TodoRepeat.NONE,
+    // Running tally of finished cycles: how many ended with the todo COMPLETE, and how many ended
+    // with it not. Kept on the row (not derived) because each cycle overwrites the state that
+    // would otherwise be the only record of it. Left alone when repeating is switched off, so
+    // turning it back on carries on from the same history.
+    @get:PropertyName("repeatCompletedCount") @set:PropertyName("repeatCompletedCount") var repeatCompletedCount: Int = 0,
+    @get:PropertyName("repeatMissedCount") @set:PropertyName("repeatMissedCount") var repeatMissedCount: Int = 0,
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
     @get:Exclude @set:Exclude var isDirty: Boolean = false
@@ -87,4 +99,58 @@ fun Todo.reminderTriggerAt(): Long? {
     if (isDeleted || state == TodoState.COMPLETE) return null
     val minuteOfDay = deadlineMinuteOfDay ?: ALL_DAY_REMINDER_MINUTE_OF_DAY
     return day + minuteOfDay * 60_000L - offset * 60_000L
+}
+
+/** How often a repeating todo starts over. NONE is the ordinary one-off. */
+enum class TodoRepeat { NONE, DAILY, WEEKLY, MONTHLY }
+
+/** The deadline one cycle later than [day] (a start-of-day timestamp), in the device's zone. A
+ * calendar add rather than a fixed 24h multiple so a daylight-saving change never leaves the
+ * deadline an hour off midnight -- and Todo.deadline has to stay exactly a start-of-day value.
+ * MONTHLY clamps to the shorter month (31 Jan -> 28 Feb), and the next step then continues from
+ * the clamped day. */
+fun TodoRepeat.nextDeadline(day: Long): Long {
+    val cal = Calendar.getInstance().apply { timeInMillis = day }
+    when (this) {
+        TodoRepeat.NONE -> return day
+        TodoRepeat.DAILY -> cal.add(Calendar.DAY_OF_YEAR, 1)
+        TodoRepeat.WEEKLY -> cal.add(Calendar.DAY_OF_YEAR, 7)
+        TodoRepeat.MONTHLY -> cal.add(Calendar.MONTH, 1)
+    }
+    return cal.timeInMillis
+}
+
+/**
+ * This todo after its finished cycles have been settled, or null when nothing is due to happen.
+ *
+ * A repeating todo's cycle is the stretch up to the end of its deadline day, so it is over once
+ * [todayStart] is past [Todo.deadline]. Settling a cycle counts it -- [Todo.repeatCompletedCount]
+ * if the todo was COMPLETE when the cycle ended, [Todo.repeatMissedCount] otherwise (INCOMPLETE and
+ * IN_PROGRESS both mean it was not finished) -- then moves the deadline on one interval and starts
+ * the next cycle INCOMPLETE. If several whole cycles have passed (the app was not opened for a
+ * week), the first is judged by the todo's state and every later one was necessarily missed, so
+ * the counts come out the same as if the app had been watching the whole time.
+ *
+ * Deterministic in its inputs on purpose: two devices settling the same cycle independently arrive
+ * at the same row, so the last-write-wins sync converges instead of counting the cycle twice.
+ */
+fun Todo.settleCycles(todayStart: Long): Todo? {
+    val day = deadline ?: return null
+    if (repeatInterval == TodoRepeat.NONE || isDeleted || day >= todayStart) return null
+    var next: Long = day
+    var completed = repeatCompletedCount
+    var missed = repeatMissedCount
+    var judged = false
+    while (next < todayStart) {
+        if (!judged && state == TodoState.COMPLETE) completed++ else missed++
+        judged = true
+        next = repeatInterval.nextDeadline(next)
+    }
+    return copy(
+        deadline = next,
+        state = TodoState.INCOMPLETE,
+        completedAt = null,
+        repeatCompletedCount = completed,
+        repeatMissedCount = missed
+    )
 }

@@ -124,6 +124,41 @@ internal val todoListArticles = listOf(
     ),
 
     HelpArticle(
+        id = "todos-repeat",
+        title = "Make a todo repeat",
+        summary = "Switch Repeating on and the todo starts over each cycle, keeping count of how each one ended.",
+        whatItIs = "A repeating todo is one todo that resets itself: Daily, Weekly or Monthly, counted from " +
+            "its deadline. Once the deadline day has passed, the todo goes back to Incomplete and its " +
+            "deadline moves on one interval. It needs a deadline to repeat from, so the switch stays " +
+            "greyed out until one is set.",
+        blocks = listOf(
+            HelpBlock.Steps(
+                listOf(
+                    HelpStep("Give the todo a deadline, then turn on Repeating in its dialog and pick Daily, Weekly or Monthly."),
+                    HelpStep("Complete it whenever you like during the cycle. It stays ticked until the deadline day is over, then starts again unticked."),
+                    HelpStep("The row shows how the finished cycles went, for example \"12 completed · 3 missed\".")
+                )
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "A cycle counts as completed if the todo was Complete when it ended, and as missed if it " +
+                    "was anything less -- Incomplete or In Progress. If the app wasn't opened for several " +
+                    "cycles, each cycle that went by counts as missed."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "Sub-todos are the cycle's checklist: any that are In Progress or Complete start over " +
+                    "with their parent. A sub-todo that repeats on its own schedule is left to that."
+            )
+        ),
+        whyItMatters = "Each cycle overwrites the todo's state, so the tally is the only lasting record of " +
+            "how it went. It survives switching Repeating off and on again, and it syncs to your other " +
+            "devices with the todo.",
+        related = listOf("todos-deadline", "todos-complete", "todos-alarm"),
+        keywords = listOf("recurring", "repeat", "habit", "daily", "weekly", "monthly", "streak", "reset")
+    ),
+
+    HelpArticle(
         id = "todos-complete",
         title = "Complete a todo",
         summary = "Tap the checkbox. Its sub-todos follow along.",

@@ -2,7 +2,9 @@ package com.inventoria.app.data
 
 import com.inventoria.app.data.local.TodoDao
 import com.inventoria.app.data.model.Todo
+import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.settleCycles
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -92,6 +94,34 @@ class TodoRepository @Inject constructor(
             }
         }
         visit(id)
+    }
+
+    /**
+     * Settles every repeating todo whose cycle has ended as of [todayStart] (see
+     * [settleCycles]): counts the cycle as completed or missed, moves the deadline on, and starts
+     * the todo INCOMPLETE again. Its sub-todos are the cycle's checklist, so any that are still
+     * marked In Progress or Complete start over with it -- except sub-todos that repeat on their
+     * own, which settle themselves on their own deadline.
+     */
+    suspend fun settleRepeatingTodos(todayStart: Long) {
+        val all = todoDao.getAllTodosList()
+        val settledParents = all.mapNotNull { todo -> todo.settleCycles(todayStart)?.let { todo to it } }
+        if (settledParents.isEmpty()) return
+        val childrenByParentId = all.groupBy { it.parentTodoId }
+        for ((before, settled) in settledParents) {
+            todoDao.updateTodo(
+                settled.copy(updatedAt = getNextTimestamp(before.updatedAt), isDirty = true)
+            )
+            suspend fun resetChildren(parentId: String) {
+                childrenByParentId[parentId]?.forEach { child ->
+                    if (child.repeatInterval == TodoRepeat.NONE && child.state != TodoState.INCOMPLETE) {
+                        setState(child.id, TodoState.INCOMPLETE)
+                    }
+                    resetChildren(child.id)
+                }
+            }
+            resetChildren(before.id)
+        }
     }
 
     suspend fun softDeleteTodo(id: String) {

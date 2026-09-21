@@ -23,7 +23,7 @@ import com.inventoria.app.data.model.Todo
         TaskType::class,
         ScheduleBlock::class
     ],
-    version = 18,
+    version = 19,
     // Exported to app/schemas/ and committed. Room writes one JSON file per version, which is what
     // makes a migration reviewable in a diff and testable at all -- without it there is nothing to
     // compare a migration against, and a wrong ALTER TABLE only shows up as a crash on a real

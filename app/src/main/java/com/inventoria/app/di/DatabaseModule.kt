@@ -139,12 +139,25 @@ object DatabaseModule {
     }
 
     /**
+     * Repeating todos (v19). Three additive columns, all NOT NULL with a database-side default so
+     * every existing todo reads as a plain one-off with an empty tally: 'NONE' for the interval
+     * (stored as the enum's name, like Todo.state) and 0 for the two cycle counts.
+     */
+    private val MIGRATION_18_19 = object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE Todo ADD COLUMN repeatInterval TEXT NOT NULL DEFAULT 'NONE'")
+            db.execSQL("ALTER TABLE Todo ADD COLUMN repeatCompletedCount INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE Todo ADD COLUMN repeatMissedCount INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
 
     @Provides
     @Singleton

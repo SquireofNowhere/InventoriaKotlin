@@ -41,6 +41,7 @@ import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
@@ -317,13 +318,16 @@ fun TodoScreen(
             // New todos ring at their due moment unless told otherwise -- the whole reason alarms
             // exist is the deadline nobody looked at. Only takes effect once a deadline is set.
             initialReminderOffsetMinutes = 0,
+            initialRepeat = TodoRepeat.NONE,
+            repeatCompletedCount = 0,
+            repeatMissedCount = 0,
             initialParentId = selectedTodoId,
             initialPriority = null,
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
-                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority ->
+                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority)
             }
         )
     }
@@ -339,13 +343,16 @@ fun TodoScreen(
             initialDeadline = todo.deadline,
             initialDeadlineMinuteOfDay = todo.deadlineMinuteOfDay,
             initialReminderOffsetMinutes = todo.reminderOffsetMinutes,
+            initialRepeat = todo.repeatInterval,
+            repeatCompletedCount = todo.repeatCompletedCount,
+            repeatMissedCount = todo.repeatMissedCount,
             initialParentId = todo.parentTodoId,
             initialPriority = todo.priority,
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority ->
-                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, parentId, priority)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority ->
+                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority)
             }
         )
     }
@@ -376,12 +383,15 @@ private fun TodoEditDialog(
     initialDeadline: Long?,
     initialDeadlineMinuteOfDay: Int?,
     initialReminderOffsetMinutes: Int?,
+    initialRepeat: TodoRepeat,
+    repeatCompletedCount: Int,
+    repeatMissedCount: Int,
     initialParentId: String?,
     initialPriority: TodoPriority?,
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, String, TaskKind, String?, Long?, Int?, Int?, String?, TodoPriority?) -> Unit
+    onSave: (String, String, TaskKind, String?, Long?, Int?, Int?, TodoRepeat, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var description by remember { mutableStateOf(initialDescription) }
@@ -390,6 +400,7 @@ private fun TodoEditDialog(
     var deadline by remember { mutableStateOf(initialDeadline) }
     var deadlineMinuteOfDay by remember { mutableStateOf(initialDeadlineMinuteOfDay) }
     var reminderOffsetMinutes by remember { mutableStateOf(initialReminderOffsetMinutes) }
+    var repeat by remember { mutableStateOf(initialRepeat) }
     var parentId by remember { mutableStateOf(initialParentId) }
     var priority by remember { mutableStateOf(initialPriority) }
     val context = LocalContext.current
@@ -443,7 +454,7 @@ private fun TodoEditDialog(
                         Text(deadline?.let { formatSimpleDate(it) } ?: "No deadline")
                     }
                     if (deadline != null) {
-                        IconButton(onClick = { deadline = null; deadlineMinuteOfDay = null }) {
+                        IconButton(onClick = { deadline = null; deadlineMinuteOfDay = null; repeat = TodoRepeat.NONE }) {
                             Icon(Icons.Default.Close, contentDescription = "Clear deadline", modifier = Modifier.size(18.dp))
                         }
                     }
@@ -487,6 +498,13 @@ private fun TodoEditDialog(
                     selected = reminderOffsetMinutes,
                     onSelected = { reminderOffsetMinutes = it }
                 )
+                RepeatPicker(
+                    enabled = deadline != null,
+                    repeat = repeat,
+                    completedCount = repeatCompletedCount,
+                    missedCount = repeatMissedCount,
+                    onRepeatChange = { repeat = it }
+                )
                 ParentTodoPicker(
                     parentChoices = parentChoices,
                     selectedParentId = parentId,
@@ -503,7 +521,7 @@ private fun TodoEditDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminderOffsetMinutes, parentId, priority) },
+                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminderOffsetMinutes, repeat, parentId, priority) },
                 enabled = title.isNotBlank()
             ) {
                 Text("Save")
@@ -599,4 +617,78 @@ private fun ParentTodoPicker(
             }
         }
     }
+}
+
+/** The repeat switch and, once on, its interval. Sits greyed out until a deadline exists, because
+ * the deadline is what each cycle is measured from. The tally underneath is read-only: it is what
+ * the todo has actually done, not something to edit. */
+@Composable
+private fun RepeatPicker(
+    enabled: Boolean,
+    repeat: TodoRepeat,
+    completedCount: Int,
+    missedCount: Int,
+    onRepeatChange: (TodoRepeat) -> Unit
+) {
+    val on = repeat != TodoRepeat.NONE
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Repeating",
+                    color = if (enabled) LocalContentColor.current else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Text(
+                    when {
+                        !enabled -> "Set a deadline first"
+                        !on -> "Just once"
+                        else -> "Starts over ${repeatWords(repeat)}, after the deadline passes"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = on,
+                enabled = enabled,
+                onCheckedChange = { onRepeatChange(if (it) TodoRepeat.DAILY else TodoRepeat.NONE) }
+            )
+        }
+        if (on) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(TodoRepeat.DAILY, TodoRepeat.WEEKLY, TodoRepeat.MONTHLY).forEach { option ->
+                    FilterChip(
+                        selected = repeat == option,
+                        onClick = { onRepeatChange(option) },
+                        label = { Text(repeatChipLabel(option)) }
+                    )
+                }
+            }
+        }
+        if (completedCount > 0 || missedCount > 0) {
+            Text(
+                repeatTallyText(completedCount, missedCount),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private fun repeatChipLabel(repeat: TodoRepeat): String = when (repeat) {
+    TodoRepeat.NONE -> "Never"
+    TodoRepeat.DAILY -> "Daily"
+    TodoRepeat.WEEKLY -> "Weekly"
+    TodoRepeat.MONTHLY -> "Monthly"
+}
+
+private fun repeatWords(repeat: TodoRepeat): String = when (repeat) {
+    TodoRepeat.NONE -> ""
+    TodoRepeat.DAILY -> "every day"
+    TodoRepeat.WEEKLY -> "every week"
+    TodoRepeat.MONTHLY -> "every month"
 }

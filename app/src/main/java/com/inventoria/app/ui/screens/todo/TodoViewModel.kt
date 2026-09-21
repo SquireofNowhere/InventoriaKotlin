@@ -15,7 +15,10 @@ import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.modalTypeIdFor
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
+import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.nextDeadline
+import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.ui.components.UndoableDeleteController
@@ -200,6 +203,7 @@ class TodoViewModel @Inject constructor(
         deadline: Long?,
         deadlineMinuteOfDay: Int?,
         reminderOffsetMinutes: Int?,
+        repeatInterval: TodoRepeat,
         parentTodoId: String?,
         priority: TodoPriority?
     ) {
@@ -207,6 +211,8 @@ class TodoViewModel @Inject constructor(
         if (trimmed.isBlank()) return
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
         val reminder = reminderOffsetMinutes.takeIf { deadline != null }
+        // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
+        val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE
         viewModelScope.launch {
             todoRepository.insertTodo(
                 Todo(
@@ -215,15 +221,27 @@ class TodoViewModel @Inject constructor(
                     description = description.trim(),
                     kind = kind,
                     taskTypeId = taskTypeId,
-                    deadline = deadline,
+                    deadline = liveDeadline(deadline, repeat),
                     deadlineMinuteOfDay = time,
                     reminderOffsetMinutes = reminder,
+                    repeatInterval = repeat,
                     parentTodoId = parentTodoId,
                     priority = priority
                 )
             )
         }
         _isAddingNew.value = false
+    }
+
+    /** A repeating todo picked for a date already behind us starts on the next cycle that is not,
+     * rather than being settled as a run of missed cycles the moment it is saved -- nothing was
+     * missed before it existed. A one-off keeps the date it was given (it is simply overdue). */
+    private fun liveDeadline(deadline: Long?, repeat: TodoRepeat): Long? {
+        if (deadline == null || repeat == TodoRepeat.NONE) return deadline
+        val today = getStartOfDay(System.currentTimeMillis())
+        var next: Long = deadline
+        while (next < today) next = repeat.nextDeadline(next)
+        return next
     }
 
     fun saveEditedTodo(
@@ -235,6 +253,7 @@ class TodoViewModel @Inject constructor(
         deadline: Long?,
         deadlineMinuteOfDay: Int?,
         reminderOffsetMinutes: Int?,
+        repeatInterval: TodoRepeat,
         parentTodoId: String?,
         priority: TodoPriority?
     ) {
@@ -246,6 +265,8 @@ class TodoViewModel @Inject constructor(
         // alarm with nothing to ring for is cleared, not carried around waiting for a date.
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
         val reminder = reminderOffsetMinutes.takeIf { deadline != null }
+        // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
+        val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE
         viewModelScope.launch {
             todoRepository.updateTodo(
                 todo.copy(
@@ -253,9 +274,15 @@ class TodoViewModel @Inject constructor(
                     description = description.trim(),
                     kind = kind,
                     taskTypeId = taskTypeId,
-                    deadline = deadline,
+                    // Only re-anchored when the user changed the date or just switched repeating on:
+                    // an untouched deadline that has slipped into the past is a cycle that really
+                    // ended, and is the roller's to count.
+                    deadline = if (deadline != todo.deadline || todo.repeatInterval == TodoRepeat.NONE) {
+                        liveDeadline(deadline, repeat)
+                    } else deadline,
                     deadlineMinuteOfDay = time,
                     reminderOffsetMinutes = reminder,
+                    repeatInterval = repeat,
                     parentTodoId = parentTodoId,
                     priority = priority
                 )

@@ -5,6 +5,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.inventoria.app.data.model.ScheduleBlock
+import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.di.DatabaseModule
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -104,6 +105,11 @@ class InventoryDatabaseMigrationTest {
                 // Added by MIGRATION_16_17 as NOT NULL DEFAULT '': a pre-existing todo reads as
                 // "no description", not as a crash on a null String.
                 assertEquals("", todo?.description)
+                // Added by MIGRATION_18_19 with database-side defaults: a pre-existing todo is a
+                // plain one-off with an empty tally, never a repeating one with a stale count.
+                assertEquals(TodoRepeat.NONE, todo?.repeatInterval)
+                assertEquals(0, todo?.repeatCompletedCount)
+                assertEquals(0, todo?.repeatMissedCount)
 
                 // The table MIGRATION_15_16 creates has to be usable through its DAO, not merely
                 // present -- a column with the wrong affinity passes CREATE TABLE and fails here.
