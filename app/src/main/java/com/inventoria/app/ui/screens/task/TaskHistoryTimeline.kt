@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EventAvailable
@@ -17,14 +16,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.ui.theme.Success
-import com.inventoria.app.util.cascadeByDepth
+import com.inventoria.app.ui.components.carveFrame
+import com.inventoria.app.ui.components.carveShapes
+import com.inventoria.app.util.carveByDepth
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -32,9 +33,9 @@ import kotlin.math.floor
  * Task History's flat view, one day at a time, on a fixed time scale: a task's card is as tall as
  * the task was long ([HOUR_HEIGHT] per hour, the same for every card on every day) and sits at
  * the clock time it actually started. Cards that overlap in time -- concurrent sessions, or a
- * sub-task run inside its parent -- cascade: a card is indented one step for each task still
- * running when it starts and runs to the right edge, on top of the earlier ones, so the earlier
- * card's title stays readable (see [cascadeByDepth]).
+ * sub-task run inside its parent -- are carved: the later card sits indented at the right edge and
+ * takes a notch out of the earlier one, which keeps its own title and left edge, so nothing is
+ * ever drawn over anything else (see [carveByDepth] and CarvedShape).
  *
  * Two things keep a fixed scale usable. Only the stretch of the day that has tasks in it is drawn
  * (from the hour before the first to the hour after the last), and any quiet stretch of
@@ -42,7 +43,7 @@ import kotlin.math.floor
  * was, so a morning and an evening entry don't drag a mostly-empty afternoon between them. And a
  * card never gets shorter than [MIN_CARD_HEIGHT], because a five-minute task at true scale would
  * be a hairline you cannot read or tap; when that would make it run into the next one, the
- * cascade (worked out on those on-screen extents, not on the times) indents it.
+ * carving (worked out on those on-screen extents, not on the times) nests it.
  *
  * Only tasks that start on [dayStart] are drawn here, clipped at midnight -- the same "belongs to
  * the day it started" rule the rest of History uses.
@@ -53,9 +54,8 @@ private val COLLAPSED_GAP_HEIGHT = 32.dp
 private const val COLLAPSE_GAP_MINUTES = 120
 private val MIN_CARD_HEIGHT = 28.dp
 
-/** How far each level of a cascade steps in, before it is squeezed so the deepest card keeps at
- * least half the width. */
-private val CASCADE_STEP = 24.dp
+/** The top stretch of a card where its name and time sit; a notch reaching into it narrows them. */
+private val TEXT_BAND = 40.dp
 
 /** Taller than a normal minimum: a system-calendar event's card carries two icon buttons. */
 private val MIN_CALENDAR_CARD_HEIGHT = 56.dp
@@ -141,7 +141,7 @@ internal fun HistoryDayTimeline(
             PlacedTask(task, top, maxOf(scale.y(end) - top, minHeight))
         }
     }
-    val slots = remember(placed) { cascadeByDepth(placed, start = { it.top }, end = { it.top + it.height }) }
+    val slots = remember(placed) { carveByDepth(placed, start = { it.top }, end = { it.top + it.height }) }
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val gapColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
 
@@ -208,20 +208,25 @@ internal fun HistoryDayTimeline(
                 .fillMaxSize()
                 .padding(start = GUTTER_WIDTH)
         ) {
-            slots.forEach { slot ->
+            val frames = remember(slots, maxWidth) {
+                slots.map { carveFrame(maxWidth, it.level, it.maxLevel, it.item.top.dp, it.item.height.dp) }
+            }
+            val shapes = remember(slots, frames) { carveShapes(slots.map { it.level }, frames) }
+            slots.forEachIndexed { index, slot ->
                 val placedTask = slot.item
-                val step = if (slot.maxLevel == 0) 0.dp else minOf(CASCADE_STEP, maxWidth / 2 / slot.maxLevel)
-                val indent = step * slot.level
+                val frame = frames[index]
                 HistoryTaskCard(
                     task = placedTask.task,
                     isSelected = placedTask.task.id in selectedTaskIds,
                     typeName = placedTask.task.taskTypeId?.let { taskTypeNames[it] },
                     modifier = Modifier
-                        .offset(x = indent, y = placedTask.top.dp)
-                        .width(maxWidth - indent)
+                        .offset(x = frame.left, y = frame.top)
+                        .width(frame.width)
                         .height(placedTask.height.dp)
                         .padding(horizontal = 2.dp, vertical = 1.dp),
                     height = placedTask.height.dp,
+                    shape = shapes[index],
+                    endInset = shapes[index].endInset(TEXT_BAND, frame.width),
                     onClick = { onClick(placedTask.task) },
                     onLongClick = { onLongClick(placedTask.task) },
                     onOpenCalendar = { onOpenCalendar(placedTask.task) },
@@ -256,6 +261,8 @@ private fun HistoryTaskCard(
     isSelected: Boolean,
     typeName: String?,
     height: Dp,
+    shape: Shape,
+    endInset: Dp,
     modifier: Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -268,16 +275,11 @@ private fun HistoryTaskCard(
     val thirdLine = height >= 64.dp
     Surface(
         modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(6.dp),
-        // Opaque, or a cascaded card would show the one it sits on through its tint.
-        color = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            kindColor.copy(alpha = 0.18f).compositeOver(MaterialTheme.colorScheme.surface)
-        },
+        shape = shape,
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else kindColor.copy(alpha = 0.18f),
         shadowElevation = 1.dp
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(end = endInset), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .width(4.dp)

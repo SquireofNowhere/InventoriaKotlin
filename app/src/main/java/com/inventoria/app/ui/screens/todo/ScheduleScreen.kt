@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
@@ -57,7 +58,9 @@ import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
-import com.inventoria.app.util.cascadeByDepth
+import com.inventoria.app.ui.components.carveFrame
+import com.inventoria.app.ui.components.carveShapes
+import com.inventoria.app.util.carveByDepth
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -351,9 +354,8 @@ private fun AllDayTodoStrip(todos: List<Todo>, onToggle: (Todo) -> Unit) {
 /** The right-edge strip tasks never cover, where the block underneath always shows through. */
 private val PEEK_STRIP_WIDTH = 10.dp
 
-/** How far each level of an overlapping-task cascade steps in; the task area is only half the
- * screen, so this is tighter than Task History's. */
-private val TASK_CASCADE_STEP = 16.dp
+/** The top stretch of a task card where its name sits; a notch reaching into it narrows the text. */
+private val TASK_TEXT_BAND = 34.dp
 
 @Composable
 private fun DayTimeline(
@@ -454,7 +456,7 @@ private fun DayTimeline(
 
 /**
  * The single lane, back to front: flat blocks across the full width, then task cards confined to
- * the right half (cascaded among themselves, stopping short of the right-edge strip), then todo
+ * the right half (carved among themselves, stopping short of the right-edge strip), then todo
  * hairlines over everything. Compose draws children in order, so this ordering is the layering.
  */
 @Composable
@@ -516,19 +518,33 @@ private fun DayLane(
             day.tasks.map { it to (it.endMinute ?: nowMinuteOfDay.toFloat().coerceAtLeast(it.startMinute)) }
         }
         val slots = remember(resolved) {
-            cascadeByDepth(resolved, start = { it.first.startMinute }, end = { it.second })
+            carveByDepth(resolved, start = { it.first.startMinute }, end = { it.second })
         }
-        slots.forEach { slot ->
-            val (segment, endMinute) = slot.item
-            val step = if (slot.maxLevel == 0) 0.dp else minOf(TASK_CASCADE_STEP, taskAreaWidth / 2 / slot.maxLevel)
-            val indent = step * slot.level
+        val frames = remember(slots, taskAreaWidth) {
+            slots.map { slot ->
+                val (segment, endMinute) = slot.item
+                carveFrame(
+                    areaWidth = taskAreaWidth,
+                    level = slot.level,
+                    maxLevel = slot.maxLevel,
+                    top = HOUR_HEIGHT * (segment.startMinute / 60f),
+                    height = maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp)
+                )
+            }
+        }
+        val shapes = remember(slots, frames) { carveShapes(slots.map { it.level }, frames) }
+        slots.forEachIndexed { index, slot ->
+            val segment = slot.item.first
+            val frame = frames[index]
             TaskSegmentCard(
                 task = segment.task,
                 isRunning = segment.endMinute == null,
+                shape = shapes[index],
+                endInset = shapes[index].endInset(TASK_TEXT_BAND, frame.width),
                 modifier = Modifier
-                    .offset(x = taskLaneStart + indent, y = HOUR_HEIGHT * (segment.startMinute / 60f))
-                    .width(taskAreaWidth - indent)
-                    .height(maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp))
+                    .offset(x = taskLaneStart + frame.left, y = frame.top)
+                    .width(frame.width)
+                    .height(frame.height)
                     .padding(horizontal = 2.dp, vertical = 1.dp),
                 onClick = { onTaskClick(segment.task) }
             )
@@ -669,16 +685,23 @@ private fun TodoDueMarker(todo: Todo, modifier: Modifier, onClick: () -> Unit) {
  * actually happened. Text flips to black on the lighter kinds (Banana, Tangerine). Tapping one
  * opens that task's edit screen on the Task Tracker tab. */
 @Composable
-private fun TaskSegmentCard(task: Task, isRunning: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun TaskSegmentCard(
+    task: Task,
+    isRunning: Boolean,
+    shape: Shape,
+    endInset: Dp,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
     val kindColor = Color(task.kind.colorValue)
     val textColor = if (kindColor.luminance() > 0.5f) Color.Black else Color.White
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
-        color = kindColor.copy(alpha = 0.92f).compositeOver(MaterialTheme.colorScheme.surface),
+        shape = shape,
+        color = kindColor.copy(alpha = 0.92f),
         shadowElevation = 1.dp
     ) {
-        Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp)) {
+        Column(Modifier.padding(start = 5.dp, top = 3.dp, end = 5.dp + endInset, bottom = 3.dp)) {
             Text(
                 task.name,
                 style = MaterialTheme.typography.labelMedium,

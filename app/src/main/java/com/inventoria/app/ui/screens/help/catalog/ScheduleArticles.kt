@@ -212,9 +212,10 @@ internal val scheduleArticles = listOf(
             ),
             HelpBlock.Callout(
                 CalloutKind.Note,
-                "Overlapping tasks cascade within the right-hand area: a task that starts while another is " +
-                    "still running steps in a little and sits on top of it, so the earlier one's name stays " +
-                    "readable and a sub-task looks nested in its parent."
+                "Overlapping tasks nest within the right-hand area: a task that starts while another is " +
+                    "still running sits to the right and takes a notch out of the earlier one's card, which " +
+                    "keeps its own name and left edge. Nothing is drawn over anything else, and a sub-task " +
+                    "looks tucked inside its parent."
             )
         ),
         whyItMatters = "The Task Tracker owns everything about a tracked task; the Schedule segment only " +

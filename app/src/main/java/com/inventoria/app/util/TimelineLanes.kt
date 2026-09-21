@@ -59,35 +59,39 @@ fun <T> packIntoLanes(items: List<T>, start: (T) -> Float, end: (T) -> Float): L
     return result
 }
 
-/** One item's place in a cascaded timeline: how many other items were still running when it
- * started ([level]) and the deepest level anywhere in its overlap cluster ([maxLevel]), which the
- * caller needs to size the indent step so the deepest card still has room. */
-data class CascadeSlot<T>(val item: T, val level: Int, val maxLevel: Int)
+/** One item's place in a carved timeline: how deep it is nested ([level], 0 = outermost) and the
+ * deepest level anywhere in its overlap cluster ([maxLevel]), which the caller needs to size the
+ * indent step so the deepest card still has room. */
+data class CarveSlot<T>(val item: T, val level: Int, val maxLevel: Int)
 
 /**
- * Cascades overlapping intervals instead of splitting the width between them: an item is indented
- * one step for every other item still running when it starts, and every card runs to the right
- * edge. Items that start after everything else has finished sit at level 0 -- full width -- so
- * sequential neighbours line up; a card that starts inside another sits on top of it, indented, so
- * the earlier card's title (top-left) stays readable and a sub-task reads as nested in its parent.
+ * Nests overlapping intervals instead of splitting the width between them. An item that starts while
+ * others are still running sits one level deeper than the deepest of them, so a level only ever
+ * overlaps shallower ones. The caller gives each level its own indent, runs every card to the right
+ * edge, and cuts the deeper cards' rectangles out of the shallower ones (see CarvedShape): a parent
+ * keeps its own title and left edge and simply has a notch where its children sit, so nothing is
+ * drawn over anything else. Items that start after everything else has finished are level 0 --
+ * full width -- so sequential neighbours line up.
  *
  * Unlike [packIntoLanes] a card never shrinks below the width left after its indent, so the caller
- * caps the step at (available width / 2) / [CascadeSlot.maxLevel]. Output is ordered by start, then
- * longest first, which is also the draw order: later starts land on top.
+ * caps the step at (available width * some share) / [CarveSlot.maxLevel]. Output is ordered by
+ * start, then longest first.
  */
-fun <T> cascadeByDepth(items: List<T>, start: (T) -> Float, end: (T) -> Float): List<CascadeSlot<T>> {
+fun <T> carveByDepth(items: List<T>, start: (T) -> Float, end: (T) -> Float): List<CarveSlot<T>> {
     val sorted = items.sortedWith(compareBy<T> { start(it) }.thenByDescending { end(it) })
-    val levels = IntArray(sorted.size) { index ->
-        val itemStart = start(sorted[index])
-        (0 until index).count { end(sorted[it]) > itemStart }
+    val levels = IntArray(sorted.size)
+    sorted.forEachIndexed { index, item ->
+        val itemStart = start(item)
+        val deepestRunning = (0 until index).filter { end(sorted[it]) > itemStart }.maxOfOrNull { levels[it] }
+        levels[index] = if (deepestRunning == null) 0 else deepestRunning + 1
     }
 
-    val result = ArrayList<CascadeSlot<T>>(sorted.size)
+    val result = ArrayList<CarveSlot<T>>(sorted.size)
     var clusterFirst = 0
     var clusterEnd = Float.NEGATIVE_INFINITY
     fun flushCluster(until: Int) {
         val maxLevel = (clusterFirst until until).maxOfOrNull { levels[it] } ?: 0
-        for (i in clusterFirst until until) result.add(CascadeSlot(sorted[i], levels[i], maxLevel))
+        for (i in clusterFirst until until) result.add(CarveSlot(sorted[i], levels[i], maxLevel))
         clusterFirst = until
     }
     sorted.forEachIndexed { index, item ->

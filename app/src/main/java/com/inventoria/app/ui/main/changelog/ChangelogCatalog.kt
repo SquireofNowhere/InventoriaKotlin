@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 108,
+                versionName = "2.27",
+                changes = listOf(
+                    "Overlapping tasks are drawn without covering each other. On Task History and the Schedule day view, a task that starts while another is running now sits to the right and takes a notch out of the earlier task's card, so both keep their names and a sub-task looks tucked inside its parent."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 107,
                 versionName = "2.26",
                 changes = listOf(
