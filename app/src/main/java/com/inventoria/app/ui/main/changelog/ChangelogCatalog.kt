@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 101,
+                versionName = "2.20",
+                changes = listOf(
+                    "Swipe sideways on the Todos tab to move between the todo list and the Schedule. The Todos / Schedule buttons still work and follow the swipe."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 100,
                 versionName = "2.19",
                 changes = listOf(

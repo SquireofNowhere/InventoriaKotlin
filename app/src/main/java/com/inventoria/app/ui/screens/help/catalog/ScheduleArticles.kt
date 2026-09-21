@@ -21,7 +21,7 @@ internal val scheduleArticles = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep(
-                        "Switch to the Schedule segment.",
+                        "Switch to the Schedule segment -- tap it, or swipe left from the todo list.",
                         DiagramSpec(listOf(todosSegmentedControl("Schedule")))
                     ),
                     HelpStep(

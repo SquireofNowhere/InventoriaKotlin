@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.UnfoldLess
@@ -14,11 +16,11 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.main.Screen
+import kotlinx.coroutines.launch
 
 enum class TodoSegment(val label: String) {
     TODOS("Todos"),
@@ -45,10 +47,14 @@ fun TodoHubScreen(
     onNavigateToTasks: () -> Unit,
     onOpenTaskDetail: (String) -> Unit
 ) {
-    var segment by rememberSaveable { mutableStateOf(TodoSegment.TODOS) }
+    // The pager is the source of truth for which segment is showing, so a swipe and a tap on the
+    // segmented buttons can never disagree. rememberPagerState saves and restores the page itself.
+    val pagerState = rememberPagerState { TodoSegment.entries.size }
+    val scope = rememberCoroutineScope()
+    val segment = TodoSegment.entries[pagerState.currentPage]
 
     BackHandler(enabled = segment != TodoSegment.TODOS) {
-        segment = TodoSegment.TODOS
+        scope.launch { pagerState.animateScrollToPage(TodoSegment.TODOS.ordinal) }
     }
 
     val hideCompleted by todoViewModel.hideCompleted.collectAsState()
@@ -106,7 +112,7 @@ fun TodoHubScreen(
                 TodoSegment.entries.forEachIndexed { index, seg ->
                     SegmentedButton(
                         selected = seg == segment,
-                        onClick = { segment = seg },
+                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                         shape = SegmentedButtonDefaults.itemShape(index, TodoSegment.entries.size)
                     ) {
                         Text(seg.label)
@@ -114,8 +120,14 @@ fun TodoHubScreen(
                 }
             }
 
-            Box(Modifier.weight(1f)) {
-                when (segment) {
+            // Swipe sideways to move between the two. Nothing inside either page handles a
+            // horizontal drag except the schedule's all-day chip strip, which scrolls first and
+            // hands the swipe over once it hits its end.
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f)
+            ) { page ->
+                when (TodoSegment.entries[page]) {
                     TodoSegment.TODOS -> TodoScreen(
                         viewModel = todoViewModel,
                         onNavigateToTasks = onNavigateToTasks
