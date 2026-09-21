@@ -133,7 +133,7 @@ internal val scheduleArticles = listOf(
                     "same underlying block rather than separate copies. Deleting it removes every occurrence too."
             )
         ),
-        whyItMatters = "A recurring block is one record that the timeline redraws onto every matching " +
+        whyItMatters = "A recurring block is one record that the timeline redraws onto every " +
             "matching day, not a batch of individually-created blocks -- which is what makes setting Repeat " +
             "back to Never, or deleting it outright, a single action instead of a cleanup job.",
         related = listOf("schedule-add-block", "schedule-edit-block"),
