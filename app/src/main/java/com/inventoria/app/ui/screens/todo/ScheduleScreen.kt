@@ -58,9 +58,9 @@ import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
-import com.inventoria.app.ui.components.carveFrame
+import com.inventoria.app.ui.components.CardFrame
 import com.inventoria.app.ui.components.carveShapes
-import com.inventoria.app.util.carveByDepth
+import com.inventoria.app.util.layoutOverlaps
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -357,6 +357,12 @@ private val PEEK_STRIP_WIDTH = 10.dp
 /** The top stretch of a task card where its name sits; a notch reaching into it narrows the text. */
 private val TASK_TEXT_BAND = 34.dp
 
+/** Room a task card needs for its name; shorter ones are a bar without text. */
+private val TASK_TITLE_HEIGHT = 18.dp
+
+/** Thinnest a task card is drawn, so a task of a minute or two still shows. */
+private val MIN_TASK_HEIGHT = 3.dp
+
 @Composable
 private fun DayTimeline(
     day: ScheduleDay,
@@ -456,7 +462,7 @@ private fun DayTimeline(
 
 /**
  * The single lane, back to front: flat blocks across the full width, then task cards confined to
- * the right half (carved among themselves, stopping short of the right-edge strip), then todo
+ * the right half (laid out among themselves by real time, stopping short of the right-edge strip), then todo
  * hairlines over everything. Compose draws children in order, so this ordering is the layering.
  */
 @Composable
@@ -518,27 +524,34 @@ private fun DayLane(
             day.tasks.map { it to (it.endMinute ?: nowMinuteOfDay.toFloat().coerceAtLeast(it.startMinute)) }
         }
         val slots = remember(resolved) {
-            carveByDepth(resolved, start = { it.first.startMinute }, end = { it.second })
+            // In dp, so "starts a title row later" means the same thing here as on Task History.
+            val toDp = { minute: Float -> HOUR_HEIGHT.value * minute / 60f }
+            layoutOverlaps(
+                resolved,
+                start = { toDp(it.first.startMinute) },
+                end = { toDp(it.second) },
+                nestAfter = TASK_TITLE_HEIGHT.value
+            )
         }
         val frames = remember(slots, taskAreaWidth) {
             slots.map { slot ->
                 val (segment, endMinute) = slot.item
-                carveFrame(
-                    areaWidth = taskAreaWidth,
-                    level = slot.level,
-                    maxLevel = slot.maxLevel,
+                CardFrame(
+                    left = taskAreaWidth * slot.left,
                     top = HOUR_HEIGHT * (segment.startMinute / 60f),
-                    height = maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), 16.dp)
+                    width = taskAreaWidth * (slot.right - slot.left),
+                    height = maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), MIN_TASK_HEIGHT)
                 )
             }
         }
-        val shapes = remember(slots, frames) { carveShapes(slots.map { it.level }, frames) }
+        val shapes = remember(slots, frames) { carveShapes(slots.map { it.parent }, frames) }
         slots.forEachIndexed { index, slot ->
             val segment = slot.item.first
             val frame = frames[index]
             TaskSegmentCard(
                 task = segment.task,
                 isRunning = segment.endMinute == null,
+                showText = frame.height >= TASK_TITLE_HEIGHT,
                 shape = shapes[index],
                 endInset = shapes[index].endInset(TASK_TEXT_BAND, frame.width),
                 modifier = Modifier
@@ -688,6 +701,7 @@ private fun TodoDueMarker(todo: Todo, modifier: Modifier, onClick: () -> Unit) {
 private fun TaskSegmentCard(
     task: Task,
     isRunning: Boolean,
+    showText: Boolean,
     shape: Shape,
     endInset: Dp,
     modifier: Modifier,
@@ -701,7 +715,7 @@ private fun TaskSegmentCard(
         color = kindColor.copy(alpha = 0.92f),
         shadowElevation = 1.dp
     ) {
-        Column(Modifier.padding(start = 5.dp, top = 3.dp, end = 5.dp + endInset, bottom = 3.dp)) {
+        if (showText) Column(Modifier.padding(start = 5.dp, top = 3.dp, end = 5.dp + endInset, bottom = 3.dp)) {
             Text(
                 task.name,
                 style = MaterialTheme.typography.labelMedium,

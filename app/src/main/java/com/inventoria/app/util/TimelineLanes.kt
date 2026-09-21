@@ -59,49 +59,61 @@ fun <T> packIntoLanes(items: List<T>, start: (T) -> Float, end: (T) -> Float): L
     return result
 }
 
-/** One item's place in a carved timeline: how deep it is nested ([level], 0 = outermost) and the
- * deepest level anywhere in its overlap cluster ([maxLevel]), which the caller needs to size the
- * indent step so the deepest card still has room. */
-data class CarveSlot<T>(val item: T, val level: Int, val maxLevel: Int)
+/**
+ * One item placed by [layoutOverlaps]: its horizontal share of the timeline as fractions of the
+ * available width ([left] to [right]), and the position of the item it is nested in ([parent], an
+ * index into the same result list, or -1 for none). Parents always come before their children.
+ */
+data class OverlapSlot<T>(val item: T, val left: Float, val right: Float, val parent: Int)
+
+/** How far into its parent's width a nested item starts, as a share of that width. */
+private const val NEST_INDENT = 0.3f
 
 /**
- * Nests overlapping intervals instead of splitting the width between them. An item that starts while
- * others are still running sits one level deeper than the deepest of them, so a level only ever
- * overlaps shallower ones. The caller gives each level its own indent, runs every card to the right
- * edge, and cuts the deeper cards' rectangles out of the shallower ones (see CarvedShape): a parent
- * keeps its own title and left edge and simply has a notch where its children sit, so nothing is
- * drawn over anything else. Items that start after everything else has finished are level 0 --
- * full width -- so sequential neighbours line up.
+ * Lays out overlapping intervals by when they actually ran, never by how tall their cards end up
+ * being drawn. Two cases, and nothing else:
  *
- * Unlike [packIntoLanes] a card never shrinks below the width left after its indent, so the caller
- * caps the step at (available width * some share) / [CarveSlot.maxLevel]. Output is ordered by
- * start, then longest first.
+ *  - An item that ran entirely inside another one -- starting at least [nestAfter] later, so the
+ *    parent's title row stays clear -- is nested in it: it takes the right-hand share of the
+ *    parent's frame, and the caller cuts that rectangle out of the parent's card so the two never
+ *    draw over each other. The parent is the smallest item that contains it.
+ *  - Everything else that overlaps in time -- partial overlaps, or concurrent sessions that start
+ *    together -- is packed into side-by-side lanes with [packIntoLanes], at the same nesting depth.
+ *
+ * [start], [end] and [nestAfter] must be in the same unit. Because only the real times are used, a
+ * short item can never spill into the time of the one after it and pull it into an overlap.
  */
-fun <T> carveByDepth(items: List<T>, start: (T) -> Float, end: (T) -> Float): List<CarveSlot<T>> {
+fun <T> layoutOverlaps(
+    items: List<T>,
+    start: (T) -> Float,
+    end: (T) -> Float,
+    nestAfter: Float
+): List<OverlapSlot<T>> {
     val sorted = items.sortedWith(compareBy<T> { start(it) }.thenByDescending { end(it) })
-    val levels = IntArray(sorted.size)
-    sorted.forEachIndexed { index, item ->
-        val itemStart = start(item)
-        val deepestRunning = (0 until index).filter { end(sorted[it]) > itemStart }.maxOfOrNull { levels[it] }
-        levels[index] = if (deepestRunning == null) 0 else deepestRunning + 1
+    val children = List(sorted.size) { mutableListOf<Int>() }
+    val roots = mutableListOf<Int>()
+    sorted.indices.forEach { i ->
+        var parent = -1
+        for (j in 0 until i) {
+            val contains = start(sorted[j]) + nestAfter <= start(sorted[i]) && end(sorted[j]) >= end(sorted[i])
+            if (contains && (parent == -1 || end(sorted[j]) - start(sorted[j]) <= end(sorted[parent]) - start(sorted[parent]))) {
+                parent = j
+            }
+        }
+        if (parent == -1) roots.add(i) else children[parent].add(i)
     }
 
-    val result = ArrayList<CarveSlot<T>>(sorted.size)
-    var clusterFirst = 0
-    var clusterEnd = Float.NEGATIVE_INFINITY
-    fun flushCluster(until: Int) {
-        val maxLevel = (clusterFirst until until).maxOfOrNull { levels[it] } ?: 0
-        for (i in clusterFirst until until) result.add(CarveSlot(sorted[i], levels[i], maxLevel))
-        clusterFirst = until
-    }
-    sorted.forEachIndexed { index, item ->
-        if (start(item) >= clusterEnd) {
-            flushCluster(index)
-            clusterEnd = end(item)
-        } else {
-            clusterEnd = maxOf(clusterEnd, end(item))
+    val result = ArrayList<OverlapSlot<T>>(sorted.size)
+    fun place(nodes: List<Int>, left: Float, right: Float, parent: Int) {
+        packIntoLanes(nodes, start = { start(sorted[it]) }, end = { end(sorted[it]) }).forEach { slot ->
+            val width = (right - left) / slot.laneCount
+            val slotLeft = left + width * slot.lane
+            val index = result.size
+            result.add(OverlapSlot(sorted[slot.item], slotLeft, slotLeft + width, parent))
+            val nested = children[slot.item]
+            if (nested.isNotEmpty()) place(nested, slotLeft + width * NEST_INDENT, slotLeft + width, index)
         }
     }
-    flushCluster(sorted.size)
+    place(roots, 0f, 1f, -1)
     return result
 }

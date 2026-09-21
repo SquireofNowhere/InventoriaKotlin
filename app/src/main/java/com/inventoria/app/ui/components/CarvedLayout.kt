@@ -12,12 +12,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 
-/** Each level of a carved cascade steps in by this share of the area's width... */
-private const val CARVE_MAX_STEP = 0.28f
-
-/** ...but the deepest level never starts past this share of it, so its card keeps room for text. */
-private const val CARVE_MAX_INDENT = 0.55f
-
 private const val CARD_CORNER_DP = 6f
 
 /** A card's frame, in dp, within its timeline. */
@@ -60,31 +54,20 @@ data class CarvedShape(val cutouts: List<CarveRect> = emptyList()) : Shape {
 }
 
 /**
- * The frame of a card at [level] in an area [areaWidth] wide: indented one step per level and
- * running to the right edge. The step shrinks with [maxLevel] so the deepest card keeps at least
- * `1 - CARVE_MAX_INDENT` of the width.
+ * The shape for each of [frames]: its own rectangle minus the frames of the cards nested in it
+ * (those whose entry in [parents] is its index), plus [gap] of clear space around each notch.
  */
-fun carveFrame(areaWidth: Dp, level: Int, maxLevel: Int, top: Dp, height: Dp): CardFrame {
-    val step = if (maxLevel == 0) 0f else minOf(CARVE_MAX_STEP, CARVE_MAX_INDENT / maxLevel)
-    val left = areaWidth * (step * level)
-    return CardFrame(left, top, areaWidth - left, height)
-}
-
-/**
- * The shape for each of [frames]: its own rectangle minus every deeper card that overlaps it in
- * time, plus [gap] of clear space around each notch.
- */
-fun carveShapes(levels: List<Int>, frames: List<CardFrame>, gap: Dp = 2.dp): List<CarvedShape> =
+fun carveShapes(parents: List<Int>, frames: List<CardFrame>, gap: Dp = 2.dp): List<CarvedShape> =
     frames.indices.map { i ->
         val me = frames[i]
         val cuts = frames.indices
-            .filter { j -> levels[j] > levels[i] && frames[j].top < me.bottom && frames[j].bottom > me.top }
+            .filter { j -> parents[j] == i }
             .map { j ->
                 val other = frames[j]
                 CarveRect(
                     left = other.left.value - me.left.value - gap.value,
                     top = other.top.value - me.top.value - gap.value,
-                    right = me.width.value + 4f,
+                    right = other.left.value + other.width.value - me.left.value + gap.value,
                     bottom = other.bottom.value - me.top.value + gap.value
                 )
             }

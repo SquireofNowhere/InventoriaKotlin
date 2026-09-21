@@ -23,27 +23,25 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.ui.theme.Success
-import com.inventoria.app.ui.components.carveFrame
+import com.inventoria.app.ui.components.CardFrame
 import com.inventoria.app.ui.components.carveShapes
-import com.inventoria.app.util.carveByDepth
+import com.inventoria.app.util.layoutOverlaps
 import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
  * Task History's flat view, one day at a time, on a fixed time scale: a task's card is as tall as
  * the task was long ([HOUR_HEIGHT] per hour, the same for every card on every day) and sits at
- * the clock time it actually started. Cards that overlap in time -- concurrent sessions, or a
- * sub-task run inside its parent -- are carved: the later card sits indented at the right edge and
- * takes a notch out of the earlier one, which keeps its own title and left edge, so nothing is
- * ever drawn over anything else (see [carveByDepth] and CarvedShape).
+ * the clock time it actually started -- to the minute: a card never covers time its task was not
+ * running. Tasks that ran at the same time sit side by side, and one that ran entirely inside
+ * another is nested in it, taking a notch out of the parent's card so nothing draws over anything
+ * else (see [layoutOverlaps] and CarvedShape). Overlaps are worked out from the real times only.
  *
  * Two things keep a fixed scale usable. Only the stretch of the day that has tasks in it is drawn
  * (from the hour before the first to the hour after the last), and any quiet stretch of
  * [COLLAPSE_GAP_MINUTES] or more between tasks folds down to a one-line band saying how long it
- * was, so a morning and an evening entry don't drag a mostly-empty afternoon between them. And a
- * card never gets shorter than [MIN_CARD_HEIGHT], because a five-minute task at true scale would
- * be a hairline you cannot read or tap; when that would make it run into the next one, the
- * carving (worked out on those on-screen extents, not on the times) nests it.
+ * was, so a morning and an evening entry don't drag a mostly-empty afternoon between them. A task too
+ * short to fit its name is drawn as a thin bar without one; tap it for the details.
  *
  * Only tasks that start on [dayStart] are drawn here, clipped at midnight -- the same "belongs to
  * the day it started" rule the rest of History uses.
@@ -52,13 +50,17 @@ private val HOUR_HEIGHT = 96.dp
 private val GUTTER_WIDTH = 40.dp
 private val COLLAPSED_GAP_HEIGHT = 32.dp
 private const val COLLAPSE_GAP_MINUTES = 120
-private val MIN_CARD_HEIGHT = 28.dp
+/** Thinnest a card is drawn, so a task of a minute or two still shows. */
+private val MIN_DRAWN_HEIGHT = 3.dp
+
+/** Room a card needs for its name row; shorter ones are a bar without text. */
+private val NAME_ROW_HEIGHT = 22.dp
 
 /** The top stretch of a card where its name and time sit; a notch reaching into it narrows them. */
 private val TEXT_BAND = 40.dp
 
-/** Taller than a normal minimum: a system-calendar event's card carries two icon buttons. */
-private val MIN_CALENDAR_CARD_HEIGHT = 56.dp
+/** A system-calendar event's card only carries its open and hide buttons when it is this tall. */
+private val CALENDAR_BUTTONS_MIN_HEIGHT = 32.dp
 
 /** A stretch of the day that is drawn, aligned to whole hours. */
 private data class DrawnRange(val startMinute: Int, val endMinute: Int)
@@ -137,11 +139,12 @@ internal fun HistoryDayTimeline(
         tasks.map { task ->
             val (start, end) = spanMinutes(task, dayStart)
             val top = scale.y(start)
-            val minHeight = (if (task.id.startsWith("cal_")) MIN_CALENDAR_CARD_HEIGHT else MIN_CARD_HEIGHT).value
-            PlacedTask(task, top, maxOf(scale.y(end) - top, minHeight))
+            PlacedTask(task, top, scale.y(end) - top)
         }
     }
-    val slots = remember(placed) { carveByDepth(placed, start = { it.top }, end = { it.top + it.height }) }
+    val slots = remember(placed) {
+        layoutOverlaps(placed, start = { it.top }, end = { it.top + it.height }, nestAfter = NAME_ROW_HEIGHT.value)
+    }
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val gapColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
 
@@ -209,9 +212,16 @@ internal fun HistoryDayTimeline(
                 .padding(start = GUTTER_WIDTH)
         ) {
             val frames = remember(slots, maxWidth) {
-                slots.map { carveFrame(maxWidth, it.level, it.maxLevel, it.item.top.dp, it.item.height.dp) }
+                slots.map {
+                    CardFrame(
+                        left = maxWidth * it.left,
+                        top = it.item.top.dp,
+                        width = maxWidth * (it.right - it.left),
+                        height = maxOf(it.item.height.dp, MIN_DRAWN_HEIGHT)
+                    )
+                }
             }
-            val shapes = remember(slots, frames) { carveShapes(slots.map { it.level }, frames) }
+            val shapes = remember(slots, frames) { carveShapes(slots.map { it.parent }, frames) }
             slots.forEachIndexed { index, slot ->
                 val placedTask = slot.item
                 val frame = frames[index]
@@ -222,9 +232,9 @@ internal fun HistoryDayTimeline(
                     modifier = Modifier
                         .offset(x = frame.left, y = frame.top)
                         .width(frame.width)
-                        .height(placedTask.height.dp)
+                        .height(frame.height)
                         .padding(horizontal = 2.dp, vertical = 1.dp),
-                    height = placedTask.height.dp,
+                    height = frame.height,
                     shape = shapes[index],
                     endInset = shapes[index].endInset(TEXT_BAND, frame.width),
                     onClick = { onClick(placedTask.task) },
@@ -291,7 +301,7 @@ private fun HistoryTaskCard(
                     .weight(1f)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (height >= NAME_ROW_HEIGHT) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = task.name,
                         style = MaterialTheme.typography.labelLarge,
@@ -332,11 +342,12 @@ private fun HistoryTaskCard(
                     }
                 }
             }
-            if (isCalendarTask) {
-                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(32.dp)) {
+            if (isCalendarTask && height >= CALENDAR_BUTTONS_MIN_HEIGHT) {
+                val buttonSize = if (height >= 44.dp) 32.dp else 28.dp
+                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(buttonSize)) {
                     Icon(Icons.Default.EventAvailable, "Open in Calendar", tint = Success, modifier = Modifier.size(18.dp))
                 }
-                IconButton(onClick = onHideCalendarItem, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onHideCalendarItem, modifier = Modifier.size(buttonSize)) {
                     Icon(
                         Icons.Default.VisibilityOff,
                         contentDescription = "Remove from Inventoria (keeps the calendar event)",

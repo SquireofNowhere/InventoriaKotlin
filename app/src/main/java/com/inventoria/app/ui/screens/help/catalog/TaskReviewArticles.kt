@@ -104,10 +104,10 @@ internal val taskReviewArticles = listOf(
                 CalloutKind.Tip,
                 "The flat view is drawn to a fixed time scale: each card sits at the clock time the task " +
                     "started and is as tall as the task was long, so a two-hour task is visibly four times a " +
-                    "half-hour one. Overlapping tasks nest -- one that starts while another is still " +
-                    "running sits to the right and takes a notch out of the earlier card -- and a quiet stretch of two hours or " +
-                    "more folds into a single \"nothing tracked\" line. Very short tasks are drawn at a " +
-                    "minimum height so they stay tappable. Tap a card for its details, long-press to select."
+                    "half-hour one. Tasks that ran at the same time sit side by side, one that ran entirely inside " +
+                    "another is tucked into a notch in it, and a quiet stretch of two hours or " +
+                    "more folds into a single \"nothing tracked\" line. A task too short to fit its " +
+                    "name is a thin bar without one. Tap a card for its details, long-press to select."
             ),
             HelpBlock.Callout(
                 CalloutKind.Note,
