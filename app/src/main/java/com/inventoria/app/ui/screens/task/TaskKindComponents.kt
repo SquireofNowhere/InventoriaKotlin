@@ -375,3 +375,16 @@ fun TodoPriorityDropdownMenu(
     }
 }
 
+
+/**
+ * The colour a todo (or anything else carrying a [TaskKind]) takes from which scoring category its
+ * Kind belongs to: Neutral a slate grey, Personal blue, Social purple. Deliberately clear of the
+ * priority tiers' red/orange/green above, so the two never read as the same signal -- category is
+ * what the todo is *for*, priority is how urgent it is. Todos pick up their row wash and their
+ * Schedule/Today markers from this; the Kind's own colour stays on the row's left bar and chip.
+ */
+fun taskCategoryColor(category: TaskCategory): Color = when (category) {
+    TaskCategory.NEUTRAL -> Color(0xFF78909C)
+    TaskCategory.PERSONAL -> Color(0xFF3F7CE0)
+    TaskCategory.SOCIAL -> Color(0xFFAB47BC)
+}

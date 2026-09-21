@@ -67,7 +67,7 @@ internal val todoListArticles = listOf(
                         )))
                     ),
                     HelpStep(
-                        "A prioritized row is tinted by its tier -- red for A, orange for B, green for C -- so the list reads by urgency without opening a single row.",
+                        "A prioritized row gets an outline in its tier colour -- red for A, orange for B, green for C -- so the list reads by urgency without opening a single row. (The row's fill is separate: it follows the Kind's category -- slate for Neutral, blue for Personal, purple for Social.)",
                         DiagramSpec(listOf(
                             todoRow("File taxes", due = null, priority = TodoPriority.A2),
                             todoRow("Water the plants", due = null, priority = TodoPriority.C1)
@@ -77,7 +77,7 @@ internal val todoListArticles = listOf(
             ),
             HelpBlock.Callout(
                 CalloutKind.Note,
-                "A completed todo drops its tint. The colour tracks what still demands attention, not " +
+                "A completed todo drops its outline and fades its fill. The colour tracks what still demands attention, not " +
                     "what once did."
             )
         ),

@@ -45,6 +45,7 @@ import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.taskTypeColor
+import com.inventoria.app.ui.screens.task.taskCategoryColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.ui.screens.todo.TodoDayHeader
 import com.inventoria.app.ui.screens.todo.TodoRow
@@ -735,7 +736,7 @@ private fun UpNextCard(
                         nowMinuteOfDay = nowMinuteOfDay,
                         title = item.todo.title,
                         caption = "Todo due",
-                        accent = todoPriorityTierColor(item.todo.priority),
+                        accent = taskCategoryColor(item.todo.kind.category),
                         hasAlarm = item.todo.reminderOffsetMinutes != null,
                         onClick = onOpenTodos
                     )

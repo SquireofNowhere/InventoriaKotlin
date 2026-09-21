@@ -172,7 +172,7 @@ internal val scheduleArticles = listOf(
     HelpArticle(
         id = "schedule-todos-on-timeline",
         title = "Todos on the timeline",
-        summary = "A hairline at the due time, in the todo's priority colour -- tap to tick it off.",
+        summary = "A hairline at the due time, in the colour of the todo's Kind category -- tap to tick it off.",
         whatItIs = "A todo due at a specific time on the selected day draws a hairline straight across the " +
             "timeline at that minute, so it's visible against whatever block or task happens to be there " +
             "too. An all-day todo (no time set) appears above the timeline instead, in its own strip.",

@@ -49,6 +49,7 @@ import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.taskTypeColor
+import com.inventoria.app.ui.screens.task.taskCategoryColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.util.currentMinuteOfDay
 import com.inventoria.app.util.formatMinuteOfDay
@@ -315,7 +316,7 @@ private fun AllDayTodoStrip(todos: List<Todo>, onToggle: (Todo) -> Unit) {
         )
         todos.forEach { todo ->
             val done = todo.state == TodoState.COMPLETE
-            val tier = todoPriorityTierColor(todo.priority)
+            val tier = taskCategoryColor(todo.kind.category)
             val alarmIcon: (@Composable () -> Unit)? = if (todo.reminderOffsetMinutes != null && !done) {
                 { Icon(Icons.Default.Alarm, contentDescription = "Alarm set", modifier = Modifier.size(14.dp)) }
             } else null
@@ -617,7 +618,7 @@ private fun FlatScheduleBlock(block: ScheduleBlock, typeName: String?, modifier:
  * which is why this is a line and not a box. */
 @Composable
 private fun TodoDueMarker(todo: Todo, modifier: Modifier, onClick: () -> Unit) {
-    val tier = todoPriorityTierColor(todo.priority)
+    val tier = taskCategoryColor(todo.kind.category)
     val done = todo.state == TodoState.COMPLETE
     Column(modifier.clickable(onClick = onClick)) {
         HorizontalDivider(thickness = 2.dp, color = tier.copy(alpha = if (done) 0.4f else 1f))

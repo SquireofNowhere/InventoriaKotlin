@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 103,
+                versionName = "2.22",
+                changes = listOf(
+                    "Todos are no longer grey. Every row is tinted by its Kind's category -- slate for Neutral, blue for Personal, purple for Social -- and so are todo markers on Schedule and Up Next on Today. Priority now shows as a red/orange/green outline on the row."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 102,
                 versionName = "2.21",
                 changes = listOf(

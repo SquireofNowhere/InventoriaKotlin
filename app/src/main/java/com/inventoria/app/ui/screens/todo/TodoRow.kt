@@ -1,5 +1,6 @@
 package com.inventoria.app.ui.screens.todo
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +41,7 @@ import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.TodoPriorityChip
 import com.inventoria.app.ui.screens.task.taskTypeColor
+import com.inventoria.app.ui.screens.task.taskCategoryColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
@@ -168,20 +170,21 @@ internal fun TodoRow(
                 } else Modifier
             ),
         shape = MaterialTheme.shapes.medium,
-        // Prioritized rows carry a wash of their tier color (A=red, B=orange, C=green -- the
-        // same mapping the chip uses) so the list reads by urgency without opening a single row.
-        // Composited over surface rather than left translucent: the hover/selected overlays above
-        // stack on whatever the container paints, and a flat pre-mixed color keeps those legible.
-        // Unprioritized rows keep the stock Card container -- gray-washing them would just make
-        // the whole list look disabled -- and completed rows drop back to it too, so the tint
-        // tracks what still demands attention rather than what it once was.
-        colors = if (todo.priority != null && entry.effectiveState != TodoState.COMPLETE) {
-            CardDefaults.cardColors(
-                containerColor = todoPriorityTierColor(todo.priority)
-                    .copy(alpha = 0.10f)
-                    .compositeOver(MaterialTheme.colorScheme.surface)
-            )
-        } else CardDefaults.cardColors()
+        // Every row carries a wash of its scoring category -- Neutral slate, Personal blue, Social
+        // purple, off the todo's Kind -- so the list reads by what each todo is for without opening
+        // one, and no row is left the stock grey. Composited over surface rather than left
+        // translucent: the hover/selected overlays above stack on whatever the container paints,
+        // and a flat pre-mixed color keeps those legible. Completed rows fade to a fainter wash so
+        // the tint still tracks what demands attention. Priority is not lost: its tier colour is
+        // the outline below (and the chip), a separate signal from the category.
+        colors = CardDefaults.cardColors(
+            containerColor = taskCategoryColor(todo.kind.category)
+                .copy(alpha = if (entry.effectiveState == TodoState.COMPLETE) 0.06f else 0.16f)
+                .compositeOver(MaterialTheme.colorScheme.surface)
+        ),
+        border = if (todo.priority != null && entry.effectiveState != TodoState.COMPLETE) {
+            BorderStroke(1.5.dp, todoPriorityTierColor(todo.priority).copy(alpha = 0.85f))
+        } else null
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
             if (entry.parentName != null) {
