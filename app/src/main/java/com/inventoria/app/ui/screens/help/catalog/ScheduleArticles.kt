@@ -214,7 +214,8 @@ internal val scheduleArticles = listOf(
                 CalloutKind.Note,
                 "Tasks are drawn to the minute, and never cover time they were not running. Tasks that ran at " +
                     "the same time sit side by side within the right-hand area; a task that ran entirely inside " +
-                    "another, such as a sub-task, is tucked into a notch in its parent's card."
+                    "another, such as a sub-task, is tucked into a notch in its parent's card. Pinch the timeline, or use the zoom buttons at the bottom left, " +
+                    "to stretch the hours: finer gridlines appear as you zoom in, and your zoom is remembered."
             )
         ),
         whyItMatters = "The Task Tracker owns everything about a tracked task; the Schedule segment only " +

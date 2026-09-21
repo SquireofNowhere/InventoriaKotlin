@@ -23,6 +23,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.ui.components.TimelineZoomControls
+import com.inventoria.app.ui.components.pinchToZoom
+import com.inventoria.app.ui.components.rememberTimelineZoom
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.util.bucketByDay
 import com.inventoria.app.util.formatSimpleDate
@@ -60,6 +63,7 @@ fun TaskHistoryScreen(
     val completedSessions by viewModel.completedSessions.collectAsState()
     val flatCompletedTasks by viewModel.flatCompletedTasks.collectAsState()
     val isFlatView by viewModel.isTaskHistoryFlatView.collectAsState()
+    val timelineZoom = rememberTimelineZoom("task_history")
     val currentTime by rememberTick()
     val selectedTaskIds by viewModel.selectedTaskIds.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
@@ -186,33 +190,45 @@ fun TaskHistoryScreen(
                 Text("No tasks recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else if (isFlatView) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                flatDayBuckets.forEach { day ->
-                    item(key = "day_${day.dayStart}") {
-                        DayTimelineHeader(day.dayStart, day.items)
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pinchToZoom { factor, _ -> timelineZoom.zoomBy(factor) },
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    flatDayBuckets.forEach { day ->
+                        item(key = "day_${day.dayStart}") {
+                            DayTimelineHeader(day.dayStart, day.items)
+                        }
+                        // The whole day as one fixed-scale timeline -- see HistoryDayTimeline.
+                        item(key = "timeline_${day.dayStart}") {
+                            HistoryDayTimeline(
+                                dayStart = day.dayStart,
+                                tasks = day.items,
+                                selectedTaskIds = selectedTaskIds,
+                                taskTypeNames = taskTypeNames,
+                                onClick = { task ->
+                                    if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
+                                    else selectedTaskId = task.id
+                                },
+                                onLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
+                                onOpenCalendar = { task -> openInSystemCalendar(context, task) },
+                                onHideCalendarItem = { task -> viewModel.hideCalendarTask(task) },
+                                zoom = timelineZoom.scale
+                            )
+                        }
+                        item(key = "spacer_${day.dayStart}") { Spacer(Modifier.height(8.dp)) }
                     }
-                    // The whole day as one fixed-scale timeline -- see HistoryDayTimeline.
-                    item(key = "timeline_${day.dayStart}") {
-                        HistoryDayTimeline(
-                            dayStart = day.dayStart,
-                            tasks = day.items,
-                            selectedTaskIds = selectedTaskIds,
-                            taskTypeNames = taskTypeNames,
-                            onClick = { task ->
-                                if (isSelectionMode) viewModel.toggleTaskSelection(task.id)
-                                else selectedTaskId = task.id
-                            },
-                            onLongClick = { task -> viewModel.toggleTaskSelection(task.id) },
-                            onOpenCalendar = { task -> openInSystemCalendar(context, task) },
-                            onHideCalendarItem = { task -> viewModel.hideCalendarTask(task) }
-                        )
-                    }
-                    item(key = "spacer_${day.dayStart}") { Spacer(Modifier.height(8.dp)) }
                 }
+                TimelineZoomControls(
+                    state = timelineZoom,
+                    onZoomOut = { timelineZoom.stepOut() },
+                    onZoomIn = { timelineZoom.stepIn() },
+                    onReset = { timelineZoom.reset() },
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)
+                )
             }
         } else {
             LazyColumn(

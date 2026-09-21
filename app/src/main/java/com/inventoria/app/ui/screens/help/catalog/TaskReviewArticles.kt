@@ -107,7 +107,9 @@ internal val taskReviewArticles = listOf(
                     "half-hour one. Tasks that ran at the same time sit side by side, one that ran entirely inside " +
                     "another is tucked into a notch in it, and a quiet stretch of two hours or " +
                     "more folds into a single \"nothing tracked\" line. A task too short to fit its " +
-                    "name is a thin bar without one. Tap a card for its details, long-press to select."
+                    "name is a thin bar without one. Pinch the timeline, or use the zoom buttons at the bottom left, to " +
+                    "stretch the hours -- finer gridlines appear as you zoom in, and your zoom is remembered. " +
+                    "Tap a card for its details, long-press to select."
             ),
             HelpBlock.Callout(
                 CalloutKind.Note,

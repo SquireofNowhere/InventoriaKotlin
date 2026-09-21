@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.ScheduleBlock
@@ -59,7 +60,11 @@ import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.ui.components.CardFrame
+import com.inventoria.app.ui.components.TimelineZoomControls
 import com.inventoria.app.ui.components.carveShapes
+import com.inventoria.app.ui.components.pinchToZoom
+import com.inventoria.app.ui.components.rememberTimelineZoom
+import com.inventoria.app.ui.components.tickMinutes
 import com.inventoria.app.util.layoutOverlaps
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -68,9 +73,10 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** Vertical scale of the day timeline. 64dp an hour puts a 15-minute block at 16dp -- still a
- * legible bar -- and the whole day at 1536dp, about three screens of scrolling. */
-private val HOUR_HEIGHT = 64.dp
+/** Vertical scale of the day timeline at 100% zoom. 64dp an hour puts a 15-minute block at 16dp -- still
+ * a legible bar -- and the whole day at 1536dp, about three screens of scrolling. Pinching or the zoom
+ * buttons scale it (see TimelineZoom). */
+private val BASE_HOUR_HEIGHT = 64.dp
 private val GUTTER_WIDTH = 44.dp
 
 /**
@@ -360,6 +366,9 @@ private val TASK_TEXT_BAND = 34.dp
 /** Room a task card needs for its name; shorter ones are a bar without text. */
 private val TASK_TITLE_HEIGHT = 18.dp
 
+/** A task nests in a bigger one only if it started this long after it -- a title row at 100% zoom. */
+private val TASK_NEST_AFTER_MINUTES = TASK_TITLE_HEIGHT.value / BASE_HOUR_HEIGHT.value * 60f
+
 /** Thinnest a task card is drawn, so a task of a minute or two still shows. */
 private val MIN_TASK_HEIGHT = 3.dp
 
@@ -376,87 +385,121 @@ private fun DayTimeline(
     modifier: Modifier
 ) {
     val scrollState = rememberScrollState()
-    val hourHeightPx = with(LocalDensity.current) { HOUR_HEIGHT.toPx() }
+    val zoom = rememberTimelineZoom("schedule")
+    val hourHeight = BASE_HOUR_HEIGHT * zoom.scale
+    val tick = tickMinutes(hourHeight.value)
     // Land somewhere useful once, rather than at 00:00: an hour before now on today, a working
     // morning otherwise. Not repeated on day changes -- you were probably looking at an hour.
+    val initialHourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
     LaunchedEffect(Unit) {
         val targetMinute = if (isToday) (nowMinuteOfDay - 60).coerceAtLeast(0) else 7 * 60
-        scrollState.scrollTo((targetMinute / 60f * hourHeightPx).roundToInt())
+        scrollState.scrollTo((targetMinute / 60f * initialHourHeightPx).roundToInt())
     }
+
+    // Zooming keeps whatever is under the fingers (or, from the buttons, the middle of the screen)
+    // where it is: the content stretches about that point, so the scroll offset has to move with it.
+    // The offset is set once the new height has been laid out, hence the pending value.
+    var viewportHeight by remember { mutableIntStateOf(0) }
+    var pendingScroll by remember { mutableStateOf<Float?>(null) }
+    fun zoomAround(focalY: Float, change: () -> Unit) {
+        val before = zoom.scale
+        change()
+        val ratio = zoom.scale / before
+        if (ratio != 1f) {
+            pendingScroll = ((pendingScroll ?: scrollState.value.toFloat()) + focalY) * ratio - focalY
+        }
+    }
+    LaunchedEffect(zoom.scale) {
+        val target = pendingScroll ?: return@LaunchedEffect
+        withFrameNanos { }
+        scrollState.scrollTo(target.roundToInt().coerceAtLeast(0))
+        pendingScroll = null
+    }
+
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val nowColor = MaterialTheme.colorScheme.error
 
-    Box(
-        modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState)
-    ) {
+    Box(modifier.fillMaxWidth()) {
         Box(
             Modifier
-                .fillMaxWidth()
-                .height(HOUR_HEIGHT * 24)
+                .fillMaxSize()
+                .onSizeChanged { viewportHeight = it.height }
+                .pinchToZoom { factor, focalY -> zoomAround(focalY) { zoom.zoomBy(factor) } }
+                .verticalScroll(scrollState)
         ) {
-            Canvas(Modifier.matchParentSize()) {
-                val gutter = GUTTER_WIDTH.toPx()
-                val stroke = 1.dp.toPx()
-                for (hour in 0..24) {
-                    val y = hour * hourHeightPx
-                    drawLine(gridColor, Offset(gutter, y), Offset(size.width, y), stroke)
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(hourHeight * 24)
+            ) {
+                Canvas(Modifier.matchParentSize()) {
+                    val gutter = GUTTER_WIDTH.toPx()
+                    val stroke = 1.dp.toPx()
+                    val hourHeightPx = hourHeight.toPx()
+                    for (minute in 0..24 * 60 step tick) {
+                        val y = minute / 60f * hourHeightPx
+                        val color = if (minute % 60 == 0) gridColor else gridColor.copy(alpha = 0.45f)
+                        drawLine(color, Offset(gutter, y), Offset(size.width, y), stroke)
+                    }
+                    // Splits the day into a blocks side and a tasks side, behind everything else.
+                    val mid = gutter + (size.width - gutter) / 2f
+                    drawLine(gridColor, Offset(mid, 0f), Offset(mid, size.height), stroke)
                 }
-                // Splits the day into a blocks side and a tasks side, behind everything else.
-                val mid = gutter + (size.width - gutter) / 2f
-                drawLine(gridColor, Offset(mid, 0f), Offset(mid, size.height), stroke)
-            }
-            Column(Modifier.width(GUTTER_WIDTH)) {
-                for (hour in 0 until 24) {
+                // 24:00 has no label of its own; the day ends at the last hour.
+                for (minute in 0 until 24 * 60 step tick) {
+                    Text(
+                        text = "%02d:%02d".format(minute / 60, minute % 60),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .width(GUTTER_WIDTH)
+                            .offset(y = hourHeight * (minute / 60f) - 7.dp)
+                            .padding(end = 4.dp),
+                        textAlign = TextAlign.End
+                    )
+                }
+                DayLane(
+                    day = day,
+                    nowMinuteOfDay = nowMinuteOfDay,
+                    hourHeight = hourHeight,
+                    onTapEmptyMinute = onTapEmptyMinute,
+                    taskTypeNames = taskTypeNames,
+                    onBlockClick = onBlockClick,
+                    onTodoClick = onTodoClick,
+                    onTaskClick = onTaskClick,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = GUTTER_WIDTH)
+                )
+                if (isToday) {
+                    val y = hourHeight * (nowMinuteOfDay / 60f)
                     Box(
                         Modifier
-                            .height(HOUR_HEIGHT)
                             .fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "%02d:00".format(hour),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(end = 4.dp)
-                                .offset(y = (-7).dp)
-                        )
-                    }
+                            .offset(y = y - 1.dp)
+                            .padding(start = GUTTER_WIDTH - 4.dp)
+                            .height(2.dp)
+                            .background(nowColor)
+                    )
+                    Box(
+                        Modifier
+                            .offset(x = GUTTER_WIDTH - 8.dp, y = y - 4.dp)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(nowColor)
+                    )
                 }
             }
-            DayLane(
-                day = day,
-                nowMinuteOfDay = nowMinuteOfDay,
-                onTapEmptyMinute = onTapEmptyMinute,
-                taskTypeNames = taskTypeNames,
-                onBlockClick = onBlockClick,
-                onTodoClick = onTodoClick,
-                onTaskClick = onTaskClick,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = GUTTER_WIDTH)
-            )
-            if (isToday) {
-                val y = HOUR_HEIGHT * (nowMinuteOfDay / 60f)
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .offset(y = y - 1.dp)
-                        .padding(start = GUTTER_WIDTH - 4.dp)
-                        .height(2.dp)
-                        .background(nowColor)
-                )
-                Box(
-                    Modifier
-                        .offset(x = GUTTER_WIDTH - 8.dp, y = y - 4.dp)
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(nowColor)
-                )
-            }
         }
+        TimelineZoomControls(
+            state = zoom,
+            onZoomOut = { zoomAround(viewportHeight / 2f) { zoom.stepOut() } },
+            onZoomIn = { zoomAround(viewportHeight / 2f) { zoom.stepIn() } },
+            onReset = { zoomAround(viewportHeight / 2f) { zoom.reset() } },
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(12.dp)
+        )
     }
 }
 
@@ -469,6 +512,7 @@ private fun DayTimeline(
 private fun DayLane(
     day: ScheduleDay,
     nowMinuteOfDay: Int,
+    hourHeight: Dp,
     onTapEmptyMinute: (Int) -> Unit,
     taskTypeNames: Map<String, String>,
     onBlockClick: (ScheduleBlock) -> Unit,
@@ -476,11 +520,11 @@ private fun DayLane(
     onTaskClick: (Task) -> Unit,
     modifier: Modifier
 ) {
-    val hourHeightPx = with(LocalDensity.current) { HOUR_HEIGHT.toPx() }
+    val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
     // Blocks, tasks and todo markers each consume their own taps before they reach this, so
     // whatever arrives here really did land on empty paper.
     BoxWithConstraints(
-        modifier.pointerInput(Unit) {
+        modifier.pointerInput(hourHeightPx) {
             detectTapGestures { offset ->
                 onTapEmptyMinute(((offset.y / hourHeightPx) * 60).toInt().coerceIn(0, 24 * 60 - 1))
             }
@@ -505,8 +549,8 @@ private fun DayLane(
         // Blocks: the plan, painted on the paper. Full width, so the peek strip is simply the part
         // of a block nothing else is allowed to cover.
         day.blocks.forEach { block ->
-            val top = HOUR_HEIGHT * (block.startMinuteOfDay / 60f)
-            val height = HOUR_HEIGHT * ((block.endMinuteOfDay - block.startMinuteOfDay) / 60f)
+            val top = hourHeight * (block.startMinuteOfDay / 60f)
+            val height = hourHeight * ((block.endMinuteOfDay - block.startMinuteOfDay) / 60f)
             FlatScheduleBlock(
                 block = block,
                 typeName = block.taskTypeId?.let { taskTypeNames[it] },
@@ -524,23 +568,22 @@ private fun DayLane(
             day.tasks.map { it to (it.endMinute ?: nowMinuteOfDay.toFloat().coerceAtLeast(it.startMinute)) }
         }
         val slots = remember(resolved) {
-            // In dp, so "starts a title row later" means the same thing here as on Task History.
-            val toDp = { minute: Float -> HOUR_HEIGHT.value * minute / 60f }
+            // Settled on the minutes alone, so zooming never rearranges the cards.
             layoutOverlaps(
                 resolved,
-                start = { toDp(it.first.startMinute) },
-                end = { toDp(it.second) },
-                nestAfter = TASK_TITLE_HEIGHT.value
+                start = { it.first.startMinute },
+                end = { it.second },
+                nestAfter = TASK_NEST_AFTER_MINUTES
             )
         }
-        val frames = remember(slots, taskAreaWidth) {
+        val frames = remember(slots, taskAreaWidth, hourHeight) {
             slots.map { slot ->
                 val (segment, endMinute) = slot.item
                 CardFrame(
                     left = taskAreaWidth * slot.left,
-                    top = HOUR_HEIGHT * (segment.startMinute / 60f),
+                    top = hourHeight * (segment.startMinute / 60f),
                     width = taskAreaWidth * (slot.right - slot.left),
-                    height = maxOf(HOUR_HEIGHT * ((endMinute - segment.startMinute) / 60f), MIN_TASK_HEIGHT)
+                    height = maxOf(hourHeight * ((endMinute - segment.startMinute) / 60f), MIN_TASK_HEIGHT)
                 )
             }
         }
@@ -569,7 +612,7 @@ private fun DayLane(
             TodoDueMarker(
                 todo = todo,
                 modifier = Modifier
-                    .offset(y = HOUR_HEIGHT * (minute / 60f) - 1.dp)
+                    .offset(y = hourHeight * (minute / 60f) - 1.dp)
                     .fillMaxWidth(),
                 onClick = { onTodoClick(todo) }
             )

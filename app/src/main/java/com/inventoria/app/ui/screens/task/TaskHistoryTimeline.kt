@@ -25,17 +25,22 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.ui.components.CardFrame
 import com.inventoria.app.ui.components.carveShapes
+import com.inventoria.app.ui.components.tickMinutes
 import com.inventoria.app.util.layoutOverlaps
 import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
  * Task History's flat view, one day at a time, on a fixed time scale: a task's card is as tall as
- * the task was long ([HOUR_HEIGHT] per hour, the same for every card on every day) and sits at
- * the clock time it actually started -- to the minute: a card never covers time its task was not
+ * the task was long ([BASE_HOUR_HEIGHT] per hour at 100% zoom, the same for every card on every day)
+ * and sits at the clock time it actually started -- to the minute: a card never covers time its task was not
  * running. Tasks that ran at the same time sit side by side, and one that ran entirely inside
  * another is nested in it, taking a notch out of the parent's card so nothing draws over anything
  * else (see [layoutOverlaps] and CarvedShape). Overlaps are worked out from the real times only.
+ *
+ * Pinch (or the zoom buttons) scales the hour height; finer gridlines and labels appear as you zoom
+ * in. Zoom changes only the vertical scale -- the layout is settled on minutes, so it never
+ * rearranges.
  *
  * Two things keep a fixed scale usable. Only the stretch of the day that has tasks in it is drawn
  * (from the hour before the first to the hour after the last), and any quiet stretch of
@@ -46,7 +51,8 @@ import kotlin.math.floor
  * Only tasks that start on [dayStart] are drawn here, clipped at midnight -- the same "belongs to
  * the day it started" rule the rest of History uses.
  */
-private val HOUR_HEIGHT = 96.dp
+/** Height of an hour at 100% zoom; the timeline is drawn at this times the zoom (see TimelineZoom). */
+private val BASE_HOUR_HEIGHT = 96.dp
 private val GUTTER_WIDTH = 40.dp
 private val COLLAPSED_GAP_HEIGHT = 32.dp
 private const val COLLAPSE_GAP_MINUTES = 120
@@ -55,6 +61,10 @@ private val MIN_DRAWN_HEIGHT = 3.dp
 
 /** Room a card needs for its name row; shorter ones are a bar without text. */
 private val NAME_ROW_HEIGHT = 22.dp
+
+/** A task nests in a bigger one only if it started this long after it -- a title row at 100% zoom.
+ * In minutes, not dp, so the layout does not change shape as you zoom. */
+private val NEST_AFTER_MINUTES = NAME_ROW_HEIGHT.value / BASE_HOUR_HEIGHT.value * 60f
 
 /** The top stretch of a card where its name and time sit; a notch reaching into it narrows them. */
 private val TEXT_BAND = 40.dp
@@ -65,7 +75,7 @@ private val CALENDAR_BUTTONS_MIN_HEIGHT = 32.dp
 /** A stretch of the day that is drawn, aligned to whole hours. */
 private data class DrawnRange(val startMinute: Int, val endMinute: Int)
 
-private class DayScale(val ranges: List<DrawnRange>) {
+private class DayScale(val ranges: List<DrawnRange>, val hourHeight: Float) {
     private val tops = ArrayList<Float>(ranges.size)
     val totalHeight: Dp
 
@@ -74,7 +84,7 @@ private class DayScale(val ranges: List<DrawnRange>) {
         ranges.forEachIndexed { index, range ->
             if (index > 0) y += COLLAPSED_GAP_HEIGHT.value
             tops.add(y)
-            y += (range.endMinute - range.startMinute) / 60f * HOUR_HEIGHT.value
+            y += (range.endMinute - range.startMinute) / 60f * hourHeight
         }
         totalHeight = y.dp
     }
@@ -84,7 +94,7 @@ private class DayScale(val ranges: List<DrawnRange>) {
         val index = ranges.indexOfLast { minute >= it.startMinute }.coerceAtLeast(0)
         val range = ranges[index]
         val clamped = minute.coerceIn(range.startMinute.toFloat(), range.endMinute.toFloat())
-        return tops[index] + (clamped - range.startMinute) / 60f * HOUR_HEIGHT.value
+        return tops[index] + (clamped - range.startMinute) / 60f * hourHeight
     }
 
     fun top(rangeIndex: Int): Float = tops[rangeIndex]
@@ -100,7 +110,7 @@ private fun spanMinutes(task: Task, dayStart: Long): Pair<Float, Float> {
     return start to end
 }
 
-private fun buildScale(tasks: List<Task>, dayStart: Long): DayScale {
+private fun buildScale(tasks: List<Task>, dayStart: Long, hourHeight: Float): DayScale {
     val wanted = tasks.map { task ->
         val (start, end) = spanMinutes(task, dayStart)
         val lo = (floor(start / 60f) * 60).toInt()
@@ -116,10 +126,11 @@ private fun buildScale(tasks: List<Task>, dayStart: Long): DayScale {
             merged.add(range)
         }
     }
-    return DayScale(merged)
+    return DayScale(merged, hourHeight)
 }
 
-private data class PlacedTask(val task: Task, val top: Float, val height: Float)
+/** A task with its span within the day, in minutes from midnight. */
+private data class PlacedTask(val task: Task, val startMinute: Float, val endMinute: Float)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -131,20 +142,21 @@ internal fun HistoryDayTimeline(
     onClick: (Task) -> Unit,
     onLongClick: (Task) -> Unit,
     onOpenCalendar: (Task) -> Unit,
-    onHideCalendarItem: (Task) -> Unit
+    onHideCalendarItem: (Task) -> Unit,
+    zoom: Float = 1f
 ) {
     if (tasks.isEmpty()) return
-    val scale = remember(tasks, dayStart) { buildScale(tasks, dayStart) }
-    val placed = remember(tasks, dayStart, scale) {
-        tasks.map { task ->
+    val hourHeight = (BASE_HOUR_HEIGHT * zoom).value
+    val scale = remember(tasks, dayStart, hourHeight) { buildScale(tasks, dayStart, hourHeight) }
+    // Who overlaps whom is settled on the minutes alone, so zooming never rearranges the cards.
+    val slots = remember(tasks, dayStart) {
+        val placed = tasks.map { task ->
             val (start, end) = spanMinutes(task, dayStart)
-            val top = scale.y(start)
-            PlacedTask(task, top, scale.y(end) - top)
+            PlacedTask(task, start, end)
         }
+        layoutOverlaps(placed, start = { it.startMinute }, end = { it.endMinute }, nestAfter = NEST_AFTER_MINUTES)
     }
-    val slots = remember(placed) {
-        layoutOverlaps(placed, start = { it.top }, end = { it.top + it.height }, nestAfter = NAME_ROW_HEIGHT.value)
-    }
+    val tick = tickMinutes(hourHeight)
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val gapColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
 
@@ -157,10 +169,10 @@ internal fun HistoryDayTimeline(
             val gutter = GUTTER_WIDTH.toPx()
             val stroke = 1.dp.toPx()
             scale.ranges.forEachIndexed { index, range ->
-                val hours = (range.endMinute - range.startMinute) / 60
-                for (h in 0..hours) {
-                    val y = (scale.top(index) + h * HOUR_HEIGHT.value).dp.toPx()
-                    drawLine(gridColor, Offset(gutter, y), Offset(size.width, y), stroke)
+                for (m in range.startMinute..range.endMinute step tick) {
+                    val y = (scale.top(index) + (m - range.startMinute) / 60f * hourHeight).dp.toPx()
+                    val color = if (m % 60 == 0) gridColor else gridColor.copy(alpha = 0.45f)
+                    drawLine(color, Offset(gutter, y), Offset(size.width, y), stroke)
                 }
                 if (index > 0) {
                     drawRect(
@@ -173,15 +185,14 @@ internal fun HistoryDayTimeline(
         }
 
         scale.ranges.forEachIndexed { index, range ->
-            val hours = (range.endMinute - range.startMinute) / 60
-            for (h in 0..hours) {
+            for (m in range.startMinute..range.endMinute step tick) {
                 Text(
-                    text = "%02d:00".format((range.startMinute / 60 + h) % 24),
+                    text = "%02d:%02d".format((m / 60) % 24, m % 60),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .width(GUTTER_WIDTH)
-                        .offset(y = (scale.top(index) + h * HOUR_HEIGHT.value).dp - 7.dp)
+                        .offset(y = (scale.top(index) + (m - range.startMinute) / 60f * hourHeight).dp - 7.dp)
                         .padding(end = 4.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.End
                 )
@@ -211,13 +222,14 @@ internal fun HistoryDayTimeline(
                 .fillMaxSize()
                 .padding(start = GUTTER_WIDTH)
         ) {
-            val frames = remember(slots, maxWidth) {
+            val frames = remember(slots, scale, maxWidth) {
                 slots.map {
+                    val top = scale.y(it.item.startMinute)
                     CardFrame(
                         left = maxWidth * it.left,
-                        top = it.item.top.dp,
+                        top = top.dp,
                         width = maxWidth * (it.right - it.left),
-                        height = maxOf(it.item.height.dp, MIN_DRAWN_HEIGHT)
+                        height = maxOf((scale.y(it.item.endMinute) - top).dp, MIN_DRAWN_HEIGHT)
                     )
                 }
             }

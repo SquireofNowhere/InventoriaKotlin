@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 110,
+                versionName = "2.29",
+                changes = listOf(
+                    "You can zoom into the time scale. On Task History (flat view) and the Schedule day view, pinch to stretch the hours -- or use the zoom buttons at the bottom left, and tap the percentage to go back to 100%. Zoom in and the gridlines get finer, down to five minutes, so you can see exactly when things started and ended. Your zoom is remembered."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 109,
                 versionName = "2.28",
                 changes = listOf(
