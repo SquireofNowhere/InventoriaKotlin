@@ -110,15 +110,15 @@ internal val scheduleArticles = listOf(
 
     HelpArticle(
         id = "schedule-repeat-weekly",
-        title = "Repeat a block every week",
-        summary = "One switch in the block dialog -- Just this day, or every week from here on.",
-        whatItIs = "A block can repeat on the same weekday, every week, starting from the date it was " +
-            "created on. It's a single switch, not a separate recurrence editor.",
+        title = "Repeat a block daily or weekly",
+        summary = "One choice in the block dialog -- Never, Daily, or Weekly from here on.",
+        whatItIs = "A block can repeat every day, or on the same weekday every week, starting from the " +
+            "date it was created on. It's a single three-way choice, not a separate recurrence editor.",
         blocks = listOf(
             HelpBlock.Steps(
                 listOf(
                     HelpStep(
-                        "In the block dialog, turn on Repeat Weekly.",
+                        "In the block dialog, pick Daily or Weekly under Repeat. Never keeps it to just that day.",
                         DiagramSpec(listOf(scheduleBlockPopup(isNew = true, highlightField = 4)))
                     ),
                     HelpStep(
@@ -134,10 +134,10 @@ internal val scheduleArticles = listOf(
             )
         ),
         whyItMatters = "A recurring block is one record that the timeline redraws onto every matching " +
-            "weekday, not a batch of individually-created blocks -- which is what makes turning the switch " +
-            "back off, or deleting it outright, a single action instead of a cleanup job.",
+            "matching day, not a batch of individually-created blocks -- which is what makes setting Repeat " +
+            "back to Never, or deleting it outright, a single action instead of a cleanup job.",
         related = listOf("schedule-add-block", "schedule-edit-block"),
-        keywords = listOf("recurring", "every week", "weekly", "routine")
+        keywords = listOf("recurring", "every week", "weekly", "daily", "every day", "routine")
     ),
 
     HelpArticle(

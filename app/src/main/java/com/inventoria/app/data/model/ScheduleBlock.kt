@@ -19,8 +19,9 @@ import java.util.Calendar
  *
  * [dayStart] is a start-of-day timestamp in the device's zone, the same convention as
  * Todo.deadline, and the times are minutes since midnight, the same as Todo.deadlineMinuteOfDay.
- * Splitting date from time keeps a block anchored to its calendar day and lets [repeatWeekly] be
- * a simple "same weekday, same minutes" rule with no timezone arithmetic.
+ * Splitting date from time keeps a block anchored to its calendar day and lets [repeatDaily] and
+ * [repeatWeekly] be simple "every day" / "same weekday" rules, both at the same minutes, with no
+ * timezone arithmetic.
  *
  * [kind] is only a colour here -- the palette every other tinted thing in the app already uses --
  * not a productivity score. Picking a kind for a block just says "this is what the hour is for".
@@ -34,25 +35,30 @@ data class ScheduleBlock(
      * Null is "no particular type": a session started from the block then falls back to whatever
      * type the title has already settled on, exactly as a todo without a type does. */
     @get:PropertyName("taskTypeId") @set:PropertyName("taskTypeId") var taskTypeId: String? = null,
-    /** Start-of-day millis of the day this block was created for. With [repeatWeekly] set it is
-     * also the first day the block shows on -- never earlier. */
+    /** Start-of-day millis of the day this block was created for. With [repeatDaily] or
+     * [repeatWeekly] set it is also the first day the block shows on -- never earlier. */
     @get:PropertyName("dayStart") @set:PropertyName("dayStart") var dayStart: Long = 0L,
     /** Minutes since midnight, 0..1439. */
     @get:PropertyName("startMinuteOfDay") @set:PropertyName("startMinuteOfDay") var startMinuteOfDay: Int = 0,
     /** Minutes since midnight, 1..1440 (1440 = the very end of the day). Always > start. */
     @get:PropertyName("endMinuteOfDay") @set:PropertyName("endMinuteOfDay") var endMinuteOfDay: Int = 60,
     @get:PropertyName("repeatWeekly") @set:PropertyName("repeatWeekly") var repeatWeekly: Boolean = false,
+    /** Repeats every day from [dayStart] on. Wins over [repeatWeekly] if a stray sync ever leaves
+     * both set -- the editor only ever writes one of the two. */
+    @get:PropertyName("repeatDaily") @set:PropertyName("repeatDaily") var repeatDaily: Boolean = false,
     @get:PropertyName("notes") @set:PropertyName("notes") var notes: String = "",
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 ) {
     /** Whether this block shows on [day] (a start-of-day timestamp): its own day, or -- when
-     * repeating -- any later day falling on the same weekday. Not a bean getter, so Firebase's
-     * mapper never mistakes it for a field. */
+     * repeating -- any later day (daily) or later day on the same weekday (weekly). Not a bean
+     * getter, so Firebase's mapper never mistakes it for a field. */
     fun occursOn(day: Long): Boolean {
         if (day == dayStart) return true
-        if (!repeatWeekly || day < dayStart) return false
+        if (day < dayStart) return false
+        if (repeatDaily) return true
+        if (!repeatWeekly) return false
         val own = Calendar.getInstance().apply { timeInMillis = dayStart }.get(Calendar.DAY_OF_WEEK)
         val target = Calendar.getInstance().apply { timeInMillis = day }.get(Calendar.DAY_OF_WEEK)
         return own == target

@@ -159,8 +159,8 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
             taskTypes = taskTypes,
             onDismiss = { viewModel.dismissDialog() },
             onDelete = { viewModel.deleteBlock(block) },
-            onSave = { title, kind, taskTypeId, dayStart, start, end, repeatWeekly, notes ->
-                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeatWeekly, notes)
+            onSave = { title, kind, taskTypeId, dayStart, start, end, repeat, notes ->
+                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeat, notes)
             }
         )
     }
@@ -583,11 +583,11 @@ private fun FlatScheduleBlock(block: ScheduleBlock, typeName: String?, modifier:
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (block.repeatWeekly) {
+                if (block.repeatDaily || block.repeatWeekly) {
                     Spacer(Modifier.width(3.dp))
                     Icon(
                         Icons.Default.Repeat,
-                        contentDescription = "Repeats weekly",
+                        contentDescription = if (block.repeatDaily) "Repeats daily" else "Repeats weekly",
                         modifier = Modifier.size(11.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -701,7 +701,7 @@ private fun ScheduleBlockDialog(
     taskTypes: List<TaskType>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onSave: (String, TaskKind, String?, Long, Int, Int, Boolean, String) -> Unit
+    onSave: (String, TaskKind, String?, Long, Int, Int, BlockRepeat, String) -> Unit
 ) {
     var title by remember { mutableStateOf(block.title) }
     var kind by remember { mutableStateOf(block.kind) }
@@ -709,7 +709,15 @@ private fun ScheduleBlockDialog(
     var dayStart by remember { mutableStateOf(block.dayStart) }
     var startMinute by remember { mutableStateOf(block.startMinuteOfDay) }
     var endMinute by remember { mutableStateOf(block.endMinuteOfDay) }
-    var repeatWeekly by remember { mutableStateOf(block.repeatWeekly) }
+    var repeat by remember {
+        mutableStateOf(
+            when {
+                block.repeatDaily -> BlockRepeat.DAILY
+                block.repeatWeekly -> BlockRepeat.WEEKLY
+                else -> BlockRepeat.NONE
+            }
+        )
+    }
     var notes by remember { mutableStateOf(block.notes) }
     val context = LocalContext.current
     val spanValid = endMinute > startMinute
@@ -777,20 +785,34 @@ private fun ScheduleBlockDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Repeat weekly")
-                        Text(
-                            if (repeatWeekly) "Every $weekdayName from this date on" else "Just this day",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Repeat")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BlockRepeat.values().forEach { option ->
+                            FilterChip(
+                                selected = repeat == option,
+                                onClick = { repeat = option },
+                                label = {
+                                    Text(
+                                        when (option) {
+                                            BlockRepeat.NONE -> "Never"
+                                            BlockRepeat.DAILY -> "Daily"
+                                            BlockRepeat.WEEKLY -> "Weekly"
+                                        }
+                                    )
+                                }
+                            )
+                        }
                     }
-                    Switch(checked = repeatWeekly, onCheckedChange = { repeatWeekly = it })
+                    Text(
+                        when (repeat) {
+                            BlockRepeat.NONE -> "Just this day"
+                            BlockRepeat.DAILY -> "Every day from this date on"
+                            BlockRepeat.WEEKLY -> "Every $weekdayName from this date on"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 OutlinedTextField(
                     value = notes,
@@ -804,7 +826,7 @@ private fun ScheduleBlockDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeatWeekly, notes) },
+                onClick = { onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeat, notes) },
                 enabled = title.isNotBlank() && spanValid
             ) {
                 Text("Save")

@@ -116,13 +116,16 @@ class InventoryDatabaseMigrationTest {
                         dayStart = 3000,
                         startMinuteOfDay = 360,
                         endMinuteOfDay = 420,
-                        repeatWeekly = true
+                        repeatWeekly = true,
+                        repeatDaily = true
                     )
                 )
                 val block = db.scheduleBlockDao().getBlockById("block-1")
                 assertEquals("Gym", block?.title)
                 assertEquals("type-1", block?.taskTypeId)
                 assertEquals(true, block?.repeatWeekly)
+                // Added by MIGRATION_17_18; must round-trip like taskTypeId does.
+                assertEquals(true, block?.repeatDaily)
             }
         } finally {
             db.close()

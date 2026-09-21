@@ -36,8 +36,13 @@ import javax.inject.Inject
  * session grows without waiting for a database emission. */
 data class DayTaskSegment(val task: Task, val startMinute: Float, val endMinute: Float?)
 
-/** Everything the day timeline shows for one day. [blocks] includes weekly repeats that land on
- * this weekday; [timedTodos] are due at a time of day, [allDayTodos] just on the day. */
+/** How a block recurs, as the block dialog offers it. The entity stores it as two booleans (see
+ * ScheduleBlock.repeatDaily / repeatWeekly) so old rows and old sync data stay valid; the dialog
+ * only ever lets one be on. */
+enum class BlockRepeat { NONE, DAILY, WEEKLY }
+
+/** Everything the day timeline shows for one day. [blocks] includes daily repeats and weekly
+ * repeats that land on this weekday; [timedTodos] are due at a time of day, [allDayTodos] just on the day. */
 data class ScheduleDay(
     val dayStart: Long,
     val blocks: List<ScheduleBlock>,
@@ -188,7 +193,7 @@ class ScheduleViewModel @Inject constructor(
         dayStart: Long,
         startMinuteOfDay: Int,
         endMinuteOfDay: Int,
-        repeatWeekly: Boolean,
+        repeat: BlockRepeat,
         notes: String
     ) {
         val pending = _pendingBlock.value ?: return
@@ -202,7 +207,8 @@ class ScheduleViewModel @Inject constructor(
             dayStart = dayStart,
             startMinuteOfDay = startMinuteOfDay,
             endMinuteOfDay = endMinuteOfDay,
-            repeatWeekly = repeatWeekly,
+            repeatDaily = repeat == BlockRepeat.DAILY,
+            repeatWeekly = repeat == BlockRepeat.WEEKLY,
             notes = notes.trim()
         )
         viewModelScope.launch {

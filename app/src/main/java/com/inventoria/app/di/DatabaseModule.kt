@@ -129,12 +129,22 @@ object DatabaseModule {
     }
 
     /**
+     * Daily-repeating schedule blocks (v18). One additive column; NOT NULL with a 0 default so
+     * every existing block reads as "not daily", which is what it was.
+     */
+    private val MIGRATION_17_18 = object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE ScheduleBlock ADD COLUMN repeatDaily INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
 
     @Provides
     @Singleton

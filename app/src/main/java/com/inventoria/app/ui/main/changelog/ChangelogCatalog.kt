@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 98,
+                versionName = "2.17",
+                changes = listOf(
+                    "Schedule blocks can now repeat daily as well as weekly. The block dialog's Repeat switch is now a Never / Daily / Weekly choice."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 97,
                 versionName = "2.16",
                 changes = listOf(

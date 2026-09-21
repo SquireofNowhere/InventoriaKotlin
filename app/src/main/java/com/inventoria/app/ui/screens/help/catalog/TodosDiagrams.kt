@@ -164,7 +164,7 @@ internal fun scheduleBlockPopup(
         DiagramField("Kind", "Peacock", FieldKind.Dropdown, highlight = highlightField == 1, callout = if (highlightField == 1) 1 else null),
         DiagramField("Type", "Coding", FieldKind.Dropdown, highlight = highlightField == 2, callout = if (highlightField == 2) 1 else null),
         DiagramField("From / To", "09:00 – 11:00", FieldKind.Text, highlight = highlightField == 3, callout = if (highlightField == 3) 1 else null),
-        DiagramField("Repeat weekly", "", FieldKind.Toggle, highlight = highlightField == 4, callout = if (highlightField == 4) 1 else null)
+        DiagramField("Repeat", "Weekly", FieldKind.Dropdown, highlight = highlightField == 4, callout = if (highlightField == 4) 1 else null)
     ),
     confirmLabel = "Save",
     dismissLabel = if (isNew) "Cancel" else "Delete"
