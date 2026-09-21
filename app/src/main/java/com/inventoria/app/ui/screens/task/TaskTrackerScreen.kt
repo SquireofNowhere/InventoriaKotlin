@@ -154,13 +154,6 @@ fun TaskTrackerScreen(
     var selectedSessionGroupId by remember { mutableStateOf<String?>(null) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
 
-    // A task started from the FAB opens its own details straight away -- see
-    // TaskTrackerViewModel.openSessionDetails. currentSelectedSession below resolves null until the
-    // new session arrives in activeSessions, then the dialog appears; no waiting needed here.
-    LaunchedEffect(Unit) {
-        viewModel.openSessionDetails.collect { groupId -> selectedSessionGroupId = groupId }
-    }
-
     // Tapping a task on the Schedule tab hands off here via AppLaunchViewModel's sticky request
     // (see openTaskId's caller) -- open its edit dialog once, then tell the caller to clear the
     // request so switching tabs again later doesn't reopen the same task.
@@ -300,7 +293,7 @@ fun TaskTrackerScreen(
         },
         floatingActionButton = {
             if (!isSelectionMode && activeSessions.size < 5) {
-                FloatingActionButton(onClick = { viewModel.addNewTask(openDetails = true) }, containerColor = MaterialTheme.colorScheme.primary) { Icon(Icons.Default.Add, contentDescription = "Start a new task") }
+                FloatingActionButton(onClick = { viewModel.addNewTask() }, containerColor = MaterialTheme.colorScheme.primary) { Icon(Icons.Default.Add, contentDescription = "Start a new task") }
             }
         }
     ) { padding ->

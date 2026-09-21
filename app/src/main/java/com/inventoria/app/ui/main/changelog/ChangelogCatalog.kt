@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 100,
+                versionName = "2.19",
+                changes = listOf(
+                    "The + button on Task Tracker no longer opens Session Details. It just starts the timer with the name field focused and the keyboard up, so you can type the name straight away."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 99,
                 versionName = "2.18",
                 changes = listOf(
