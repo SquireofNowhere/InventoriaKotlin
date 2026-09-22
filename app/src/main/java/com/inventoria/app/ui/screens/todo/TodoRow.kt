@@ -43,6 +43,7 @@ import com.inventoria.app.ui.screens.task.TodoPriorityChip
 import com.inventoria.app.ui.screens.task.taskTypeColor
 import com.inventoria.app.ui.screens.task.taskCategoryColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
+import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.util.formatDueDate
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
@@ -135,6 +136,11 @@ internal fun TodoRow(
     // nothing. Purely a display cue -- the procrastination penalty stays whole-days-only.
     val isLateToday = todo.state != TodoState.COMPLETE && todo.deadline == todayStart &&
         todo.deadlineMinuteOfDay != null && todo.deadlineMinuteOfDay!! < nowMinuteOfDay
+    // Every direct child done, but the parent itself hasn't been checked off yet -- effectiveState
+    // already shows this the same as "some children done" (both are just IN_PROGRESS), so without
+    // this the two are indistinguishable at a glance beyond the child-count text underneath.
+    val allChildrenComplete = entry.childProgress?.let { (completed, total) -> total > 0 && completed == total } ?: false
+    val readyToComplete = entry.effectiveState == TodoState.IN_PROGRESS && allChildrenComplete
     var iconRootTopLeft by remember { mutableStateOf(Offset.Zero) }
     // pointerInput(todo.id) below only re-executes its block when todo.id itself changes -- since
     // it doesn't change mid-drag, the block (and whatever it captures) stays frozen at whichever
@@ -246,7 +252,10 @@ internal fun TodoRow(
                         TodoState.IN_PROGRESS -> ToggleableState.Indeterminate
                         TodoState.INCOMPLETE -> ToggleableState.Off
                     },
-                    onClick = onToggleCompleted
+                    onClick = onToggleCompleted,
+                    // A plain dash for "some children done"; green once they all are, so a parent
+                    // that just needs its own tap to close out reads differently at a glance.
+                    colors = if (readyToComplete) CheckboxDefaults.colors(checkedColor = Success) else CheckboxDefaults.colors()
                 )
                 Column(
                     modifier = Modifier
@@ -339,7 +348,8 @@ internal fun TodoRow(
                         Text(
                             text = "$completed/$total sub-todos complete",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = if (readyToComplete) FontWeight.Bold else null,
+                            color = if (readyToComplete) Success else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

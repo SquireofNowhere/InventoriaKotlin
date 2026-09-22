@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 116,
+                versionName = "2.35",
+                changes = listOf(
+                    "A parent todo whose sub-todos are ALL done now stands out from one that's only partway there: its checkbox and \"X/X sub-todos complete\" text turn green, a nudge that it just needs its own tap to close out."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 115,
                 versionName = "2.34",
                 changes = listOf(
