@@ -77,3 +77,22 @@ fun formatSimpleDate(timestamp: Long): String {
     val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     return sdf.format(Date(timestamp))
 }
+
+/** "today" / "tomorrow" / "Dec 14" / "Dec 14, 2028" -- the date-only counterpart to
+ * [formatMinuteOfDay], for a todo with a deadline but no specific time of day. The year is left
+ * off entirely except when [timestamp] falls outside the current one, where leaving it off would
+ * make a distant deadline read as if it were this year. */
+fun formatDueDate(timestamp: Long): String {
+    val now = Calendar.getInstance()
+    val target = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+    fun sameDay(a: Calendar, b: Calendar) =
+        a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+    return when {
+        sameDay(target, now) -> "today"
+        sameDay(target, tomorrow) -> "tomorrow"
+        target.get(Calendar.YEAR) == now.get(Calendar.YEAR) ->
+            SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+        else -> SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+    }
+}

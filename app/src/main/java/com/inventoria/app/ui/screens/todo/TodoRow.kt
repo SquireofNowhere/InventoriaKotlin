@@ -43,6 +43,7 @@ import com.inventoria.app.ui.screens.task.TodoPriorityChip
 import com.inventoria.app.ui.screens.task.taskTypeColor
 import com.inventoria.app.ui.screens.task.taskCategoryColor
 import com.inventoria.app.ui.screens.task.todoPriorityTierColor
+import com.inventoria.app.util.formatDueDate
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.formatSimpleDate
 import com.inventoria.app.util.getDayLabel
@@ -296,15 +297,20 @@ internal fun TodoRow(
                             )
                         }
                     }
-                    // Due time and, when one is set, the alarm -- the icon is the only place the
-                    // list says "this one will ring", so it sits right next to the time it rings
-                    // for. An all-day todo with an alarm shows the icon alone.
+                    // Due time, or for an all-day todo (a deadline with no time of its own) just
+                    // the date -- and, when one is set, the alarm icon right after it, the only
+                    // place the list says "this one will ring".
                     val hasAlarm = todo.reminderOffsetMinutes != null && todo.state != TodoState.COMPLETE
-                    if (todo.deadlineMinuteOfDay != null || hasAlarm) {
+                    val dueText = when {
+                        todo.deadlineMinuteOfDay != null -> "Due ${formatMinuteOfDay(todo.deadlineMinuteOfDay!!)}"
+                        todo.deadline != null -> "Due ${formatDueDate(todo.deadline!!)}"
+                        else -> null
+                    }
+                    if (dueText != null || hasAlarm) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            todo.deadlineMinuteOfDay?.let { minuteOfDay ->
+                            dueText?.let {
                                 Text(
-                                    text = "Due ${formatMinuteOfDay(minuteOfDay)}",
+                                    text = it,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (isLateToday) FontWeight.Bold else null,
                                     color = if (isLateToday) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant

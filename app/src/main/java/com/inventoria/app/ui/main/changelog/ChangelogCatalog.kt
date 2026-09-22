@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 114,
+                versionName = "2.33",
+                changes = listOf(
+                    "A todo with a deadline but no specific time now says so on its row -- \"Due today\", \"Due tomorrow\", \"Due Dec 14\", or \"Due Dec 14, 2028\" once it's not this year -- instead of showing nothing at all."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 113,
                 versionName = "2.32",
                 changes = listOf(
