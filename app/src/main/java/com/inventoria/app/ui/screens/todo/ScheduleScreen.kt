@@ -481,6 +481,11 @@ private val TASK_NEST_AFTER_MINUTES = TASK_TITLE_HEIGHT.value / BASE_HOUR_HEIGHT
 /** Thinnest a task card is drawn, so a task of a minute or two still shows. */
 private val MIN_TASK_HEIGHT = 3.dp
 
+/** A todo due-marker's rendered height (hairline + its label row) -- when two are due close
+ * enough together that they'd otherwise land within this of each other, the lane below cascades
+ * the later one down by roughly this much instead of letting their labels overlap. */
+private val TODO_MARKER_HEIGHT = 22.dp
+
 /** A day item's header in the vertical scroller: "Today" / "Yesterday" / "Tomorrow" close by,
  * else a plain date -- the same rule [getDayLabel] already gives the block dialog. Fixed-height
  * (see [DATE_LABEL_HEIGHT]) so the zoom math above can account for it without measuring it. */
@@ -604,7 +609,8 @@ private fun DayLane(
     onTaskClick: (Task) -> Unit,
     modifier: Modifier
 ) {
-    val hourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
+    val density = LocalDensity.current
+    val hourHeightPx = with(density) { hourHeight.toPx() }
     // Blocks, tasks and todo markers each consume their own taps before they reach this, so
     // whatever arrives here really did land on empty paper.
     BoxWithConstraints(
@@ -690,7 +696,24 @@ private fun DayLane(
             )
         }
 
-        // Todos: a deadline is a moment, so a hairline across everything at that minute.
+        // Todos: a deadline is a moment, so a hairline across everything at that minute -- except
+        // when several land close together at the current zoom, where stacking them all at their
+        // exact minute would bury every label but the last under one another. A crowded cluster
+        // cascades downward instead, one marker's height at a time, the same idea the lane above
+        // already uses for overlapping tasks.
+        val markerHeightPx = with(density) { TODO_MARKER_HEIGHT.toPx() }
+        val todoOffsetPx = remember(day.timedTodos, hourHeightPx) {
+            var nextFreeY = Float.NEGATIVE_INFINITY
+            day.timedTodos
+                .filter { it.deadlineMinuteOfDay != null }
+                .sortedBy { it.deadlineMinuteOfDay }
+                .associateWith { todo ->
+                    val naturalY = hourHeightPx * (todo.deadlineMinuteOfDay!! / 60f)
+                    val y = maxOf(naturalY, nextFreeY)
+                    nextFreeY = y + markerHeightPx
+                    y
+                }
+        }
         day.timedTodos.forEach { todo ->
             val minute = todo.deadlineMinuteOfDay ?: return@forEach
             val done = todo.state == TodoState.COMPLETE
@@ -698,11 +721,12 @@ private fun DayLane(
             // moment already passed on the clock.
             val isOverdue = !done && todo.deadline != null && todo.deadline!! < todayStart
             val isLateToday = !done && todo.deadline == todayStart && minute < nowMinuteOfDay
+            val y = with(density) { (todoOffsetPx.getValue(todo)).toDp() }
             TodoDueMarker(
                 todo = todo,
                 isDue = isOverdue || isLateToday,
                 modifier = Modifier
-                    .offset(y = hourHeight * (minute / 60f) - 1.dp)
+                    .offset(y = y - 1.dp)
                     .fillMaxWidth(),
                 onClick = { onTodoClick(todo) }
             )

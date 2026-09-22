@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 113,
+                versionName = "2.32",
+                changes = listOf(
+                    "Todos due close together on the Schedule day view no longer overlap. When several land within a few minutes of each other, they now cascade downward one at a time instead of stacking their labels illegibly on top of each other."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 112,
                 versionName = "2.31",
                 changes = listOf(
