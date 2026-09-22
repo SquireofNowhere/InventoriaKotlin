@@ -16,11 +16,14 @@ import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.components.UndoableDeleteController
 import com.inventoria.app.util.getStartOfDay
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -51,6 +54,13 @@ data class ScheduleDay(
     val tasks: List<DayTaskSegment>
 )
 
+/** The raw, day-agnostic slices [buildDay] slices per day. */
+data class ScheduleRawData(
+    val blocks: List<ScheduleBlock>,
+    val todos: List<Todo>,
+    val tasks: List<Task>
+)
+
 /** One cell of the week strip: the day, and which of the three things it has any of. */
 data class WeekDayMarker(
     val dayStart: Long,
@@ -66,6 +76,13 @@ fun plusDays(day: Long, days: Int): Long = Calendar.getInstance().apply {
     timeInMillis = day
     add(Calendar.DAY_OF_YEAR, days)
 }.timeInMillis.let { getStartOfDay(it) }
+
+/** Whole calendar days from [from] to [to] (both start-of-day timestamps), DST-safe: rounding each
+ * side to noon *before* dividing (rather than dividing their difference) keeps a +/-1h DST shift
+ * from tipping either side's division into the wrong day. Used to turn a day back into a list
+ * index -- the inverse of [plusDays]. */
+fun daysBetween(from: Long, to: Long): Int =
+    ((to + DAY_MILLIS / 2) / DAY_MILLIS - (from + DAY_MILLIS / 2) / DAY_MILLIS).toInt()
 
 /** Start of the locale's week containing [day]. */
 fun weekStartOf(day: Long): Long {
@@ -117,15 +134,18 @@ class ScheduleViewModel @Inject constructor(
     private val tasks: StateFlow<List<Task>> = taskRepository.getVisibleTasks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val day: StateFlow<ScheduleDay> =
-        combine(selectedDay, blocks, todos, tasks) { day, blockList, todoList, taskList ->
-            buildDay(day, blockList, todoList, taskList)
-        }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5000),
-                ScheduleDay(_selectedDay.value, emptyList(), emptyList(), emptyList(), emptyList())
-            )
+    /** Everything [buildDay] needs, bundled so the screen can build any visible day's [ScheduleDay]
+     * on demand -- the vertical scroller shows a window of days rather than one fixed selection,
+     * so there's no single "the" day to precompute here the way there used to be. */
+    val rawData: StateFlow<ScheduleRawData> =
+        combine(blocks, todos, tasks) { blockList, todoList, taskList -> ScheduleRawData(blockList, todoList, taskList) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ScheduleRawData(emptyList(), emptyList(), emptyList()))
+
+    /** A day the user explicitly asked to jump to -- a WeekStrip tap or [goToToday] -- for the
+     * screen to scroll its day list to. Scrolling there updates [selectedDay] via
+     * [trackVisibleDay], which deliberately does *not* feed back into this flow. */
+    private val _scrollToDayRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val scrollToDayRequests: SharedFlow<Long> = _scrollToDayRequests.asSharedFlow()
 
     val weekDays: StateFlow<List<WeekDayMarker>> =
         combine(weekStart, blocks, todos, tasks) { start, blockList, todoList, taskList ->
@@ -141,10 +161,24 @@ class ScheduleViewModel @Inject constructor(
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun selectDay(dayStart: Long) {
+    private fun setSelectedDay(dayStart: Long) {
         _selectedDay.value = dayStart
         val week = weekStartOf(dayStart)
         if (_weekStart.value != week) _weekStart.value = week
+    }
+
+    /** A WeekStrip tap or [goToToday]: updates the selection immediately (so the strip highlights
+     * without waiting for the scroll to land) and asks the screen to scroll its day list there. */
+    fun goToDay(dayStart: Long) {
+        setSelectedDay(dayStart)
+        _scrollToDayRequests.tryEmit(dayStart)
+    }
+
+    /** Keeps [selectedDay] (and the week it's in) following whichever day is topmost in the
+     * vertical scroller. Deliberately doesn't request a scroll of its own -- doing so would fight
+     * the very scroll gesture that called it. */
+    fun trackVisibleDay(dayStart: Long) {
+        if (_selectedDay.value != dayStart) setSelectedDay(dayStart)
     }
 
     /** Moves the strip a week without moving the selection -- the selected day may scroll out of
@@ -153,7 +187,7 @@ class ScheduleViewModel @Inject constructor(
         _weekStart.value = plusDays(_weekStart.value, weeks * 7)
     }
 
-    fun goToToday() = selectDay(getStartOfDay(System.currentTimeMillis()))
+    fun goToToday() = goToDay(getStartOfDay(System.currentTimeMillis()))
 
     // ---- Block editing --------------------------------------------------------------------
 
@@ -166,13 +200,15 @@ class ScheduleViewModel @Inject constructor(
     private val _pendingBlock = MutableStateFlow<ScheduleBlock?>(null)
     val pendingBlock: StateFlow<ScheduleBlock?> = _pendingBlock.asStateFlow()
 
-    /** Opens the dialog for a new block on the selected day, starting at [startMinute] (snapped to
-     * the hour by the caller) and lasting an hour, capped at midnight. */
-    fun startAddingBlock(startMinute: Int = 9 * 60) {
+    /** Opens the dialog for a new block on [dayStart] (the focused day by default -- the FAB has
+     * no day of its own to pass), starting at [startMinute] (snapped to the hour by the caller)
+     * and lasting an hour, capped at midnight. Tapping an empty hour on a day scrolled into view
+     * passes that day explicitly, since it may not be the focused one yet. */
+    fun startAddingBlock(dayStart: Long = _selectedDay.value, startMinute: Int = 9 * 60) {
         val start = startMinute.coerceIn(0, 23 * 60)
         _pendingBlock.value = ScheduleBlock(
             id = "",
-            dayStart = _selectedDay.value,
+            dayStart = dayStart,
             startMinuteOfDay = start,
             endMinuteOfDay = minOf(start + 60, 24 * 60)
         )
@@ -255,6 +291,12 @@ class ScheduleViewModel @Inject constructor(
         val end = task.endTime ?: System.currentTimeMillis()
         return task.startTime < dayStart + DAY_MILLIS && end > dayStart
     }
+
+    /** Slices [data] down to one day. Public (unlike the rest of "Assembly") because the screen's
+     * day scroller calls it once per visible day, rather than the ViewModel precomputing a single
+     * selected day the way it used to. */
+    fun buildDay(dayStart: Long, data: ScheduleRawData): ScheduleDay =
+        buildDay(dayStart, data.blocks, data.todos, data.tasks)
 
     private fun buildDay(
         dayStart: Long,

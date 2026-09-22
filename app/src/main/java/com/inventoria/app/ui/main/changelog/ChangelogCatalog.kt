@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 112,
+                versionName = "2.31",
+                changes = listOf(
+                    "The Schedule day view now scrolls straight into the next or previous day instead of stopping at midnight -- scroll up or down and the timeline just keeps going. Tapping a day in the week strip or hitting Today jumps you there directly."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 111,
                 versionName = "2.30",
                 changes = listOf(

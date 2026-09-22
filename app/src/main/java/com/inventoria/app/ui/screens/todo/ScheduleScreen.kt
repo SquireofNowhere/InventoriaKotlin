@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,6 +69,7 @@ import com.inventoria.app.ui.components.rememberTimelineZoom
 import com.inventoria.app.ui.components.tickMinutes
 import com.inventoria.app.util.layoutOverlaps
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -79,8 +82,27 @@ import kotlin.math.roundToInt
 private val BASE_HOUR_HEIGHT = 64.dp
 private val GUTTER_WIDTH = 44.dp
 
+/** The day list's item count and the index that represents "today" at the screen's first
+ * composition -- comfortably wide (~270 years each way) that no one will ever scroll past it, and
+ * cheap regardless of width since LazyColumn only ever composes what's actually on screen. */
+private const val DAY_INDEX_ANCHOR = 100_000
+private const val DAY_INDEX_COUNT = 200_001
+
+/** A day item's header -- the date label plus the all-day strip -- is always this tall, whether or
+ * not that day actually has an all-day todo to show: a constant lets the zoom math (see
+ * ScheduleScreen's zoomAround) work out where a day's canvas starts without depending on data
+ * that might not have loaded yet, at the cost of a little empty space on a light day. */
+private val DATE_LABEL_HEIGHT = 32.dp
+private val ALL_DAY_STRIP_HEIGHT = 40.dp
+private val DAY_HEADER_HEIGHT = DATE_LABEL_HEIGHT + ALL_DAY_STRIP_HEIGHT
+
 /**
- * The Schedule segment: a week strip to pick a day, and that day as one 24-hour timeline.
+ * The Schedule segment: a week strip to pick a day, and a vertical list of 24-hour timelines below
+ * it that scrolls forever in both directions rather than paging a single selected day -- the
+ * timeline continues seamlessly across midnight, and scrolling into the next or previous day is
+ * just... scrolling. [DAY_INDEX_COUNT] items exist so LazyColumn has a stable, indexable range to
+ * scroll within, but it only ever composes what's actually near the viewport -- at this screen's
+ * hour heights that's at most two day items at once, the current one and a sliver of its neighbour.
  *
  * Schedule blocks are painted flat and translucent across the full width, as if drawn on the
  * calendar paper itself -- they are what the time was *for*. Tracked task segments sit in front
@@ -96,13 +118,13 @@ private val GUTTER_WIDTH = 44.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> Unit) {
-    val day by viewModel.day.collectAsState()
     val weekDays by viewModel.weekDays.collectAsState()
     val weekStart by viewModel.weekStart.collectAsState()
     val selectedDay by viewModel.selectedDay.collectAsState()
     val pendingBlock by viewModel.pendingBlock.collectAsState()
     val taskTypes by viewModel.taskTypes.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
+    val rawData by viewModel.rawData.collectAsState()
     val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
     // Same once-a-minute ticker TodoScreen runs: moves the now-line and grows a running task.
     val nowMinuteOfDay by produceState(currentMinuteOfDay()) {
@@ -110,6 +132,57 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
             delay(60_000)
             value = currentMinuteOfDay()
         }
+    }
+
+    fun dayForIndex(index: Int): Long = plusDays(todayStart, index - DAY_INDEX_ANCHOR)
+    fun indexForDay(day: Long): Int = DAY_INDEX_ANCHOR + daysBetween(todayStart, day)
+
+    val zoom = rememberTimelineZoom("schedule")
+    val hourHeight = BASE_HOUR_HEIGHT * zoom.scale
+    val tick = tickMinutes(hourHeight.value)
+    val density = LocalDensity.current
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = DAY_INDEX_ANCHOR)
+    val scope = rememberCoroutineScope()
+
+    suspend fun scrollToDay(dayStart: Long, animate: Boolean) {
+        val index = indexForDay(dayStart)
+        val offset = if (dayStart == todayStart) {
+            val headerPx = with(density) { DAY_HEADER_HEIGHT.toPx() }
+            val minute = (nowMinuteOfDay - 60).coerceAtLeast(0)
+            (headerPx + minute / 60f * with(density) { hourHeight.toPx() }).roundToInt()
+        } else 0
+        if (animate) listState.animateScrollToItem(index, offset) else listState.scrollToItem(index, offset)
+    }
+
+    LaunchedEffect(Unit) { scrollToDay(todayStart, animate = false) }
+    // A WeekStrip tap or the Today button: scroll there. Deliberately one-directional -- the
+    // listener below feeds the *other* way, updating selectedDay as the user scrolls, and must
+    // not loop back into asking for a scroll of its own.
+    LaunchedEffect(listState) {
+        viewModel.scrollToDayRequests.collect { day -> scrollToDay(day, animate = true) }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { index -> viewModel.trackVisibleDay(dayForIndex(index)) }
+    }
+
+    // Keeps whatever's under a pinch (or, from the zoom buttons, the middle of the screen) where
+    // it is: find which day item focalY falls in, work out the minute of that day under it at the
+    // old scale, then scroll so that same day+minute lands under it again at the new scale.
+    var viewportHeight by remember { mutableIntStateOf(0) }
+    fun zoomAround(focalY: Float, change: () -> Unit) {
+        val item = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { focalY >= it.offset && focalY < it.offset + it.size } ?: return
+        val oldHourHeightPx = with(density) { hourHeight.toPx() }
+        change()
+        val newHourHeightPx = with(density) { (BASE_HOUR_HEIGHT * zoom.scale).toPx() }
+        val headerPx = with(density) { DAY_HEADER_HEIGHT.toPx() }
+        val localY = focalY - item.offset
+        if (localY < headerPx) return // pinched the header -- nothing timed to preserve there
+        val minuteAtFocal = (localY - headerPx) / oldHourHeightPx * 60f
+        val newLocalY = headerPx + minuteAtFocal / 60f * newHourHeightPx
+        val targetOffset = (newLocalY - (focalY - item.offset)).roundToInt().coerceAtLeast(0)
+        scope.launch { listState.scrollToItem(item.index, targetOffset) }
     }
 
     val undoSnackbarHostState = remember { SnackbarHostState() }
@@ -143,24 +216,52 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
                 weekDays = weekDays,
                 selectedDay = selectedDay,
                 todayStart = todayStart,
-                onSelect = { viewModel.selectDay(it) },
+                onSelect = { viewModel.goToDay(it) },
                 onShiftWeek = { viewModel.shiftWeek(it) }
             )
-            if (day.allDayTodos.isNotEmpty()) {
-                AllDayTodoStrip(day.allDayTodos, todayStart = todayStart, onToggle = { viewModel.toggleTodoComplete(it) })
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .onSizeChanged { viewportHeight = it.height }
+                    .pinchToZoom { factor, focalY -> zoomAround(focalY) { zoom.zoomBy(factor) } }
+            ) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    items(count = DAY_INDEX_COUNT, key = { index -> dayForIndex(index) }) { index ->
+                        val dayStart = dayForIndex(index)
+                        val scheduleDay = remember(dayStart, rawData) { viewModel.buildDay(dayStart, rawData) }
+                        Column(Modifier.fillMaxWidth()) {
+                            DayHeaderLabel(dayStart, isToday = dayStart == todayStart)
+                            // Always shown, even with nothing due -- so every day item reserves the
+                            // same header height (see DAY_HEADER_HEIGHT) and the canvas below always
+                            // starts at the same offset, which the zoom/scroll math above counts on.
+                            AllDayTodoStrip(scheduleDay.allDayTodos, todayStart = todayStart, onToggle = { viewModel.toggleTodoComplete(it) })
+                            DayCanvas(
+                                day = scheduleDay,
+                                isToday = dayStart == todayStart,
+                                todayStart = todayStart,
+                                nowMinuteOfDay = nowMinuteOfDay,
+                                hourHeight = hourHeight,
+                                tick = tick,
+                                onTapEmptyMinute = { minute -> viewModel.startAddingBlock(dayStart, (minute / 60) * 60) },
+                                taskTypeNames = taskTypeNames,
+                                onBlockClick = { viewModel.startEditingBlock(it) },
+                                onTodoClick = { viewModel.toggleTodoComplete(it) },
+                                onTaskClick = { onOpenTaskDetail(it.id) }
+                            )
+                        }
+                    }
+                }
+                TimelineZoomControls(
+                    state = zoom,
+                    onZoomOut = { zoomAround(viewportHeight / 2f) { zoom.stepOut() } },
+                    onZoomIn = { zoomAround(viewportHeight / 2f) { zoom.stepIn() } },
+                    onReset = { zoomAround(viewportHeight / 2f) { zoom.reset() } },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp)
+                )
             }
-            DayTimeline(
-                day = day,
-                isToday = selectedDay == todayStart,
-                todayStart = todayStart,
-                nowMinuteOfDay = nowMinuteOfDay,
-                onTapEmptyMinute = { minute -> viewModel.startAddingBlock((minute / 60) * 60) },
-                taskTypeNames = taskTypeNames,
-                onBlockClick = { viewModel.startEditingBlock(it) },
-                onTodoClick = { viewModel.toggleTodoComplete(it) },
-                onTaskClick = { onOpenTaskDetail(it.id) },
-                modifier = Modifier.weight(1f)
-            )
         }
     }
 
@@ -308,13 +409,17 @@ private fun MarkerDot(color: Color) {
 // ---- All-day todos ----------------------------------------------------------------------------
 
 /** Todos due on the day with no time of their own. They have no place on an hour grid, so they
- * sit in a strip above it -- one chip each, tinted by priority tier, tap to tick off. */
+ * sit in a strip above it -- one chip each, tinted by priority tier, tap to tick off. A fixed
+ * height ([ALL_DAY_STRIP_HEIGHT]) regardless of whether there's anything in it, unlike its old
+ * single-day self: every day item in the scroller reserves the same header height either way (see
+ * [DAY_HEADER_HEIGHT]), which the zoom/scroll math in ScheduleScreen counts on. */
 @Composable
 private fun AllDayTodoStrip(todos: List<Todo>, todayStart: Long, onToggle: (Todo) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .height(ALL_DAY_STRIP_HEIGHT)
+            .padding(horizontal = 12.dp)
             .horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -376,136 +481,108 @@ private val TASK_NEST_AFTER_MINUTES = TASK_TITLE_HEIGHT.value / BASE_HOUR_HEIGHT
 /** Thinnest a task card is drawn, so a task of a minute or two still shows. */
 private val MIN_TASK_HEIGHT = 3.dp
 
+/** A day item's header in the vertical scroller: "Today" / "Yesterday" / "Tomorrow" close by,
+ * else a plain date -- the same rule [getDayLabel] already gives the block dialog. Fixed-height
+ * (see [DATE_LABEL_HEIGHT]) so the zoom math above can account for it without measuring it. */
 @Composable
-private fun DayTimeline(
+private fun DayHeaderLabel(dayStart: Long, isToday: Boolean) {
+    Text(
+        text = getDayLabel(dayStart),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = if (isToday) FontWeight.Bold else null,
+        color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(DATE_LABEL_HEIGHT)
+            .padding(horizontal = 12.dp)
+            .wrapContentHeight()
+    )
+}
+
+/** One day's 24-hour grid -- gridlines, hour labels, the blocks/tasks/todos lane, and the now-line
+ * on today. Unlike the old single-day screen this has no scrolling or zoom controls of its own:
+ * it's one item in the caller's LazyColumn, which is what actually scrolls, and hourHeight/zoom are
+ * hoisted there too so every day item shares the same scale. */
+@Composable
+private fun DayCanvas(
     day: ScheduleDay,
     isToday: Boolean,
     todayStart: Long,
     nowMinuteOfDay: Int,
+    hourHeight: Dp,
+    tick: Int,
     onTapEmptyMinute: (Int) -> Unit,
     taskTypeNames: Map<String, String>,
     onBlockClick: (ScheduleBlock) -> Unit,
     onTodoClick: (Todo) -> Unit,
-    onTaskClick: (Task) -> Unit,
-    modifier: Modifier
+    onTaskClick: (Task) -> Unit
 ) {
-    val scrollState = rememberScrollState()
-    val zoom = rememberTimelineZoom("schedule")
-    val hourHeight = BASE_HOUR_HEIGHT * zoom.scale
-    val tick = tickMinutes(hourHeight.value)
-    // Land somewhere useful once, rather than at 00:00: an hour before now on today, a working
-    // morning otherwise. Not repeated on day changes -- you were probably looking at an hour.
-    val initialHourHeightPx = with(LocalDensity.current) { hourHeight.toPx() }
-    LaunchedEffect(Unit) {
-        val targetMinute = if (isToday) (nowMinuteOfDay - 60).coerceAtLeast(0) else 7 * 60
-        scrollState.scrollTo((targetMinute / 60f * initialHourHeightPx).roundToInt())
-    }
-
-    // Zooming keeps whatever is under the fingers (or, from the buttons, the middle of the screen)
-    // where it is: the content stretches about that point, so the scroll offset has to move with it.
-    // The offset is set once the new height has been laid out, hence the pending value.
-    var viewportHeight by remember { mutableIntStateOf(0) }
-    var pendingScroll by remember { mutableStateOf<Float?>(null) }
-    fun zoomAround(focalY: Float, change: () -> Unit) {
-        val before = zoom.scale
-        change()
-        val ratio = zoom.scale / before
-        if (ratio != 1f) {
-            pendingScroll = ((pendingScroll ?: scrollState.value.toFloat()) + focalY) * ratio - focalY
-        }
-    }
-    LaunchedEffect(zoom.scale) {
-        val target = pendingScroll ?: return@LaunchedEffect
-        withFrameNanos { }
-        scrollState.scrollTo(target.roundToInt().coerceAtLeast(0))
-        pendingScroll = null
-    }
-
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val nowColor = MaterialTheme.colorScheme.error
 
-    Box(modifier.fillMaxWidth()) {
-        Box(
-            Modifier
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(hourHeight * 24)
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            val gutter = GUTTER_WIDTH.toPx()
+            val stroke = 1.dp.toPx()
+            val hourHeightPx = hourHeight.toPx()
+            for (minute in 0..24 * 60 step tick) {
+                val y = minute / 60f * hourHeightPx
+                val color = if (minute % 60 == 0) gridColor else gridColor.copy(alpha = 0.45f)
+                drawLine(color, Offset(gutter, y), Offset(size.width, y), stroke)
+            }
+            // Splits the day into a blocks side and a tasks side, behind everything else.
+            val mid = gutter + (size.width - gutter) / 2f
+            drawLine(gridColor, Offset(mid, 0f), Offset(mid, size.height), stroke)
+        }
+        // 24:00 has no label of its own; the day ends at the last hour.
+        for (minute in 0 until 24 * 60 step tick) {
+            Text(
+                text = "%02d:%02d".format(minute / 60, minute % 60),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .width(GUTTER_WIDTH)
+                    .offset(y = hourHeight * (minute / 60f) - 7.dp)
+                    .padding(end = 4.dp),
+                textAlign = TextAlign.End
+            )
+        }
+        DayLane(
+            day = day,
+            todayStart = todayStart,
+            nowMinuteOfDay = nowMinuteOfDay,
+            hourHeight = hourHeight,
+            onTapEmptyMinute = onTapEmptyMinute,
+            taskTypeNames = taskTypeNames,
+            onBlockClick = onBlockClick,
+            onTodoClick = onTodoClick,
+            onTaskClick = onTaskClick,
+            modifier = Modifier
                 .fillMaxSize()
-                .onSizeChanged { viewportHeight = it.height }
-                .pinchToZoom { factor, focalY -> zoomAround(focalY) { zoom.zoomBy(factor) } }
-                .verticalScroll(scrollState)
-        ) {
+                .padding(start = GUTTER_WIDTH)
+        )
+        if (isToday) {
+            val y = hourHeight * (nowMinuteOfDay / 60f)
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(hourHeight * 24)
-            ) {
-                Canvas(Modifier.matchParentSize()) {
-                    val gutter = GUTTER_WIDTH.toPx()
-                    val stroke = 1.dp.toPx()
-                    val hourHeightPx = hourHeight.toPx()
-                    for (minute in 0..24 * 60 step tick) {
-                        val y = minute / 60f * hourHeightPx
-                        val color = if (minute % 60 == 0) gridColor else gridColor.copy(alpha = 0.45f)
-                        drawLine(color, Offset(gutter, y), Offset(size.width, y), stroke)
-                    }
-                    // Splits the day into a blocks side and a tasks side, behind everything else.
-                    val mid = gutter + (size.width - gutter) / 2f
-                    drawLine(gridColor, Offset(mid, 0f), Offset(mid, size.height), stroke)
-                }
-                // 24:00 has no label of its own; the day ends at the last hour.
-                for (minute in 0 until 24 * 60 step tick) {
-                    Text(
-                        text = "%02d:%02d".format(minute / 60, minute % 60),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .width(GUTTER_WIDTH)
-                            .offset(y = hourHeight * (minute / 60f) - 7.dp)
-                            .padding(end = 4.dp),
-                        textAlign = TextAlign.End
-                    )
-                }
-                DayLane(
-                    day = day,
-                    todayStart = todayStart,
-                    nowMinuteOfDay = nowMinuteOfDay,
-                    hourHeight = hourHeight,
-                    onTapEmptyMinute = onTapEmptyMinute,
-                    taskTypeNames = taskTypeNames,
-                    onBlockClick = onBlockClick,
-                    onTodoClick = onTodoClick,
-                    onTaskClick = onTaskClick,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = GUTTER_WIDTH)
-                )
-                if (isToday) {
-                    val y = hourHeight * (nowMinuteOfDay / 60f)
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .offset(y = y - 1.dp)
-                            .padding(start = GUTTER_WIDTH - 4.dp)
-                            .height(2.dp)
-                            .background(nowColor)
-                    )
-                    Box(
-                        Modifier
-                            .offset(x = GUTTER_WIDTH - 8.dp, y = y - 4.dp)
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(nowColor)
-                    )
-                }
-            }
+                    .offset(y = y - 1.dp)
+                    .padding(start = GUTTER_WIDTH - 4.dp)
+                    .height(2.dp)
+                    .background(nowColor)
+            )
+            Box(
+                Modifier
+                    .offset(x = GUTTER_WIDTH - 8.dp, y = y - 4.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(nowColor)
+            )
         }
-        TimelineZoomControls(
-            state = zoom,
-            onZoomOut = { zoomAround(viewportHeight / 2f) { zoom.stepOut() } },
-            onZoomIn = { zoomAround(viewportHeight / 2f) { zoom.stepIn() } },
-            onReset = { zoomAround(viewportHeight / 2f) { zoom.reset() } },
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(12.dp)
-        )
     }
 }
 
