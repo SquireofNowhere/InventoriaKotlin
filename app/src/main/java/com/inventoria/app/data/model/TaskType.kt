@@ -50,6 +50,7 @@ val DEFAULT_TASK_TYPE_NAMES = listOf(
     "Admin",
     "Hobby",
     "Health",
+    "Interruption",
     "Other"
 )
 

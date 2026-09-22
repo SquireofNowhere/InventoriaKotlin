@@ -20,6 +20,15 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 111,
+                versionName = "2.30",
+                changes = listOf(
+                    "A new sub-todo now starts with its parent's kind, type and priority already filled in, instead of blank defaults. Moving an existing todo to a different parent still leaves its own kind/type/priority alone.",
+                    "The \"What's interrupting you?\" dialog now defaults the task type to a new \"Interruption\" type instead of leaving it blank -- change it in the dialog if this one was really something else.",
+                    "The Schedule screen now marks overdue todos and ones whose time has already passed in red, matching the Todos list -- both the all-day strip and the timeline hairlines."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 110,
                 versionName = "2.29",
                 changes = listOf(

@@ -568,7 +568,8 @@ class TaskTrackerViewModel @Inject constructor(
             name = "Interruption",
             isRunning = true,
             startTime = System.currentTimeMillis(),
-            interruptedGroupId = interruptedGroupId
+            interruptedGroupId = interruptedGroupId,
+            taskTypeId = taskTypeRepository.ensureInterruptionTaskType()
         )
         repository.insertTask(task)
         val intent = Intent(context, TaskTimerService::class.java)

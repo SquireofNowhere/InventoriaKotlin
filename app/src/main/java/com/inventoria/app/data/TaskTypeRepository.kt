@@ -61,6 +61,21 @@ class TaskTypeRepository @Inject constructor(
         )
     }
 
+    /**
+     * Returns the id of the "Interruption" type, inserting it if this account was seeded before
+     * it existed. Idempotent: [defaultTaskTypeId] is deterministic and the insert is a REPLACE,
+     * so calling this repeatedly (once per interruption) never duplicates or clobbers a rename.
+     */
+    suspend fun ensureInterruptionTaskType(): String {
+        val id = defaultTaskTypeId("Interruption")
+        if (taskTypeDao.getTaskTypeById(id) == null) {
+            taskTypeDao.insertTaskType(
+                TaskType(id = id, name = "Interruption", updatedAt = getNextTimestamp(), isDirty = true)
+            )
+        }
+        return id
+    }
+
     /** Soft delete, consistent with every other entity -- the row survives so tasks still
      * referencing this id keep resolving, and the deletion itself syncs to other devices. */
     suspend fun deleteTaskType(id: String) {

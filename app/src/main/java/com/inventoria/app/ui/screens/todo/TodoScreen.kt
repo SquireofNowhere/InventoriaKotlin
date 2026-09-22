@@ -307,11 +307,14 @@ fun TodoScreen(
     }
 
     if (isAddingNew) {
+        // A new todo created under a selected parent inherits its kind/type/priority as a
+        // one-time prefill -- moving a todo to a different parent later never touches these.
+        val newTodoParent = remember(selectedTodoId, allTodos) { allTodos.find { it.id == selectedTodoId } }
         TodoEditDialog(
             initialTitle = "",
             initialDescription = "",
-            initialKind = TaskKind.GRAPHITE,
-            initialTaskTypeId = null,
+            initialKind = newTodoParent?.kind ?: TaskKind.GRAPHITE,
+            initialTaskTypeId = newTodoParent?.taskTypeId,
             taskTypes = taskTypes,
             initialDeadline = null,
             initialDeadlineMinuteOfDay = null,
@@ -322,7 +325,7 @@ fun TodoScreen(
             repeatCompletedCount = 0,
             repeatMissedCount = 0,
             initialParentId = selectedTodoId,
-            initialPriority = null,
+            initialPriority = newTodoParent?.priority,
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },

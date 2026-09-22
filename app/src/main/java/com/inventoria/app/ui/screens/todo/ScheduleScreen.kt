@@ -147,11 +147,12 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
                 onShiftWeek = { viewModel.shiftWeek(it) }
             )
             if (day.allDayTodos.isNotEmpty()) {
-                AllDayTodoStrip(day.allDayTodos, onToggle = { viewModel.toggleTodoComplete(it) })
+                AllDayTodoStrip(day.allDayTodos, todayStart = todayStart, onToggle = { viewModel.toggleTodoComplete(it) })
             }
             DayTimeline(
                 day = day,
                 isToday = selectedDay == todayStart,
+                todayStart = todayStart,
                 nowMinuteOfDay = nowMinuteOfDay,
                 onTapEmptyMinute = { minute -> viewModel.startAddingBlock((minute / 60) * 60) },
                 taskTypeNames = taskTypeNames,
@@ -309,7 +310,7 @@ private fun MarkerDot(color: Color) {
 /** Todos due on the day with no time of their own. They have no place on an hour grid, so they
  * sit in a strip above it -- one chip each, tinted by priority tier, tap to tick off. */
 @Composable
-private fun AllDayTodoStrip(todos: List<Todo>, onToggle: (Todo) -> Unit) {
+private fun AllDayTodoStrip(todos: List<Todo>, todayStart: Long, onToggle: (Todo) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -326,7 +327,10 @@ private fun AllDayTodoStrip(todos: List<Todo>, onToggle: (Todo) -> Unit) {
         )
         todos.forEach { todo ->
             val done = todo.state == TodoState.COMPLETE
-            val tier = taskCategoryColor(todo.kind.category)
+            // Same "overdue" rule as TodoRow: an all-day todo shown here is only ever on the exact
+            // day it's due, so it's overdue precisely when that day is already behind us.
+            val isOverdue = !done && todo.deadline != null && todo.deadline!! < todayStart
+            val tier = if (isOverdue) MaterialTheme.colorScheme.error else taskCategoryColor(todo.kind.category)
             val alarmIcon: (@Composable () -> Unit)? = if (todo.reminderOffsetMinutes != null && !done) {
                 { Icon(Icons.Default.Alarm, contentDescription = "Alarm set", modifier = Modifier.size(14.dp)) }
             } else null
@@ -376,6 +380,7 @@ private val MIN_TASK_HEIGHT = 3.dp
 private fun DayTimeline(
     day: ScheduleDay,
     isToday: Boolean,
+    todayStart: Long,
     nowMinuteOfDay: Int,
     onTapEmptyMinute: (Int) -> Unit,
     taskTypeNames: Map<String, String>,
@@ -460,6 +465,7 @@ private fun DayTimeline(
                 }
                 DayLane(
                     day = day,
+                    todayStart = todayStart,
                     nowMinuteOfDay = nowMinuteOfDay,
                     hourHeight = hourHeight,
                     onTapEmptyMinute = onTapEmptyMinute,
@@ -511,6 +517,7 @@ private fun DayTimeline(
 @Composable
 private fun DayLane(
     day: ScheduleDay,
+    todayStart: Long,
     nowMinuteOfDay: Int,
     hourHeight: Dp,
     onTapEmptyMinute: (Int) -> Unit,
@@ -609,8 +616,14 @@ private fun DayLane(
         // Todos: a deadline is a moment, so a hairline across everything at that minute.
         day.timedTodos.forEach { todo ->
             val minute = todo.deadlineMinuteOfDay ?: return@forEach
+            val done = todo.state == TodoState.COMPLETE
+            // Same overdue/late-today rule as TodoRow: a whole day behind us, or today's own
+            // moment already passed on the clock.
+            val isOverdue = !done && todo.deadline != null && todo.deadline!! < todayStart
+            val isLateToday = !done && todo.deadline == todayStart && minute < nowMinuteOfDay
             TodoDueMarker(
                 todo = todo,
+                isDue = isOverdue || isLateToday,
                 modifier = Modifier
                     .offset(y = hourHeight * (minute / 60f) - 1.dp)
                     .fillMaxWidth(),
@@ -695,8 +708,8 @@ private fun FlatScheduleBlock(block: ScheduleBlock, typeName: String?, modifier:
  * priority-tier colour, with a small label hanging under it. A deadline is a moment, not a span,
  * which is why this is a line and not a box. */
 @Composable
-private fun TodoDueMarker(todo: Todo, modifier: Modifier, onClick: () -> Unit) {
-    val tier = taskCategoryColor(todo.kind.category)
+private fun TodoDueMarker(todo: Todo, isDue: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val tier = if (isDue) MaterialTheme.colorScheme.error else taskCategoryColor(todo.kind.category)
     val done = todo.state == TodoState.COMPLETE
     Column(modifier.clickable(onClick = onClick)) {
         HorizontalDivider(thickness = 2.dp, color = tier.copy(alpha = if (done) 0.4f else 1f))
