@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 115,
+                versionName = "2.34",
+                changes = listOf(
+                    "The Today tab's Now card now shows every schedule block covering this minute, not just one -- if two overlap, each gets its own row and its own Start button."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 114,
                 versionName = "2.33",
                 changes = listOf(

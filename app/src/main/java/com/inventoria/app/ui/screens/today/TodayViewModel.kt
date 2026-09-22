@@ -48,8 +48,9 @@ sealed interface NowState {
     /** One segment per paused session (its latest), none running. */
     data class Paused(val sessions: List<Task>) : NowState
 
-    /** Idle, and a schedule block covers this minute. */
-    data class Planned(val block: ScheduleBlock) : NowState
+    /** Idle, and one or more schedule blocks cover this minute (they can overlap), earliest-
+     * starting first. */
+    data class Planned(val blocks: List<ScheduleBlock>) : NowState
 
     /** Idle with nothing planned now; [nextBlock] is the next block later today, if any. */
     data class Idle(val nextBlock: ScheduleBlock?) : NowState
@@ -195,8 +196,10 @@ class TodayViewModel @Inject constructor(
         val todayStart = getStartOfDay(System.currentTimeMillis())
         val minute = currentMinuteOfDay()
         val today = blockList.filter { it.occursOn(todayStart) }.sortedBy { it.startMinuteOfDay }
-        val current = today.firstOrNull { it.startMinuteOfDay <= minute && minute < it.endMinuteOfDay }
-        if (current != null) return NowState.Planned(current)
+        // Every block covering this minute, not just the first -- two blocks can overlap (e.g. a
+        // long one with a shorter one inside it), and dropping all but one hid the rest entirely.
+        val current = today.filter { it.startMinuteOfDay <= minute && minute < it.endMinuteOfDay }
+        if (current.isNotEmpty()) return NowState.Planned(current)
         return NowState.Idle(today.firstOrNull { it.startMinuteOfDay > minute })
     }
 

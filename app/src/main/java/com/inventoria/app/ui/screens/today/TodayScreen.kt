@@ -415,56 +415,74 @@ private fun NowCard(
                     state.sessions.forEach { task -> LiveSessionRow(task, running = false) }
                 }
                 is NowState.Planned -> {
-                    val block = state.block
+                    val blocks = state.blocks
                     NowOverline(
-                        "Now · ${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
+                        if (blocks.size == 1) {
+                            "Now · ${formatMinuteOfDay(blocks[0].startMinuteOfDay)} – ${formatMinuteOfDay(blocks[0].endMinuteOfDay)}"
+                        } else {
+                            "Now · ${blocks.size} blocks overlap"
+                        },
                         "What your schedule set this hour aside for",
                         null
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier
-                                .width(3.dp)
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(Color(block.kind.colorValue))
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            block.taskTypeId?.let { typeId ->
-                                taskTypeNames[typeId]?.let { TaskTypeLabel(it, color = taskTypeColor(typeId)) }
-                            }
-                            Text(
-                                block.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                    // Almost always one block, rendered exactly as before. When two or more overlap,
+                    // each gets its own row, time range and Start button -- "Schedule" appears once,
+                    // after the last one, rather than once per block.
+                    blocks.forEachIndexed { index, block ->
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .width(3.dp)
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Color(block.kind.colorValue))
                             )
-                            if (block.notes.isNotBlank()) {
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                if (blocks.size > 1) {
+                                    Text(
+                                        "${formatMinuteOfDay(block.startMinuteOfDay)} – ${formatMinuteOfDay(block.endMinuteOfDay)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                block.taskTypeId?.let { typeId ->
+                                    taskTypeNames[typeId]?.let { TaskTypeLabel(it, color = taskTypeColor(typeId)) }
+                                }
                                 Text(
-                                    block.notes,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    block.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                if (block.notes.isNotBlank()) {
+                                    Text(
+                                        block.notes,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
+                            TaskKindChip(kind = block.kind, modifier = Modifier.scale(0.85f))
                         }
-                        TaskKindChip(kind = block.kind, modifier = Modifier.scale(0.85f))
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = { onStartBlock(block) }) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Start this")
-                        }
-                        TextButton(onClick = onOpenSchedule) {
-                            Icon(Icons.Default.EventNote, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Schedule")
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = { onStartBlock(block) }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Start this")
+                            }
+                            if (index == blocks.lastIndex) {
+                                TextButton(onClick = onOpenSchedule) {
+                                    Icon(Icons.Default.EventNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Schedule")
+                                }
+                            }
                         }
                     }
                 }
