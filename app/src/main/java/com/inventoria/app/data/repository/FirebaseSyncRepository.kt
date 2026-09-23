@@ -1,19 +1,38 @@
 package com.inventoria.app.data.repository
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.google.firebase.database.*
+import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.local.*
 import com.inventoria.app.data.model.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Keeps Room and users/$uid in the Realtime Database mirroring each other, live, per table.
+ *
+ * The model every node follows (see [NodeSync]):
+ *  - **Local -> cloud.** Every write in the app marks its row dirty; each table's dirty rows are
+ *    pushed the moment Room reports them, and a row is only marked clean if it still holds exactly
+ *    what was pushed.
+ *  - **Cloud -> local.** A per-child listener keeps an in-memory copy of the cloud's current view
+ *    of the node, and each changed child is merged into Room: a clean local row always takes the
+ *    cloud's version (the cloud holds whatever was written last, so a clean row that differs is by
+ *    definition behind), while a dirty row keeps the local edit unless the cloud's copy is newer.
+ *
+ * That rule is what makes two phones converge on the same state rather than each keeping the copy
+ * it happens to consider newest by its own clock.
+ */
 @Singleton
 class FirebaseSyncRepository @Inject constructor(
+    private val database: InventoryDatabase,
     private val inventoryDao: InventoryDao,
     private val taskDao: TaskDao,
     private val collectionDao: CollectionDao,
@@ -31,20 +50,22 @@ class FirebaseSyncRepository @Inject constructor(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
-    private val syncIgnoreCount = AtomicInteger(0)
-    private var userRef: DatabaseReference? = null
     /**
-     * Whose node [syncJobs] are currently listening on, so [syncOnAppOpen] can spot a change of
+     * Whose node [activeNodes] are currently listening on, so [syncOnAppOpen] can spot a change of
      * account. Volatile because it is written under [syncLock] but read outside it, from whichever
      * coroutine happens to be running the app-open sync.
      */
     @Volatile
     private var syncedUserId: String? = null
-    private var syncJobs = mutableListOf<Job>()
+
+    /** One per synced table, attached to [syncedUserId]'s node. Replaced wholesale under [syncLock]. */
+    @Volatile
+    private var activeNodes: List<NodeSync<*>> = emptyList()
+    private var settingsJob: Job? = null
 
     /**
-     * Listeners attached straight to a DatabaseReference rather than through a callbackFlow, so
-     * cancelling [syncJobs] does not detach them. Tracked here because one of them writes the
+     * Listeners attached straight to a DatabaseReference rather than owned by a [NodeSync], so
+     * cancelling [settingsJob] does not detach them. Tracked here because one of them writes the
      * cloud's custom_username back into DataStore: left attached, it outlives the account it
      * belongs to and can repopulate a store that the account-delete wipe just cleared.
      */
@@ -54,13 +75,11 @@ class FirebaseSyncRepository @Inject constructor(
     private var connectionLoggingStarted = false
 
     /**
-     * Guards the teardown/setup of the listener set above. [restartSyncForUser] now has two
-     * callers on different coroutines -- [startSync]'s manualSyncId collector and [syncOnAppOpen]
-     * -- and both mutate the same plain lists. None of the guarded code suspends.
+     * Guards the teardown/setup of the listener set above. [restartSyncForUser] has two callers on
+     * different coroutines -- [startSync]'s manualSyncId collector and [syncOnAppOpen] -- and both
+     * mutate the same state. None of the guarded code suspends.
      */
     private val syncLock = Any()
-
-    fun isSyncing(): Boolean = syncIgnoreCount.get() > 0
 
     fun startSync() {
         repositoryScope.launch {
@@ -75,14 +94,12 @@ class FirebaseSyncRepository @Inject constructor(
      * Tears the live listeners down and forgets the node they were attached to.
      *
      * Deleting an account has to do this before the local wipe: the per-node listeners are still
-     * attached to the outgoing uid, and [triggerFullSync] pushes to whatever [userRef] happens to
-     * hold, which after a delete is a node that no longer exists.
+     * attached to the outgoing uid, and a push would otherwise land in a node that no longer exists.
      */
     fun stopSync() {
         synchronized(syncLock) {
             Log.d(TAG, "Stopping sync")
             detachFromCurrentUser()
-            userRef = null
             syncedUserId = null
             _syncStatus.value = SyncStatus.Idle
         }
@@ -90,88 +107,32 @@ class FirebaseSyncRepository @Inject constructor(
 
     /** Callers must hold [syncLock]. */
     private fun detachFromCurrentUser() {
-        syncJobs.forEach { it.cancel() }
-        syncJobs.clear()
+        activeNodes.forEach { it.detach() }
+        activeNodes = emptyList()
+        settingsJob?.cancel()
+        settingsJob = null
         rawListeners.forEach { (ref, listener) -> ref.removeEventListener(listener) }
         rawListeners.clear()
     }
 
+    /**
+     * Idempotent for the account already being synced: [startSync] and [syncOnAppOpen] both run at
+     * process start and both land here, and tearing the listeners down just to rebuild them would
+     * throw away the initial load the other caller is waiting on.
+     */
     private fun restartSyncForUser(userId: String) = synchronized<Unit>(syncLock) {
+        if (syncedUserId == userId && activeNodes.isNotEmpty()) return@synchronized
+
         detachFromCurrentUser()
         syncedUserId = userId
 
         Log.d(TAG, "Starting sync for user: $userId")
 
         val rootRef = firebaseDatabase.getReference("users").child(userId)
-        userRef = rootRef
-
         startConnectionLoggingOnce()
 
-        // Sync Items
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("items"),
-            localFlow = inventoryDao.getDirtyItemsFlow(),
-            pushAction = { ref, items -> pushItemsToFirebase(ref, items) },
-            pullAction = { snapshot -> pullItemsFromFirebase(snapshot) }
-        ))
-
-        // Sync Item Links
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("item_links"),
-            localFlow = itemLinkDao.getDirtyLinksFlow(),
-            pushAction = { ref, links -> pushLinksToFirebase(ref, links) },
-            pullAction = { snapshot -> pullLinksFromFirebase(snapshot) }
-        ))
-
-        // Sync Tasks
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("tasks"),
-            localFlow = taskDao.getDirtyTasksFlow(),
-            pushAction = { ref, tasks -> pushTasksToFirebase(ref, tasks) },
-            pullAction = { snapshot -> pullTasksFromFirebase(snapshot) }
-        ))
-
-        // Sync Collections
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("collections"),
-            localFlow = collectionDao.getDirtyCollectionsFlow(),
-            pushAction = { ref, colls -> pushCollectionsToFirebase(ref, colls) },
-            pullAction = { snapshot -> pullCollectionsFromFirebase(snapshot) }
-        ))
-
-        // Sync Collection Items
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("collection_items"),
-            localFlow = collectionDao.getDirtyCollectionItemsFlow(),
-            pushAction = { ref, items -> pushCollectionItemsToFirebase(ref, items) },
-            pullAction = { snapshot -> pullCollectionItemsFromFirebase(snapshot) }
-        ))
-
-        // Sync Todos
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("todos"),
-            localFlow = todoDao.getDirtyTodosFlow(),
-            pushAction = { ref, todos -> pushTodosToFirebase(ref, todos) },
-            pullAction = { snapshot -> pullTodosFromFirebase(snapshot) }
-        ))
-
-        // Sync Task Types
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("task_types"),
-            localFlow = taskTypeDao.getDirtyTaskTypesFlow(),
-            pushAction = { ref, taskTypes -> pushTaskTypesToFirebase(ref, taskTypes) },
-            pullAction = { snapshot -> pullTaskTypesFromFirebase(snapshot) }
-        ))
-
-        // Sync Schedule Blocks
-        syncJobs.add(setupNodeSync(
-            nodeRef = rootRef.child("schedule_blocks"),
-            localFlow = scheduleBlockDao.getDirtyBlocksFlow(),
-            pushAction = { ref, blocks -> pushScheduleBlocksToFirebase(ref, blocks) },
-            pullAction = { snapshot -> pullScheduleBlocksFromFirebase(snapshot) }
-        ))
-
-        syncJobs.add(setupSettingsSync(rootRef.child("settings")))
+        activeNodes = nodeSpecs().map { spec -> NodeSync(rootRef.child(spec.path), spec) }
+        settingsJob = setupSettingsSync(rootRef.child("settings"))
     }
 
     /**
@@ -191,394 +152,410 @@ class FirebaseSyncRepository @Inject constructor(
         })
     }
 
-    private fun <T> setupNodeSync(
-        nodeRef: DatabaseReference,
-        localFlow: Flow<List<T>>,
-        pushAction: suspend (DatabaseReference, List<T>) -> Unit,
-        pullAction: suspend (DataSnapshot) -> Unit
-    ): Job {
-        val job = Job()
-        val scope = CoroutineScope(Dispatchers.IO + job)
-        
-        scope.launch {
-            localFlow.distinctUntilChanged().collect { list ->
-                if (syncIgnoreCount.get() == 0) {
-                    pushAction(nodeRef, list)
-                }
-            }
-        }
+    /**
+     * Everything [NodeSync] needs to know about one table, so the sync logic exists once rather
+     * than as eight hand-copied push/pull pairs that had already started to drift apart.
+     *
+     * [key] is the child name the row lives under in the cloud; [decode] turns a child back into a
+     * row and may return null to skip it.
+     */
+    private class NodeSpec<T : Any>(
+        val path: String,
+        val decode: (DataSnapshot) -> T?,
+        val key: (T) -> String,
+        val updatedAt: (T) -> Long,
+        val isDirty: (T) -> Boolean,
+        val isDeleted: (T) -> Boolean,
+        val asClean: (T) -> T,
+        val dirtyFlow: () -> Flow<List<T>>,
+        val dirtyList: suspend () -> List<T>,
+        val allLocal: suspend () -> List<T>,
+        val findLocal: suspend (T) -> T?,
+        val upsert: suspend (List<T>) -> Unit,
+        val markClean: suspend (List<T>) -> Unit
+    )
 
-        val firebaseFlow = callbackFlow {
-            val listener = object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) { trySend(snapshot) }
-                override fun onCancelled(error: DatabaseError) { close(error.toException()) }
-            }
-            nodeRef.addValueEventListener(listener)
-            awaitClose { nodeRef.removeEventListener(listener) }
-        }
+    private fun nodeSpecs(): List<NodeSpec<*>> = listOf(
+        NodeSpec<InventoryItem>(
+            path = "items",
+            decode = { it.getValue(InventoryItem::class.java) },
+            key = { it.id.toString() },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = inventoryDao::getDirtyItemsFlow,
+            dirtyList = inventoryDao::getDirtyItemsList,
+            allLocal = inventoryDao::getAllItemsForSyncList,
+            findLocal = { inventoryDao.getItemById(it.id) },
+            upsert = inventoryDao::insertItems,
+            markClean = { rows -> inventoryDao.markItemsClean(rows.map { it.id }) }
+        ),
+        NodeSpec<ItemLink>(
+            path = "item_links",
+            decode = { it.getValue(ItemLink::class.java) },
+            key = { "${it.followerId}_${it.leaderId}" },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = itemLinkDao::getDirtyLinksFlow,
+            dirtyList = itemLinkDao::getDirtyLinksList,
+            allLocal = itemLinkDao::getAllLinksForSyncList,
+            findLocal = { itemLinkDao.getLink(it.followerId, it.leaderId) },
+            upsert = itemLinkDao::insertLinks,
+            markClean = itemLinkDao::markLinksClean
+        ),
+        NodeSpec<Task>(
+            path = "tasks",
+            decode = { it.getValue(Task::class.java) },
+            key = { it.id },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = taskDao::getDirtyTasksFlow,
+            dirtyList = taskDao::getDirtyTasksList,
+            allLocal = taskDao::getAllTasksForSyncList,
+            findLocal = { taskDao.getTaskById(it.id) },
+            upsert = taskDao::insertTasks,
+            markClean = { rows -> taskDao.markTasksClean(rows.map { it.id }) }
+        ),
+        NodeSpec<InventoryCollection>(
+            path = "collections",
+            decode = ::decodeCollection,
+            key = { it.id.toString() },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = collectionDao::getDirtyCollectionsFlow,
+            dirtyList = collectionDao::getDirtyCollectionsList,
+            allLocal = collectionDao::getAllCollectionsForSyncList,
+            findLocal = { collectionDao.getCollectionById(it.id) },
+            upsert = { rows -> rows.forEach { collectionDao.insertCollection(it) } },
+            markClean = { rows -> collectionDao.markCollectionsClean(rows.map { it.id }) }
+        ),
+        NodeSpec<InventoryCollectionItem>(
+            path = "collection_items",
+            decode = { it.getValue(InventoryCollectionItem::class.java) },
+            key = { "${it.collectionId}_${it.itemId}" },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = collectionDao::getDirtyCollectionItemsFlow,
+            dirtyList = collectionDao::getDirtyCollectionItemsList,
+            allLocal = collectionDao::getAllCollectionItemsForSyncList,
+            findLocal = { collectionDao.getCollectionItem(it.collectionId, it.itemId) },
+            upsert = collectionDao::insertCollectionItems,
+            markClean = collectionDao::markCollectionItemsClean
+        ),
+        NodeSpec<Todo>(
+            path = "todos",
+            decode = { it.getValue(Todo::class.java) },
+            key = { it.id },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = todoDao::getDirtyTodosFlow,
+            dirtyList = todoDao::getDirtyTodosList,
+            allLocal = todoDao::getAllTodosForSyncList,
+            findLocal = { todoDao.getTodoById(it.id) },
+            upsert = todoDao::insertTodos,
+            markClean = { rows -> todoDao.markTodosClean(rows.map { it.id }) }
+        ),
+        NodeSpec<TaskType>(
+            path = "task_types",
+            decode = { it.getValue(TaskType::class.java) },
+            key = { it.id },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = taskTypeDao::getDirtyTaskTypesFlow,
+            dirtyList = taskTypeDao::getDirtyTaskTypesList,
+            allLocal = taskTypeDao::getAllTaskTypesForSyncList,
+            findLocal = { taskTypeDao.getTaskTypeById(it.id) },
+            upsert = taskTypeDao::insertTaskTypes,
+            markClean = { rows -> taskTypeDao.markTaskTypesClean(rows.map { it.id }) }
+        ),
+        NodeSpec<ScheduleBlock>(
+            path = "schedule_blocks",
+            decode = { it.getValue(ScheduleBlock::class.java) },
+            key = { it.id },
+            updatedAt = { it.updatedAt }, isDirty = { it.isDirty }, isDeleted = { it.isDeleted },
+            asClean = { it.copy(isDirty = false) },
+            dirtyFlow = scheduleBlockDao::getDirtyBlocksFlow,
+            dirtyList = scheduleBlockDao::getDirtyBlocksList,
+            allLocal = scheduleBlockDao::getAllBlocksForSyncList,
+            findLocal = { scheduleBlockDao.getBlockById(it.id) },
+            upsert = scheduleBlockDao::insertBlocks,
+            markClean = { rows -> scheduleBlockDao.markBlocksClean(rows.map { it.id }) }
+        )
+    )
 
-        scope.launch {
-            try {
-                firebaseFlow.collect { snapshot ->
-                    pullAction(snapshot)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Listener failed for ${nodeRef.path}", e)
-                _syncStatus.value = SyncStatus.Error(e.message ?: "Sync listener failed")
-            }
+    private fun decodeCollection(child: DataSnapshot): InventoryCollection? {
+        val key = child.key?.toLongOrNull() ?: return null
+        if (key == 0L) {
+            // Pre-autoGenerate builds always wrote new collections as id=0, so this key holds
+            // stale, unaddressable data: since 0 is Room's "generate a new id" sentinel,
+            // re-inserting it here would create a brand new local+cloud row every time the node
+            // changed, which is exactly what produced runaway duplicate "collections" -- see
+            // ErrorLog.md #27. Removing it is a one-time self-heal.
+            child.ref.removeValue()
+            return null
         }
-
-        return job
+        // Trust the Firebase key as the authoritative id rather than the payload's own `id`
+        // field, so key and row can never disagree.
+        return child.getValue(InventoryCollection::class.java)?.copy(id = key)
     }
+
+    /**
+     * Live two-way sync of one table with one cloud node.
+     *
+     * What this replaced, and why each part is shaped the way it is:
+     *  - Pulls used to hold a global "ignore" counter for a second after every snapshot, and every
+     *    push that landed in that window was silently dropped -- including the echo of this
+     *    device's own last push. Tapping two checkboxes in quick succession left the second one
+     *    unsynced until the next app open. Nothing needs suppressing: a merged row is written clean,
+     *    so it never re-enters the dirty flow.
+     *  - The same one-second delay sat inside each node's snapshot collector, so a burst of edits
+     *    on one phone trickled onto the other at one per second.
+     *  - A push marked its rows clean by id alone, so an edit made while the upload was in flight
+     *    was marked clean too and never sent.
+     *  - Each snapshot re-read the whole node, and a row was only accepted if its updatedAt beat
+     *    the local copy's. updatedAt comes from each phone's own clock, so a phone whose clock ran
+     *    ahead kept its copy forever while the cloud held the other phone's newer write.
+     */
+    private inner class NodeSync<T : Any>(
+        private val ref: DatabaseReference,
+        private val spec: NodeSpec<T>
+    ) {
+        private val job = SupervisorJob()
+        private val scope = CoroutineScope(Dispatchers.IO + job)
+
+        /**
+         * The cloud's current view of this node, child by child, as the listener last reported it.
+         * Firebase's local view overlays this device's own writes still in flight on top of the
+         * server's data, so while a push is pending this shows the pushed value, and once it is
+         * acknowledged it shows whatever the server holds.
+         *
+         * Merges always read from here rather than from the event that queued them, so no merge
+         * can ever apply a copy older than one already seen.
+         */
+        private val cloud = ConcurrentHashMap<String, DataSnapshot>()
+        private val pendingKeys = Channel<String>(Channel.UNLIMITED)
+        private val queued = AtomicLong(0)
+        private val merged = MutableStateFlow(0L)
+        private val initialLoad = CompletableDeferred<Boolean>()
+
+        private val childListener = object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) = onCloudChild(snapshot)
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) = onCloudChild(snapshot)
+            override fun onChildRemoved(snapshot: DataSnapshot) {
+                // Absence is never treated as a delete -- deletes are tombstones -- so this only
+                // keeps [cloud] honest for pushMissing.
+                snapshot.key?.let { cloud.remove(it) }
+            }
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(TAG, "Listener failed for ${ref.path}", error.toException())
+                _syncStatus.value = SyncStatus.Error(error.message)
+                initialLoad.complete(false)
+            }
+        }
+
+        /**
+         * Value events are raised after the child events of the same update, so this firing means
+         * every child of the initial load has already been handed to [onCloudChild].
+         */
+        private val initialLoadListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) { initialLoad.complete(true) }
+            override fun onCancelled(error: DatabaseError) { initialLoad.complete(false) }
+        }
+
+        init {
+            ref.addChildEventListener(childListener)
+            ref.addListenerForSingleValueEvent(initialLoadListener)
+
+            scope.launch {
+                for (first in pendingKeys) {
+                    // Drain whatever else is already queued, so an initial load of a few thousand
+                    // children is merged in a handful of transactions rather than one per child.
+                    val batch = mutableListOf(first)
+                    while (true) batch += pendingKeys.tryReceive().getOrNull() ?: break
+                    try {
+                        mergeFromCloud(batch.toSet())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Merge into ${spec.path} failed", e)
+                    } finally {
+                        merged.update { it + batch.size }
+                    }
+                }
+            }
+
+            scope.launch {
+                spec.dirtyFlow().distinctUntilChanged().collect { rows -> push(rows) }
+            }
+        }
+
+        fun detach() {
+            ref.removeEventListener(childListener)
+            ref.removeEventListener(initialLoadListener)
+            initialLoad.complete(false)
+            job.cancel()
+        }
+
+        private fun onCloudChild(snapshot: DataSnapshot) {
+            val key = snapshot.key ?: return
+            cloud[key] = snapshot
+            enqueue(listOf(key))
+        }
+
+        private fun enqueue(keys: Collection<String>) {
+            if (keys.isEmpty()) return
+            queued.addAndGet(keys.size.toLong())
+            keys.forEach { pendingKeys.trySend(it) }
+        }
+
+        private suspend fun mergeFromCloud(keys: Set<String>) {
+            // Decoded outside the transaction: it is the slow part, and the transaction holds the
+            // database's write lock against the app's own edits for as long as it runs.
+            val cloudRows = keys.mapNotNull { key -> cloud[key]?.let(spec.decode) }
+            if (cloudRows.isEmpty()) return
+            val purgeBefore = deletedRowPurgeThreshold()
+
+            // One transaction, so a local edit cannot slip in between reading a row and replacing it.
+            database.withTransaction {
+                val accepted = cloudRows.filter { cloudRow ->
+                    val local = spec.findLocal(cloudRow)
+                    when {
+                        // A tombstone old enough to have been purged here would only be purged again.
+                        local == null -> !(spec.isDeleted(cloudRow) && spec.updatedAt(cloudRow) < purgeBefore)
+                        // An edit not yet (fully) pushed survives unless the cloud's is newer.
+                        spec.isDirty(local) -> spec.updatedAt(cloudRow) > spec.updatedAt(local)
+                        // Clean means the cloud has already seen this row; if they differ, the cloud
+                        // holds a later write, whatever the two clocks say.
+                        else -> cloudRow != spec.asClean(local)
+                    }
+                }
+                if (accepted.isNotEmpty()) spec.upsert(accepted)
+            }
+        }
+
+        suspend fun push(rows: List<T>) {
+            if (rows.isEmpty()) return
+            withSyncStatus(spec.path) {
+                ref.updateChildren(rows.associate { spec.key(it) to it }).await()
+                database.withTransaction {
+                    // Only rows that still hold exactly what was sent: anything edited while the
+                    // upload was in flight stays dirty, and the dirty flow pushes it next.
+                    val unchanged = rows.filter { pushed ->
+                        spec.findLocal(pushed)?.let { spec.asClean(it) == spec.asClean(pushed) } == true
+                    }
+                    if (unchanged.isNotEmpty()) spec.markClean(unchanged)
+                }
+                // A change from the other phone that arrived while these rows were still dirty was
+                // held back by the merge; now that they are clean, look again.
+                enqueue(rows.map(spec.key))
+            }
+        }
+
+        suspend fun pushDirty() = push(spec.dirtyList())
+
+        /** Re-merges every child the cloud is known to hold -- a cheap safety net, not a fetch. */
+        fun remergeAll() = enqueue(cloud.keys.toList())
+
+        /**
+         * Uploads local rows the cloud has no copy of at all. Nothing else would ever send a row
+         * that is clean locally, and before live sync was reliable a full re-upload of every row
+         * papered over that; this keeps the repair without letting stale rows overwrite newer ones.
+         */
+        suspend fun pushMissing() {
+            push(spec.allLocal().filter { spec.key(it) !in cloud })
+        }
+
+        /**
+         * Suspends until the initial load has arrived and been merged. False if it did not arrive
+         * in time (offline with nothing cached) or the listener was refused.
+         */
+        suspend fun awaitSettled(): Boolean {
+            val loaded = withTimeoutOrNull(SETTLE_TIMEOUT_MS) { initialLoad.await() } ?: false
+            if (!loaded) return false
+            val target = queued.get()
+            return withTimeoutOrNull(SETTLE_TIMEOUT_MS) { merged.first { it >= target } } != null
+        }
+    }
+
+    private class CloudValue(val value: String?)
 
     private fun setupSettingsSync(settingsRef: DatabaseReference): Job {
         val job = Job()
         val scope = CoroutineScope(Dispatchers.IO + job)
-        
-        scope.launch {
-            settingsRepository.customUsername.distinctUntilChanged().collect { username ->
-                if (syncIgnoreCount.get() == 0) {
-                    settingsRef.child("custom_username").setValue(username)
-                }
-            }
-        }
-
         val usernameRef = settingsRef.child("custom_username")
+
+        // Null until the cloud's value is known. Pushing before then is what used to let a phone
+        // that had been closed for a while overwrite a newer name with the one it last saw.
+        val cloudUsername = MutableStateFlow<CloudValue?>(null)
+
         val usernameListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val cloudUsername = snapshot.getValue(String::class.java)
-                scope.launch {
-                    syncIgnoreCount.incrementAndGet()
-                    try {
-                        settingsRepository.saveCustomUsername(cloudUsername)
-                    } finally {
-                        withContext(NonCancellable) {
-                            syncIgnoreCount.decrementAndGet()
-                        }
-                    }
-                }
+                cloudUsername.value = CloudValue(snapshot.getValue(String::class.java))
             }
             override fun onCancelled(error: DatabaseError) {}
         }
         usernameRef.addValueEventListener(usernameListener)
-        // Cancelling [job] stops the coroutine above but not this listener -- see [rawListeners].
+        // Cancelling [job] stops the coroutines below but not this listener -- see [rawListeners].
         rawListeners.add(usernameRef to usernameListener)
+
+        scope.launch {
+            cloudUsername.filterNotNull().collect { cloud ->
+                if (cloud.value != null) {
+                    settingsRepository.saveCustomUsername(cloud.value)
+                } else {
+                    // Never set in the cloud: seed it from this device rather than erase ours.
+                    settingsRepository.customUsername.first()?.let { usernameRef.setValue(it) }
+                }
+            }
+        }
+
+        scope.launch {
+            settingsRepository.customUsername.distinctUntilChanged().collect { local ->
+                val cloud = cloudUsername.value ?: return@collect
+                if (local != cloud.value) usernameRef.setValue(local)
+            }
+        }
 
         return job
     }
 
     /**
-     * Wraps one node type's push body with the syncStatus transitions every push should make --
-     * Syncing while it runs, Synced on success, Error on failure. Only [pushItemsToFirebase] used
-     * to do this, so the shared top-bar indicator only ever reflected item pushes and sat idle for
-     * everything else (see TECHNICAL_AUDIT.md #5's "second gap"). [label] names the node type in
-     * the log line; each pushXToFirebase still returns early on an empty list before calling this,
-     * so a no-op push never flickers the indicator.
+     * Wraps one node's push with the syncStatus transitions every push should make -- Syncing
+     * while it runs, Synced on success, Error on failure. Pushes return early on an empty list
+     * before calling this, so a no-op push never flickers the indicator.
      */
     private suspend fun withSyncStatus(label: String, block: suspend () -> Unit) {
         try {
             _syncStatus.value = SyncStatus.Syncing
             block()
             _syncStatus.value = SyncStatus.Synced
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Push $label failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
         }
     }
 
-    private suspend fun pushItemsToFirebase(ref: DatabaseReference, items: List<InventoryItem>) {
-        if (items.isEmpty()) return
-        withSyncStatus("items") {
-            val updates = items.associate { it.id.toString() to it }
-            ref.updateChildren(updates).await()
-            inventoryDao.markItemsClean(items.map { it.id })
+    /**
+     * Pushes every dirty row now. Live sync already does this as rows change; this is the safety
+     * net for a push that failed and would otherwise wait for the row's next edit.
+     */
+    fun pushPendingChanges() {
+        val nodes = activeNodes
+        repositoryScope.launch {
+            nodes.forEach { launch { it.pushDirty() } }
         }
     }
 
-    private suspend fun pullItemsFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudItems = snapshot.children.mapNotNull { it.getValue(InventoryItem::class.java) }
-            
-            // Only overwrite local if cloud version is newer
-            val itemsToInsert = cloudItems.filter { cloudItem ->
-                val localItem = inventoryDao.getItemById(cloudItem.id)
-                localItem == null || cloudItem.updatedAt > localItem.updatedAt
-            }
-            
-            if (itemsToInsert.isNotEmpty()) {
-                inventoryDao.insertItems(itemsToInsert)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull items failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushLinksToFirebase(ref: DatabaseReference, links: List<ItemLink>) {
-        if (links.isEmpty()) return
-        withSyncStatus("links") {
-            val updates = links.associate { "${it.followerId}_${it.leaderId}" to it }
-            ref.updateChildren(updates).await()
-            itemLinkDao.markLinksClean(links)
-        }
-    }
-
-    private suspend fun pullLinksFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudLinks = snapshot.children.mapNotNull { it.getValue(ItemLink::class.java) }
-
-            cloudLinks.forEach { cloudLink ->
-                val localLink = itemLinkDao.getLink(cloudLink.followerId, cloudLink.leaderId)
-                if (localLink == null || cloudLink.updatedAt > localLink.updatedAt) {
-                    itemLinkDao.insertLink(cloudLink)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull links failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushTasksToFirebase(ref: DatabaseReference, tasks: List<Task>) {
-        if (tasks.isEmpty()) return
-        withSyncStatus("tasks") {
-            val updates = tasks.associate { it.id to it }
-            ref.updateChildren(updates).await()
-            taskDao.markTasksClean(tasks.map { it.id })
-        }
-    }
-
-    private suspend fun pullTasksFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudTasks = snapshot.children.mapNotNull { it.getValue(Task::class.java) }
-            
-            // Only overwrite local if cloud version is newer
-            val tasksToInsert = cloudTasks.filter { cloudTask ->
-                val localTask = taskDao.getTaskById(cloudTask.id)
-                localTask == null || cloudTask.updatedAt > localTask.updatedAt
-            }
-            
-            if (tasksToInsert.isNotEmpty()) {
-                taskDao.insertTasks(tasksToInsert)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull tasks failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushCollectionsToFirebase(ref: DatabaseReference, collections: List<InventoryCollection>) {
-        if (collections.isEmpty()) return
-        withSyncStatus("collections") {
-            val updates = collections.associate { it.id.toString() to it }
-            ref.updateChildren(updates).await()
-            collectionDao.markCollectionsClean(collections.map { it.id })
-        }
-    }
-
-    private suspend fun pullCollectionsFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-
-            snapshot.children.forEach { child ->
-                val key = child.key?.toLongOrNull() ?: return@forEach
-                if (key == 0L) {
-                    // Pre-autoGenerate builds always wrote new collections as id=0, so this key
-                    // holds stale, unaddressable data: since 0 is Room's "generate a new id"
-                    // sentinel, re-inserting it here would create a brand new local+cloud row
-                    // every single time this listener fires (it fired on its own writes too),
-                    // which is exactly what produced runaway duplicate "collections" -- see
-                    // ErrorLog.md #27. Removing it is a one-time self-heal.
-                    child.ref.removeValue()
-                    return@forEach
-                }
-                // Trust the Firebase key as the authoritative id rather than the payload's own
-                // `id` field, so key and row can never disagree.
-                val cloudColl = child.getValue(InventoryCollection::class.java)?.copy(id = key) ?: return@forEach
-                val localColl = collectionDao.getCollectionById(cloudColl.id)
-                if (localColl == null || cloudColl.updatedAt > localColl.updatedAt) {
-                    collectionDao.insertCollection(cloudColl)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull collections failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushCollectionItemsToFirebase(ref: DatabaseReference, items: List<InventoryCollectionItem>) {
-        if (items.isEmpty()) return
-        withSyncStatus("collection items") {
-            val updates = items.associate { "${it.collectionId}_${it.itemId}" to it }
-            ref.updateChildren(updates).await()
-            collectionDao.markCollectionItemsClean(items)
-        }
-    }
-
-    private suspend fun pullCollectionItemsFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudItems = snapshot.children.mapNotNull { it.getValue(InventoryCollectionItem::class.java) }
-            
-            cloudItems.forEach { cloudItem ->
-                val localItem = collectionDao.getCollectionItem(cloudItem.collectionId, cloudItem.itemId)
-                if (localItem == null || cloudItem.updatedAt > localItem.updatedAt) {
-                    collectionDao.insertCollectionItem(cloudItem)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull collection items failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushTodosToFirebase(ref: DatabaseReference, todos: List<Todo>) {
-        if (todos.isEmpty()) return
-        withSyncStatus("todos") {
-            val updates = todos.associate { it.id to it }
-            ref.updateChildren(updates).await()
-            todoDao.markTodosClean(todos.map { it.id })
-        }
-    }
-
-    private suspend fun pullTodosFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudTodos = snapshot.children.mapNotNull { it.getValue(Todo::class.java) }
-
-            // Only overwrite local if cloud version is newer
-            val todosToInsert = cloudTodos.filter { cloudTodo ->
-                val localTodo = todoDao.getTodoById(cloudTodo.id)
-                localTodo == null || cloudTodo.updatedAt > localTodo.updatedAt
-            }
-
-            if (todosToInsert.isNotEmpty()) {
-                todoDao.insertTodos(todosToInsert)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull todos failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushTaskTypesToFirebase(ref: DatabaseReference, taskTypes: List<TaskType>) {
-        if (taskTypes.isEmpty()) return
-        withSyncStatus("task types") {
-            val updates = taskTypes.associate { it.id to it }
-            ref.updateChildren(updates).await()
-            taskTypeDao.markTaskTypesClean(taskTypes.map { it.id })
-        }
-    }
-
-    private suspend fun pullTaskTypesFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudTaskTypes = snapshot.children.mapNotNull { it.getValue(TaskType::class.java) }
-
-            // Only overwrite local if cloud version is newer
-            val taskTypesToInsert = cloudTaskTypes.filter { cloudTaskType ->
-                val localTaskType = taskTypeDao.getTaskTypeById(cloudTaskType.id)
-                localTaskType == null || cloudTaskType.updatedAt > localTaskType.updatedAt
-            }
-
-            if (taskTypesToInsert.isNotEmpty()) {
-                taskTypeDao.insertTaskTypes(taskTypesToInsert)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull task types failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
-    private suspend fun pushScheduleBlocksToFirebase(ref: DatabaseReference, blocks: List<ScheduleBlock>) {
-        if (blocks.isEmpty()) return
-        withSyncStatus("schedule blocks") {
-            val updates = blocks.associate { it.id to it }
-            ref.updateChildren(updates).await()
-            scheduleBlockDao.markBlocksClean(blocks.map { it.id })
-        }
-    }
-
-    private suspend fun pullScheduleBlocksFromFirebase(snapshot: DataSnapshot) {
-        try {
-            syncIgnoreCount.incrementAndGet()
-            val cloudBlocks = snapshot.children.mapNotNull { it.getValue(ScheduleBlock::class.java) }
-
-            // Only overwrite local if cloud version is newer
-            val blocksToInsert = cloudBlocks.filter { cloudBlock ->
-                val localBlock = scheduleBlockDao.getBlockById(cloudBlock.id)
-                localBlock == null || cloudBlock.updatedAt > localBlock.updatedAt
-            }
-
-            if (blocksToInsert.isNotEmpty()) {
-                scheduleBlockDao.insertBlocks(blocksToInsert)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Pull schedule blocks failed", e)
-        } finally {
-            withContext(NonCancellable) {
-                delay(1000)
-                syncIgnoreCount.decrementAndGet()
-            }
-        }
-    }
-
+    /** Pull-to-refresh / manual sync: re-merge everything the cloud holds and push what is pending. */
     fun triggerFullSync() {
         Log.d(TAG, "Manual sync triggered")
-        val ref = userRef ?: return
-        
+        val nodes = activeNodes
         repositoryScope.launch {
-            try {
-                _syncStatus.value = SyncStatus.Syncing
-                
-                coroutineScope {
-                    listOf(
-                        async { pushItemsToFirebase(ref.child("items"), inventoryDao.getAllItemsForSyncList()) },
-                        async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getAllLinksForSyncList()) },
-                        async { pushTasksToFirebase(ref.child("tasks"), taskDao.getAllTasksForSyncList()) },
-                        async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getAllCollectionsForSyncList()) },
-                        async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getAllCollectionItemsForSyncList()) },
-                        async { pushTodosToFirebase(ref.child("todos"), todoDao.getAllTodosForSyncList()) },
-                        async { pushTaskTypesToFirebase(ref.child("task_types"), taskTypeDao.getAllTaskTypesForSyncList()) },
-                        async { pushScheduleBlocksToFirebase(ref.child("schedule_blocks"), scheduleBlockDao.getAllBlocksForSyncList()) }
-                    ).awaitAll()
-                }
-                
-                _syncStatus.value = SyncStatus.Synced
-            } catch (e: Exception) {
-                Log.e(TAG, "Manual sync failed", e)
-                _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
+            nodes.forEach { node ->
+                node.remergeAll()
+                launch { node.pushDirty() }
             }
         }
     }
@@ -588,10 +565,10 @@ class FirebaseSyncRepository @Inject constructor(
             val userId = authRepository.getOrCreateUserId()
 
             // A deleted account has to stop this device too, not just the server. Absence would
-            // never do it -- an insert-only pull reads an emptied node as "nothing new" -- so the
-            // tombstone is what tells a device that was offline during the delete, or is simply a
-            // second phone, that what it is holding is gone. Runs here because this is the one
-            // entry point that fires on every app open and every background sync.
+            // never do it -- a merge reads an emptied node as "nothing new" -- so the tombstone is
+            // what tells a device that was offline during the delete, or is simply a second phone,
+            // that what it is holding is gone. Runs here because this is the one entry point that
+            // fires on every app open and every background sync.
             if (authRepository.isAccountDeleted(userId)) {
                 stopSync()
                 if (userId == authRepository.getCurrentUserId()) {
@@ -612,52 +589,48 @@ class FirebaseSyncRepository @Inject constructor(
                 return
             }
 
-            val ref = firebaseDatabase.getReference("users").child(userId)
-            userRef = ref
-
             // startSync()'s collector only fires when manualSyncId changes, so an account that
             // appears any other way -- the first anonymous one on a fresh install, or the
             // replacement created after an account delete -- would otherwise get no live
-            // listeners at all until the process was restarted, leaving this one-shot sync as
-            // the only thing keeping the device up to date.
-            if (syncedUserId != userId) {
-                restartSyncForUser(userId)
-            }
+            // listeners at all until the process was restarted. A no-op if already listening.
+            restartSyncForUser(userId)
+            val nodes = activeNodes
 
             _syncStatus.value = SyncStatus.Syncing
-            Log.d(TAG, "Performing pull-first sync on app open")
+            Log.d(TAG, "Waiting for the cloud's state on app open")
 
-            coroutineScope {
-                // 1. Pull first to overwrite stale local state (in parallel)
-                listOf(
-                    async { pullItemsFromFirebase(ref.child("items").get().await()) },
-                    async { pullLinksFromFirebase(ref.child("item_links").get().await()) },
-                    async { pullTasksFromFirebase(ref.child("tasks").get().await()) },
-                    async { pullCollectionsFromFirebase(ref.child("collections").get().await()) },
-                    async { pullCollectionItemsFromFirebase(ref.child("collection_items").get().await()) },
-                    async { pullTodosFromFirebase(ref.child("todos").get().await()) },
-                    async { pullTaskTypesFromFirebase(ref.child("task_types").get().await()) },
-                    async { pullScheduleBlocksFromFirebase(ref.child("schedule_blocks").get().await()) }
-                ).awaitAll()
-
-                // 2. Then push local changes (in parallel)
-                listOf(
-                    async { pushItemsToFirebase(ref.child("items"), inventoryDao.getDirtyItemsList()) },
-                    async { pushLinksToFirebase(ref.child("item_links"), itemLinkDao.getDirtyLinksList()) },
-                    async { pushTasksToFirebase(ref.child("tasks"), taskDao.getDirtyTasksList()) },
-                    async { pushCollectionsToFirebase(ref.child("collections"), collectionDao.getDirtyCollectionsList()) },
-                    async { pushCollectionItemsToFirebase(ref.child("collection_items"), collectionDao.getDirtyCollectionItemsList()) },
-                    async { pushTodosToFirebase(ref.child("todos"), todoDao.getDirtyTodosList()) },
-                    async { pushTaskTypesToFirebase(ref.child("task_types"), taskTypeDao.getDirtyTaskTypesList()) },
-                    async { pushScheduleBlocksToFirebase(ref.child("schedule_blocks"), scheduleBlockDao.getDirtyBlocksList()) }
-                ).awaitAll()
+            // Callers rely on this returning only once the cloud's rows are in Room -- task-type
+            // seeding runs straight after and must see an existing account's own types first.
+            val allSettled = coroutineScope {
+                nodes.map { node ->
+                    async {
+                        val settled = node.awaitSettled()
+                        if (settled) {
+                            node.remergeAll()
+                            node.pushMissing()
+                        }
+                        node.pushDirty()
+                        settled
+                    }
+                }.awaitAll().all { it }
             }
 
-            _syncStatus.value = SyncStatus.Synced
-            Log.d(TAG, "App open sync completed successfully")
+            if (allSettled) {
+                _syncStatus.value = SyncStatus.Synced
+                Log.d(TAG, "App open sync completed successfully")
+            } else {
+                _syncStatus.value = SyncStatus.Error("Couldn't load everything from the cloud")
+                Log.w(TAG, "App open sync: not every node finished its initial load")
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "App open sync failed", e)
             _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error")
         }
+    }
+
+    private companion object {
+        const val SETTLE_TIMEOUT_MS = 15_000L
     }
 }

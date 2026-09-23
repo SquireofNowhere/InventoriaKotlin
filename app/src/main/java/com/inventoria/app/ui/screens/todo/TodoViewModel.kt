@@ -384,7 +384,7 @@ class TodoViewModel @Inject constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
             else { context.startService(intent) }
             _taskStarted.tryEmit(todo)
-            syncRepository.triggerFullSync()
+            syncRepository.pushPendingChanges()
         }
     }
 

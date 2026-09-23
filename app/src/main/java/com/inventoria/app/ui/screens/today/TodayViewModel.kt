@@ -285,7 +285,7 @@ class TodayViewModel @Inject constructor(
             val intent = Intent(context, TaskTimerService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
             else context.startService(intent)
-            syncRepository.triggerFullSync()
+            syncRepository.pushPendingChanges()
         }
     }
 

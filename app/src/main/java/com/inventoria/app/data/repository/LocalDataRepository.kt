@@ -32,8 +32,8 @@ class LocalDataRepository @Inject constructor(
      *
      * Room holds exactly one account's data at a time, so changing which database this device syncs
      * to has to start from empty. Carrying the old rows across a switch meant the very next
-     * [FirebaseSyncRepository.triggerFullSync] -- which pushes *every* row, not just the dirty ones,
-     * and runs on every backgrounding -- uploaded them into the new target: joining someone's invite
+     * [FirebaseSyncRepository.syncOnAppOpen] -- which uploads every local row the cloud has no copy
+     * of -- would upload them into the new target: joining someone's invite
      * code silently copied your whole inventory into their account, and clearing the connection
      * afterwards copied theirs into yours.
      *

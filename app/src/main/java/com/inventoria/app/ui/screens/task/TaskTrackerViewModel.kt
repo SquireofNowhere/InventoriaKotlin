@@ -519,8 +519,7 @@ class TaskTrackerViewModel @Inject constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
             else { context.startService(intent) }
 
-            // Force immediate sync after insertion
-            syncRepository.triggerFullSync()
+            syncRepository.pushPendingChanges()
         }
     }
 
@@ -575,7 +574,7 @@ class TaskTrackerViewModel @Inject constructor(
         val intent = Intent(context, TaskTimerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { context.startForegroundService(intent) }
         else { context.startService(intent) }
-        syncRepository.triggerFullSync()
+        syncRepository.pushPendingChanges()
         return task
     }
 
@@ -655,8 +654,6 @@ class TaskTrackerViewModel @Inject constructor(
                     _isAutoStartPending.value = true
                     delay(1000)
                     if (isFlowModeEnabled.value && _activeSessions.value.size < 5) {
-                        // Wait for syncIgnoreCount to settle
-                        while (syncRepository.isSyncing()) delay(100)
                         addNewTask()
                     }
                     _isAutoStartPending.value = false

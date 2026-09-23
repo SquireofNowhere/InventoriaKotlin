@@ -816,4 +816,27 @@ No CI build (deliberately: see the README's Building section). The working rule 
 
 ---
 
-*Last Updated: 2026-09-02*
+## 🐞 51. Two Phones on One Account Drifted Apart
+**Status:** ✅ Resolved (2026-09-23)
+
+### 📝 Problem
+Live sync between two devices was not live: a second quick edit often never reached the other phone until an app reopen, bursts of changes arrived one per second, and the two phones could settle permanently on different versions of the same row.
+
+### 🔍 Root Cause
+Four separate faults in `FirebaseSyncRepository`:
+- Every pull raised `syncIgnoreCount` and held it for a further second, and any push that fired in that window was **dropped**, not deferred. Each push echoes back as a pull on the same device, so a second edit within about a second of the first was routinely lost until the next app open. The "force immediate sync" calls after task inserts, the 30-second full re-upload in `TaskTimerService`, and Flow Mode's `while (isSyncing())` wait (#20) were all working around this.
+- The same `delay(1000)` sat inside each node's snapshot collector, so snapshots were applied at most one per second per node.
+- A push marked rows clean by id, so an edit made while the upload was in flight was marked clean and never sent.
+- A pulled row was accepted only when its `updatedAt` beat the local copy's. `updatedAt` comes from each phone's own clock, so when two phones wrote the same row, the one whose clock ran ahead kept its copy while the cloud held the other's. `triggerFullSync` then re-uploaded every row, stale ones included, on a timer.
+
+### 🛠️ Final Fix
+The eight hand-copied push/pull pairs became one `NodeSync` per table, driven by a `NodeSpec`:
+- A `ChildEventListener` keeps an in-memory copy of the cloud's view. Changed children are queued and merged in batches, always from the latest copy, so a merge can never apply something older than what was already seen. Firebase overlays pending local writes on that view, so an in-flight push shows its own value until acknowledged.
+- Merge rule, in one Room transaction: no local row → insert; dirty local row → keep it unless the cloud's copy is newer; **clean local row → take the cloud's copy whenever it differs**. The cloud always holds the last write, so this is what makes both phones converge whatever their clocks say.
+- Pushes are never suppressed. Rows are marked clean only if they still equal what was sent, and pushed keys are re-merged afterwards, so a remote change held back while the row was dirty is picked up once it is clean.
+- `syncOnAppOpen` waits for each node's initial load (a single-value listener fires after the initial child events) and its merge, instead of re-reading every node with `get()`. It then uploads only rows the cloud has no copy of, replacing the full re-upload. `triggerFullSync` is now re-merge plus push-dirty, and the post-insert calls and the timer loop use `pushPendingChanges()`, which pushes dirty rows only.
+- The username no longer pushes before the cloud's value is known, which had let a phone that was reopened overwrite a newer name.
+
+---
+
+*Last Updated: 2026-09-23*

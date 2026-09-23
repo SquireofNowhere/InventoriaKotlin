@@ -119,8 +119,8 @@ class TaskTimerService : Service() {
         syncJob?.cancel()
         syncJob = serviceScope.launch {
             while (isActive) {
-                syncRepository.triggerFullSync()
-                delay(30_000L) // sync every 30 seconds while service is alive
+                syncRepository.pushPendingChanges()
+                delay(30_000L) // retry anything a failed push left dirty, while the service is alive
             }
         }
     }

@@ -37,6 +37,7 @@ class RepositoryModule {
     @Provides
     @Singleton
     fun provideFirebaseSyncRepository(
+        database: InventoryDatabase,
         inventoryDao: InventoryDao,
         taskDao: TaskDao,
         collectionDao: CollectionDao,
@@ -52,6 +53,7 @@ class RepositoryModule {
         // Named arguments deliberately: these constructors are long and same-shaped, and the
         // positional form silently rebinds every argument after any newly inserted parameter.
         return FirebaseSyncRepository(
+            database = database,
             inventoryDao = inventoryDao,
             taskDao = taskDao,
             collectionDao = collectionDao,

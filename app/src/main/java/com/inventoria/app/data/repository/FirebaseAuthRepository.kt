@@ -373,7 +373,7 @@ class FirebaseAuthRepository @Inject constructor(
             // 1. Tombstone the account before touching anything else.
             //
             // Absence is not authoritative anywhere in this app: every pull is insert-only, and
-            // triggerFullSync pushes every row on every backgrounding, so a second device still
+            // app-open sync re-uploads any row the cloud is missing, so a second device still
             // holding the data would simply recreate users/$uid moments after it was removed --
             // and an invite code would let a stranger recreate it too. deletedAccounts/$uid is
             // outside the node it kills, so deleting the node cannot destroy the evidence, and the

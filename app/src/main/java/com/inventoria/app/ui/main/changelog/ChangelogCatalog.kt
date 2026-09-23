@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 117,
+                versionName = "2.36",
+                changes = listOf(
+                    "Live sync between devices is rebuilt. Edits made in quick succession no longer get stuck on one phone, a burst of changes arrives on the other phone together instead of one per second, and two phones can no longer settle on different versions of the same todo, task or item -- both always end up showing what was saved last."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 116,
                 versionName = "2.35",
                 changes = listOf(
