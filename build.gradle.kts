@@ -19,7 +19,8 @@ fun Property<String>.disableDownloadRepository() {
     convention(null as String?)
     set(null as String?)
 }
-allprojects {
+@OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+fun Project.disableWasmToolchainRepositories() {
     plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsRootPlugin> {
         the<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec>().downloadBaseUrl.disableDownloadRepository()
     }
@@ -30,3 +31,4 @@ allprojects {
         the<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec>().downloadBaseUrl.disableDownloadRepository()
     }
 }
+allprojects { disableWasmToolchainRepositories() }
