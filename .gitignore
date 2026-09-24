@@ -4,6 +4,8 @@
 /.idea
 /build
 /app/build
+/shared/build
+/webApp/build
 screenshot_check.png
 .env
 google-services.json

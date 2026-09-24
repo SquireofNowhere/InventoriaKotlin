@@ -1,5 +1,7 @@
 # Inventoria (Kotlin)
 
+> **`unstable-online` branch:** Inventoria is being ported to an online app. A Kotlin Multiplatform `shared` module and a Compose-for-Web `webApp` run next to the Android app. See [PORTING.md](PORTING.md).
+
 Take a hold of your life: time tracking, todos, a daily schedule and an inventory of your things, for Android. Built with Jetpack Compose, Room, and Firebase.
 
 ## 🧭 Layout
