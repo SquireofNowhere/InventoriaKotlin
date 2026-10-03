@@ -51,4 +51,5 @@ if (providers.gradleProperty("inventoria.webOnly").orNull != "true") {
 }
 include(":shared")
 include(":webApp")
+include(":mcpServer")
  

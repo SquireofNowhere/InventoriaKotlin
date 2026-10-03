@@ -49,6 +49,27 @@ class FirebaseAuthRest(
     suspend fun signInWithGoogleIdToken(idToken: String): AuthSession =
         signInWithIdp("id_token=$idToken&providerId=google.com")
 
+    /**
+     * A fresh anonymous account. Nothing in the web app calls this; the headless MCP server uses
+     * it to become its own Firebase user, which then joins a vault by invite code exactly as a
+     * second phone does. Needs Anonymous sign-in enabled in the Firebase project, which the
+     * Android app already relies on.
+     */
+    suspend fun signInAnonymously(): AuthSession {
+        val response = http.post("$IDENTITY_TOOLKIT/accounts:signUp") {
+            parameter("key", config.apiKey)
+            contentType(ContentType.Application.Json)
+            setBody(SignUpRequest())
+        }
+        val body: SignUpResponse = response.ensureOk().body()
+        return AuthSession(
+            uid = body.localId,
+            idToken = body.idToken,
+            refreshToken = body.refreshToken,
+            expiresAt = nowMillis() + body.expiresIn.toLong() * 1000L
+        )
+    }
+
     private suspend fun signInWithIdp(postBody: String): AuthSession {
         val response = http.post("$IDENTITY_TOOLKIT/accounts:signInWithIdp") {
             parameter("key", config.apiKey)
@@ -98,6 +119,17 @@ class FirebaseAuthRest(
         val requestUri: String,
         val returnSecureToken: Boolean = true,
         val returnIdpCredential: Boolean = true
+    )
+
+    @Serializable
+    private data class SignUpRequest(val returnSecureToken: Boolean = true)
+
+    @Serializable
+    private data class SignUpResponse(
+        val localId: String,
+        val idToken: String,
+        val refreshToken: String,
+        val expiresIn: String
     )
 
     @Serializable

@@ -6,6 +6,7 @@
 /app/build
 /shared/build
 /webApp/build
+/mcpServer/build
 screenshot_check.png
 .env
 google-services.json

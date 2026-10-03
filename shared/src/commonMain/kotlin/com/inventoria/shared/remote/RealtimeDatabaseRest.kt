@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -34,6 +35,17 @@ class RealtimeDatabaseRest(
     suspend fun get(path: String): JsonElement {
         val text = authorized { token -> http.get("$baseUrl/$path.json") { parameter("auth", token) } }
         return InventoriaJson.parseToJsonElement(text)
+    }
+
+    /** Replaces the whole node at [path] with [value]. */
+    suspend fun put(path: String, value: JsonElement) {
+        authorized { token ->
+            http.put("$baseUrl/$path.json") {
+                parameter("auth", token)
+                contentType(ContentType.Application.Json)
+                setBody(value.toString())
+            }
+        }
     }
 
     suspend fun patch(path: String, children: JsonObject) {

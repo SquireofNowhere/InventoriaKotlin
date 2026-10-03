@@ -30,6 +30,10 @@ class AuthManager(
         publish(auth.signInWithGoogleAccessToken(accessToken))
     }
 
+    suspend fun signInAnonymously() {
+        publish(auth.signInAnonymously())
+    }
+
     fun signOut() = publish(null)
 
     /** A usable ID token, refreshed first if it is about to expire or [forceRefresh] is set. */
