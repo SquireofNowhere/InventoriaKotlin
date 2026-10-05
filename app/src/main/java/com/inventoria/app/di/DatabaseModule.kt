@@ -152,12 +152,24 @@ object DatabaseModule {
     }
 
     /**
+     * Reminder plans (v20): the one column that holds a todo's lead times and its "every so often
+     * until the deadline" rule. NOT NULL with a '' default so every existing todo reads as "no plan
+     * stored", which makes its old reminderOffsetMinutes the whole story -- nothing rings
+     * differently the morning after the update.
+     */
+    private val MIGRATION_19_20 = object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE Todo ADD COLUMN reminderPlan TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
 
     @Provides
     @Singleton

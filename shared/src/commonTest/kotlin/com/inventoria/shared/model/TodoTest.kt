@@ -43,7 +43,7 @@ class TodoTest {
     @Test
     fun allDayReminderRingsAtNineMinusTheOffset() {
         val todo = Todo(deadline = day(2026, 9, 4), reminderOffsetMinutes = 60)
-        assertEquals(day(2026, 9, 4) + 8 * 3_600_000L, todo.reminderTriggerAt())
-        assertNull(todo.copy(state = TodoState.COMPLETE).reminderTriggerAt())
+        assertEquals(day(2026, 9, 4) + 8 * 3_600_000L, todo.nextReminderAfter(day(2026, 9, 1), zone = zone))
+        assertNull(todo.copy(state = TodoState.COMPLETE).nextReminderAfter(day(2026, 9, 1), zone = zone))
     }
 }

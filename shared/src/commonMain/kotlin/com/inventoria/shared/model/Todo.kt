@@ -29,7 +29,11 @@ data class Todo(
     val taskTypeId: String? = null,
     val deadline: Long? = null,
     val deadlineMinuteOfDay: Int? = null,
+    // Once a todo has a reminderPlan this only mirrors its closest lead time; see withReminders.
     val reminderOffsetMinutes: Int? = null,
+    // ReminderPlan.encode() text: several lead times and/or an "every so often" repeat. Blank means
+    // no plan stored, so reminderOffsetMinutes alone speaks.
+    val reminderPlan: String = "",
     val priority: TodoPriority? = null,
     val parentTodoId: String? = null,
     val state: TodoState = TodoState.INCOMPLETE,
@@ -44,17 +48,9 @@ data class Todo(
     val updatedAt: Long = 0L
 )
 
-/** Where an all-day deadline's alarm lands when the todo carries no time of its own. */
+/** Where an all-day deadline's alarm lands when the todo carries no time of its own. The reminder
+ * maths itself is in ReminderPlan.kt. */
 const val ALL_DAY_REMINDER_MINUTE_OF_DAY = 9 * 60
-
-/** When this todo's alarm should fire, or null when nothing should ring. */
-fun Todo.reminderTriggerAt(): Long? {
-    val day = deadline ?: return null
-    val offset = reminderOffsetMinutes ?: return null
-    if (isDeleted || state == TodoState.COMPLETE) return null
-    val minuteOfDay = deadlineMinuteOfDay ?: ALL_DAY_REMINDER_MINUTE_OF_DAY
-    return day + minuteOfDay * 60_000L - offset * 60_000L
-}
 
 /** The deadline one cycle later than [day] (a start-of-day timestamp). */
 fun TodoRepeat.nextDeadline(day: Long, zone: TimeZone = TimeZone.currentSystemDefault()): Long =

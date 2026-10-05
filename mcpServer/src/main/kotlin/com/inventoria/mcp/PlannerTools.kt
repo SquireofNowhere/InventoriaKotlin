@@ -1,5 +1,7 @@
 package com.inventoria.mcp
 
+import com.inventoria.shared.model.ReminderPlan
+import com.inventoria.shared.model.ReminderSpan
 import com.inventoria.shared.model.ScheduleBlock
 import com.inventoria.shared.model.Task
 import com.inventoria.shared.model.TaskKind
@@ -9,6 +11,8 @@ import com.inventoria.shared.model.TodoPriority
 import com.inventoria.shared.model.TodoRepeat
 import com.inventoria.shared.model.TodoState
 import com.inventoria.shared.model.nowMillis
+import com.inventoria.shared.model.reminders
+import com.inventoria.shared.model.withReminders
 import com.inventoria.shared.remote.InventoriaJson
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -47,10 +51,42 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
             t.copy(deadlineMinuteOfDay = parseMinuteOfDay(args.reqStr("due_time")), deadline = t.deadline ?: todayStart())
         }
     }
-    if (args.has("reminder_offset_minutes")) {
-        val offset = args.pickInt("reminder_offset_minutes", null)
-        if (offset != null && offset < 0) throw ToolError("'reminder_offset_minutes' cannot be negative")
-        t = t.copy(reminderOffsetMinutes = offset)
+    if (args.has("reminder_offset_minutes") || args.has("reminder_before") || args.has("reminder_every")) {
+        // Each field changes only its own half of the plan: sending reminder_every leaves the lead
+        // times alone, and the other way round.
+        val current = t.reminders()
+        var leads = current.leadMinutes
+        var every = current.every
+        if (args.has("reminder_offset_minutes")) {
+            val offset = args.pickInt("reminder_offset_minutes", null)
+            if (offset != null && (offset < 0 || offset > ReminderPlan.MAX_LEAD_MINUTES)) {
+                throw ToolError("'reminder_offset_minutes' must be between 0 and ${ReminderPlan.MAX_LEAD_MINUTES}")
+            }
+            leads = listOfNotNull(offset)
+        }
+        if (args.has("reminder_before")) {
+            leads = if (args.isNull("reminder_before")) emptyList() else {
+                (args.strList("reminder_before") ?: emptyList()).map {
+                    ReminderPlan.leadMinutesOf(it)
+                        ?: throw ToolError("'reminder_before' entries look like 30m, 4h, 2d or 1w (up to a year); got '$it'")
+                }
+            }
+        }
+        if (args.has("reminder_every")) {
+            every = if (args.isNull("reminder_every")) null else {
+                val raw = args.reqStr("reminder_every")
+                val span = ReminderSpan.parse(raw)
+                    ?: throw ToolError("'reminder_every' looks like 30m, 2h, 1d, 1w or 1mo; got '$raw'")
+                if (span.amount !in 1..ReminderPlan.MAX_EVERY_AMOUNT) {
+                    throw ToolError("'reminder_every' needs an amount from 1 to ${ReminderPlan.MAX_EVERY_AMOUNT}")
+                }
+                if ((span.fixedMinutes ?: Long.MAX_VALUE) < ReminderPlan.MIN_EVERY_MINUTES) {
+                    throw ToolError("'reminder_every' cannot be shorter than ${ReminderPlan.MIN_EVERY_MINUTES} minutes")
+                }
+                span
+            }
+        }
+        t = t.withReminders(ReminderPlan.of(leads, every))
     }
     if (args.has("priority")) {
         t = t.copy(priority = if (args.isNull("priority")) null else args.enum<TodoPriority>("priority"))
@@ -77,7 +113,7 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
         if (t.repeatInterval != TodoRepeat.NONE && args.has("repeat")) {
             throw ToolError("A repeating todo needs a due_date")
         }
-        t = t.copy(deadlineMinuteOfDay = null, reminderOffsetMinutes = null, repeatInterval = TodoRepeat.NONE)
+        t = t.copy(deadlineMinuteOfDay = null, repeatInterval = TodoRepeat.NONE).withReminders(ReminderPlan.NONE)
     }
     if (t.title.isBlank()) throw ToolError("'title' cannot be empty")
     return t
@@ -125,8 +161,19 @@ internal val TODO_FIELDS = arrayOf(
     "due_date" to strP("Due day, YYYY-MM-DD in the vault's time zone", nullable = true),
     "due_time" to strP("Due time of day, HH:MM (24-hour); with no due_date this means today", nullable = true),
     "reminder_offset_minutes" to intP(
-        "Ring this many minutes before it is due (0 = at the due time, 1440 = a day before); needs a due_date. " +
-            "Leave out for no alarm.",
+        "Ring once, this many minutes before it is due (0 = at the due time, 1440 = a day before); needs a " +
+            "due_date. Replaces any lead times already set; for several, use reminder_before. Leave out for no alarm.",
+        nullable = true
+    ),
+    "reminder_before" to arrP(
+        "string",
+        "Ring this long before it is due, once for each entry: durations like 30m, 4h, 2d, 1w (0m = at the due " +
+            "time), e.g. [\"6h\",\"5h\",\"4h\"]. Replaces the lead times; [] clears them. Needs a due_date. " +
+            "All-day todos count from 09:00."
+    ),
+    "reminder_every" to strP(
+        "Keep ringing every so often until it is due, counted back from the due time and ending with it: 30m, " +
+            "2h, 1d, 1w or 1mo (at least 5m). Combines with reminder_before. null stops the repeat. Needs a due_date.",
         nullable = true
     ),
     "priority" to strP("Priority, A1 (highest) to C3 (lowest)", nullable = true, enum = TodoPriority.entries.map { it.name }),

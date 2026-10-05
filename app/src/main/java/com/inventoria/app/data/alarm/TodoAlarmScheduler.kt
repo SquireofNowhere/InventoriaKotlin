@@ -8,7 +8,7 @@ import android.os.Build
 import android.util.Log
 import com.inventoria.app.data.local.TodoDao
 import com.inventoria.app.data.model.Todo
-import com.inventoria.app.data.model.reminderTriggerAt
+import com.inventoria.app.data.model.nextReminderAfter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +21,8 @@ import javax.inject.Singleton
  * Keeps AlarmManager in step with the Todo table.
  *
  * Watches the visible-todos flow for the life of the process and, on every emission, works out
- * the set of alarms that *should* exist (one per incomplete todo with a deadline and an alarm
- * setting whose trigger is still in the future -- see [reminderTriggerAt]) and reconciles
+ * the set of alarms that *should* exist (one per incomplete todo with a deadline and a reminder
+ * plan that still has something ahead of it -- the todo's [nextReminderAfter] now) and reconciles
  * AlarmManager to it: new or moved triggers are (re)set, everything else is cancelled.
  *
  * Deriving from the table rather than hooking each write path is the whole design. A todo can
@@ -53,19 +53,34 @@ class TodoAlarmScheduler @Inject constructor(
     /** todoId -> trigger time currently handed to AlarmManager by this process. */
     private val armed = mutableMapOf<String, Long>()
 
+    /** The table as of the last emission, so [rearm] can recompute without waiting for one. */
+    @Volatile
+    private var latest: List<Todo> = emptyList()
+
     fun start() {
         if (started) return
         started = true
         scope.launch {
-            todoDao.getVisibleTodos().collect { todos -> reconcile(todos) }
+            todoDao.getVisibleTodos().collect { todos ->
+                latest = todos
+                reconcile(todos)
+            }
         }
     }
+
+    /**
+     * Arms the next reminder of every todo again, from the table as last seen. A todo's plan can
+     * hold many reminders (several lead times, or "every 2 hours"), but only the next one is ever
+     * handed to AlarmManager -- so the receiver calls this after each one rings to line up the one
+     * after it. Nothing here changes the table, so the flow collector never hears about it.
+     */
+    fun rearm() = reconcile(latest)
 
     @Synchronized
     private fun reconcile(todos: List<Todo>) {
         val now = System.currentTimeMillis()
         val desired = todos
-            .mapNotNull { todo -> todo.reminderTriggerAt()?.takeIf { it > now }?.let { todo to it } }
+            .mapNotNull { todo -> todo.nextReminderAfter(now)?.let { todo to it } }
             .associate { (todo, at) -> todo.id to (at to todo.title) }
 
         (armed.keys - desired.keys).toList().forEach { id ->

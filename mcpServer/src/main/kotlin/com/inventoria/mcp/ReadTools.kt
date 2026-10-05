@@ -11,7 +11,9 @@ import com.inventoria.shared.model.TaskType
 import com.inventoria.shared.model.Todo
 import com.inventoria.shared.model.TodoState
 import com.inventoria.shared.model.computeTaskTypeStats
+import com.inventoria.shared.model.hasReminder
 import com.inventoria.shared.model.nowMillis
+import com.inventoria.shared.model.reminders
 import com.inventoria.shared.remote.InventoriaJson
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonArray
@@ -87,6 +89,7 @@ fun todoView(todo: Todo): JsonObject {
     todo.deadline?.let { view = view.withField("deadlineDate", JsonPrimitive(dayString(it))) }
     todo.deadlineMinuteOfDay?.let { view = view.withField("deadlineTime", JsonPrimitive(minuteString(it))) }
     todo.completedAt?.let { view = view.withField("completedAtIso", JsonPrimitive(isoString(it))) }
+    if (todo.hasReminder) view = view.withField("remindersText", JsonPrimitive(todo.reminders().describe()))
     return view
 }
 

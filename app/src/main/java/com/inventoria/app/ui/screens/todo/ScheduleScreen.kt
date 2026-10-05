@@ -50,6 +50,7 @@ import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.hasReminder
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
@@ -436,7 +437,7 @@ private fun AllDayTodoStrip(todos: List<Todo>, todayStart: Long, onToggle: (Todo
             // day it's due, so it's overdue precisely when that day is already behind us.
             val isOverdue = !done && todo.deadline != null && todo.deadline!! < todayStart
             val tier = if (isOverdue) MaterialTheme.colorScheme.error else taskCategoryColor(todo.kind.category)
-            val alarmIcon: (@Composable () -> Unit)? = if (todo.reminderOffsetMinutes != null && !done) {
+            val alarmIcon: (@Composable () -> Unit)? = if (todo.hasReminder && !done) {
                 { Icon(Icons.Default.Alarm, contentDescription = "Alarm set", modifier = Modifier.size(14.dp)) }
             } else null
             AssistChip(
@@ -837,7 +838,7 @@ private fun TodoDueMarker(todo: Todo, isDue: Boolean, modifier: Modifier, onClic
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (todo.reminderOffsetMinutes != null && !done) {
+                if (todo.hasReminder && !done) {
                     Spacer(Modifier.width(4.dp))
                     Icon(
                         Icons.Default.Alarm,

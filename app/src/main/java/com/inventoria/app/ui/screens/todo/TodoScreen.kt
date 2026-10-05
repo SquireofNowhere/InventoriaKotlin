@@ -36,12 +36,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.inventoria.app.data.model.ALL_DAY_REMINDER_MINUTE_OF_DAY
+import com.inventoria.app.data.model.ReminderPlan
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoRepeat
+import com.inventoria.app.data.model.reminders
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
 import com.inventoria.app.ui.screens.task.TodoPriorityDropdownMenu
@@ -320,7 +321,7 @@ fun TodoScreen(
             initialDeadlineMinuteOfDay = null,
             // New todos ring at their due moment unless told otherwise -- the whole reason alarms
             // exist is the deadline nobody looked at. Only takes effect once a deadline is set.
-            initialReminderOffsetMinutes = 0,
+            initialReminders = ReminderPlan.AT_DUE,
             initialRepeat = TodoRepeat.NONE,
             repeatCompletedCount = 0,
             repeatMissedCount = 0,
@@ -345,7 +346,7 @@ fun TodoScreen(
             taskTypes = taskTypes,
             initialDeadline = todo.deadline,
             initialDeadlineMinuteOfDay = todo.deadlineMinuteOfDay,
-            initialReminderOffsetMinutes = todo.reminderOffsetMinutes,
+            initialReminders = todo.reminders(),
             initialRepeat = todo.repeatInterval,
             repeatCompletedCount = todo.repeatCompletedCount,
             repeatMissedCount = todo.repeatMissedCount,
@@ -361,21 +362,6 @@ fun TodoScreen(
     }
 }
 
-/** The alarm lead times a todo can pick from. Values are minutes before the due moment; null is
- * "no alarm". Kept as a list of pairs rather than an enum so the stored Int stays the source of
- * truth and a value this list doesn't name (synced from a newer build, say) still displays. */
-internal val REMINDER_CHOICES: List<Pair<Int?, String>> = listOf(
-    null to "No alarm",
-    0 to "At due time",
-    10 to "10 minutes before",
-    60 to "1 hour before",
-    24 * 60 to "1 day before"
-)
-
-internal fun reminderLabel(offsetMinutes: Int?): String =
-    REMINDER_CHOICES.firstOrNull { it.first == offsetMinutes }?.second
-        ?: "$offsetMinutes minutes before"
-
 @Composable
 private fun TodoEditDialog(
     initialTitle: String,
@@ -385,7 +371,7 @@ private fun TodoEditDialog(
     taskTypes: List<TaskType>,
     initialDeadline: Long?,
     initialDeadlineMinuteOfDay: Int?,
-    initialReminderOffsetMinutes: Int?,
+    initialReminders: ReminderPlan,
     initialRepeat: TodoRepeat,
     repeatCompletedCount: Int,
     repeatMissedCount: Int,
@@ -394,7 +380,7 @@ private fun TodoEditDialog(
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, String, TaskKind, String?, Long?, Int?, Int?, TodoRepeat, String?, TodoPriority?) -> Unit
+    onSave: (String, String, TaskKind, String?, Long?, Int?, ReminderPlan, TodoRepeat, String?, TodoPriority?) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var description by remember { mutableStateOf(initialDescription) }
@@ -402,7 +388,7 @@ private fun TodoEditDialog(
     var taskTypeId by remember { mutableStateOf(initialTaskTypeId) }
     var deadline by remember { mutableStateOf(initialDeadline) }
     var deadlineMinuteOfDay by remember { mutableStateOf(initialDeadlineMinuteOfDay) }
-    var reminderOffsetMinutes by remember { mutableStateOf(initialReminderOffsetMinutes) }
+    var reminders by remember { mutableStateOf(initialReminders) }
     var repeat by remember { mutableStateOf(initialRepeat) }
     var parentId by remember { mutableStateOf(initialParentId) }
     var priority by remember { mutableStateOf(initialPriority) }
@@ -492,14 +478,15 @@ private fun TodoEditDialog(
                         }
                     }
                 }
-                // Alarm lead time. Only meaningful with a deadline, so it sits greyed out until
-                // one exists -- but stays visible so it is obvious the option is there. All-day
-                // deadlines ring at 09:00 (see ALL_DAY_REMINDER_MINUTE_OF_DAY).
-                ReminderPicker(
+                // Reminders: lead times and/or "every so often until the deadline". Only meaningful
+                // with a deadline, so the row sits greyed out until one exists -- but stays visible
+                // so it is obvious the option is there. All-day deadlines ring at 09:00 (see
+                // ALL_DAY_REMINDER_MINUTE_OF_DAY).
+                ReminderRow(
                     enabled = deadline != null,
                     isAllDay = deadline != null && deadlineMinuteOfDay == null,
-                    selected = reminderOffsetMinutes,
-                    onSelected = { reminderOffsetMinutes = it }
+                    plan = reminders,
+                    onPlanChange = { reminders = it }
                 )
                 RepeatPicker(
                     enabled = deadline != null,
@@ -524,7 +511,7 @@ private fun TodoEditDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminderOffsetMinutes, repeat, parentId, priority) },
+                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminders, repeat, parentId, priority) },
                 enabled = title.isNotBlank()
             ) {
                 Text("Save")
@@ -534,62 +521,6 @@ private fun TodoEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-}
-
-@Composable
-private fun ReminderPicker(
-    enabled: Boolean,
-    isAllDay: Boolean,
-    selected: Int?,
-    onSelected: (Int?) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val tint = if (enabled) LocalContentColor.current else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-    Box(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (enabled) Modifier.clickable { expanded = true } else Modifier),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                if (selected != null) Icons.Default.Alarm else Icons.Default.AlarmOff,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = tint
-            )
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text(
-                    text = when {
-                        !enabled -> "Alarm (set a deadline first)"
-                        else -> reminderLabel(selected)
-                    },
-                    color = tint
-                )
-                if (enabled && selected != null && isAllDay) {
-                    Text(
-                        "All-day deadline: rings at ${formatMinuteOfDay(ALL_DAY_REMINDER_MINUTE_OF_DAY)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            REMINDER_CHOICES.forEach { (offset, label) ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            label,
-                            fontWeight = if (offset == selected) FontWeight.Bold else null
-                        )
-                    },
-                    onClick = { onSelected(offset); expanded = false }
-                )
-            }
-        }
-    }
 }
 
 @Composable

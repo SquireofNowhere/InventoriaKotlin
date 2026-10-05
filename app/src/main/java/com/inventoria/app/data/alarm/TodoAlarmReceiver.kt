@@ -15,9 +15,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.inventoria.app.data.TodoRepository
+import com.inventoria.app.data.model.ReminderPlan
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoAlarmStyle
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.dueMillis
 import com.inventoria.app.data.repository.SettingsRepository
 import com.inventoria.app.ui.splash.SplashActivity
 import com.inventoria.app.util.formatMinuteOfDay
@@ -50,6 +52,9 @@ class TodoAlarmReceiver : BroadcastReceiver() {
     @Inject
     lateinit var settingsRepository: SettingsRepository
 
+    @Inject
+    lateinit var alarmScheduler: TodoAlarmScheduler
+
     override fun onReceive(context: Context, intent: Intent) {
         val todoId = intent.getStringExtra(EXTRA_TODO_ID) ?: return
         val action = intent.action ?: return
@@ -57,7 +62,14 @@ class TodoAlarmReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 when (action) {
-                    ACTION_FIRE -> fire(context, todoId, intent.getStringExtra(EXTRA_TITLE))
+                    ACTION_FIRE -> try {
+                        fire(context, todoId, intent.getStringExtra(EXTRA_TITLE))
+                    } finally {
+                        // A plan can hold more reminders than the one that just rang; the scheduler
+                        // only ever has the next one armed, so line up the one after it -- even when
+                        // this one stayed silent, or a failed notification would end the whole run.
+                        alarmScheduler.rearm()
+                    }
                     ACTION_DONE -> {
                         todoRepository.setStateWithCascade(todoId, complete = true)
                         NotificationManagerCompat.from(context).cancel(notificationId(todoId))
@@ -117,10 +129,16 @@ class TodoAlarmReceiver : BroadcastReceiver() {
     ): android.app.Notification {
         val id = notificationId(todo.id)
         val title = todo.title.ifBlank { fallbackTitle ?: "Todo" }
-        val dueText = todo.deadline?.let { day ->
+        // "Due Today at 17:00 (in 3 hr)": with several reminders per todo, how long is left is what
+        // tells one ring from the next. Dropped once it is due (or within the minute).
+        val remaining = todo.dueMillis()?.let { it - System.currentTimeMillis() }
+            ?.takeIf { it >= 60_000L }
+            ?.let { " (${ReminderPlan.remainingLabel(it)})" }
+            ?: ""
+        val dueText = (todo.deadline?.let { day ->
             val time = todo.deadlineMinuteOfDay?.let { " at ${formatMinuteOfDay(it)}" } ?: ""
             "Due ${getDayLabel(day)}$time"
-        } ?: "Due"
+        } ?: "Due") + remaining
 
         // SplashActivity is the app's one exported entry point; it forwards to MainActivity.
         val openIntent = Intent(context, SplashActivity::class.java).apply {

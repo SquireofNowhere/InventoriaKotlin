@@ -15,7 +15,7 @@ import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.model.modalTypeIdFor
-import com.inventoria.app.data.model.reminderTriggerAt
+import com.inventoria.app.data.model.nextReminderAfter
 import com.inventoria.app.data.repository.CollectionRepository
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.InventoryRepository
@@ -171,7 +171,7 @@ class TodayViewModel @Inject constructor(
         }
         val soonEnd = now + SOON_MINUTES * 60_000L
         val dueSoon = open.filter { todo ->
-            val ringsSoon = todo.reminderTriggerAt()?.let { it > now && it <= soonEnd } == true
+            val ringsSoon = todo.nextReminderAfter(now, includeRepeats = false)?.let { it <= soonEnd } == true
             val dueTime = todo.deadlineMinuteOfDay
             val dueSoonToday = todo.deadline == todayStart && dueTime != null &&
                 dueTime > minute && dueTime <= minute + SOON_MINUTES

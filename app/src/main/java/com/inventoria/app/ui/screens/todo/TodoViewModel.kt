@@ -13,11 +13,13 @@ import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.modalTypeIdFor
+import com.inventoria.app.data.model.ReminderPlan
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.model.nextDeadline
+import com.inventoria.app.data.model.withReminders
 import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.data.repository.FirebaseSyncRepository
 import com.inventoria.app.data.repository.SettingsRepository
@@ -202,7 +204,7 @@ class TodoViewModel @Inject constructor(
         taskTypeId: String?,
         deadline: Long?,
         deadlineMinuteOfDay: Int?,
-        reminderOffsetMinutes: Int?,
+        reminders: ReminderPlan,
         repeatInterval: TodoRepeat,
         parentTodoId: String?,
         priority: TodoPriority?
@@ -210,7 +212,6 @@ class TodoViewModel @Inject constructor(
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
-        val reminder = reminderOffsetMinutes.takeIf { deadline != null }
         // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
         val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE
         viewModelScope.launch {
@@ -223,11 +224,11 @@ class TodoViewModel @Inject constructor(
                     taskTypeId = taskTypeId,
                     deadline = liveDeadline(deadline, repeat),
                     deadlineMinuteOfDay = time,
-                    reminderOffsetMinutes = reminder,
                     repeatInterval = repeat,
                     parentTodoId = parentTodoId,
                     priority = priority
-                )
+                    // withReminders also drops the plan when there is no deadline to count from.
+                ).withReminders(reminders)
             )
         }
         _isAddingNew.value = false
@@ -252,7 +253,7 @@ class TodoViewModel @Inject constructor(
         taskTypeId: String?,
         deadline: Long?,
         deadlineMinuteOfDay: Int?,
-        reminderOffsetMinutes: Int?,
+        reminders: ReminderPlan,
         repeatInterval: TodoRepeat,
         parentTodoId: String?,
         priority: TodoPriority?
@@ -261,10 +262,10 @@ class TodoViewModel @Inject constructor(
         if (trimmed.isBlank()) return
         // A time without a date would be unreachable in the UI and would sort/display as a due
         // time nothing is actually due at, so the "null deadline clears the time" invariant is
-        // enforced here rather than trusted from the dialog. The alarm follows the same rule: an
-        // alarm with nothing to ring for is cleared, not carried around waiting for a date.
+        // enforced here rather than trusted from the dialog. The alarm follows the same rule
+        // (withReminders below): an alarm with nothing to ring for is cleared, not carried around
+        // waiting for a date.
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
-        val reminder = reminderOffsetMinutes.takeIf { deadline != null }
         // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
         val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE
         viewModelScope.launch {
@@ -281,11 +282,10 @@ class TodoViewModel @Inject constructor(
                         liveDeadline(deadline, repeat)
                     } else deadline,
                     deadlineMinuteOfDay = time,
-                    reminderOffsetMinutes = reminder,
                     repeatInterval = repeat,
                     parentTodoId = parentTodoId,
                     priority = priority
-                )
+                ).withReminders(reminders)
             )
         }
         _pendingEditTodo.value = null

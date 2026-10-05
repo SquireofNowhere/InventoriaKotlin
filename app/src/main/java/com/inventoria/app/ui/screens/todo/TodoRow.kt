@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.hasReminder
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.TodoPriorityChip
@@ -309,7 +310,7 @@ internal fun TodoRow(
                     // Due time, or for an all-day todo (a deadline with no time of its own) just
                     // the date -- and, when one is set, the alarm icon right after it, the only
                     // place the list says "this one will ring".
-                    val hasAlarm = todo.reminderOffsetMinutes != null && todo.state != TodoState.COMPLETE
+                    val hasAlarm = todo.hasReminder && todo.state != TodoState.COMPLETE
                     val dueText = when {
                         todo.deadlineMinuteOfDay != null -> "Due ${formatMinuteOfDay(todo.deadlineMinuteOfDay!!)}"
                         todo.deadline != null -> "Due ${formatDueDate(todo.deadline!!)}"

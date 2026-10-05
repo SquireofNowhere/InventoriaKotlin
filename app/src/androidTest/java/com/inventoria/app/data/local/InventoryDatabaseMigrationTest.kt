@@ -110,6 +110,9 @@ class InventoryDatabaseMigrationTest {
                 assertEquals(TodoRepeat.NONE, todo?.repeatInterval)
                 assertEquals(0, todo?.repeatCompletedCount)
                 assertEquals(0, todo?.repeatMissedCount)
+                // Added by MIGRATION_19_20 as NOT NULL DEFAULT '': a pre-existing todo has no stored
+                // plan, so its old single offset (null here) stays the whole story.
+                assertEquals("", todo?.reminderPlan)
 
                 // The table MIGRATION_15_16 creates has to be usable through its DAO, not merely
                 // present -- a column with the wrong affinity passes CREATE TABLE and fails here.

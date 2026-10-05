@@ -11,19 +11,20 @@ internal val todoAlarmsArticles = listOf(
     HelpArticle(
         id = "todos-alarm",
         title = "Give a todo an alarm",
-        summary = "Ring at the due moment, or a lead time before it.",
-        whatItIs = "A todo with a deadline can also carry an alarm: ring exactly at the due time, or a " +
-            "lead time before it -- 10 minutes, 1 hour, or 1 day. An all-day deadline (no time of its own) " +
-            "rings at 09:00.",
+        summary = "Ring at the due moment, before it, or every so often until it.",
+        whatItIs = "A todo with a deadline can carry as many reminders as it needs, in two flavours that " +
+            "combine freely. Lead times ring once each, that long before the due moment -- \"4, 5 and 6 " +
+            "hours before\". A repeat keeps ringing until the deadline -- \"every 2 hours\", \"every day\", " +
+            "\"every week\", \"every month\". An all-day deadline (no time of its own) counts from 09:00.",
         blocks = listOf(
             HelpBlock.Steps(
                 listOf(
-                    HelpStep("Give the todo a deadline first -- the alarm picker stays visible but greyed out until one exists."),
+                    HelpStep("Give the todo a deadline first -- the reminders row stays visible but greyed out until one exists."),
                     HelpStep(
-                        "Pick a lead time from the Reminder field.",
+                        "Tap the Reminders row. Tick any of the quick lead times, or type your own amount and pick minutes, hours, days or weeks. Switch on Keep reminding me for a repeat.",
                         DiagramSpec(listOf(DiagramElement.Popup(
                             title = "Edit Todo",
-                            fields = listOf(DiagramField("Reminder", "10 minutes before", FieldKind.Dropdown, highlight = true))
+                            fields = listOf(DiagramField("Reminders", "6 hr, 4 hr before · every 2 hours until due", FieldKind.Dropdown, highlight = true))
                         )))
                     ),
                     HelpStep(
@@ -38,16 +39,24 @@ internal val todoAlarmsArticles = listOf(
                     "of an alarm is the deadline nobody looked at, so it starts on rather than off."
             ),
             HelpBlock.Callout(
+                CalloutKind.Note,
+                "A repeat is counted back from the due moment and ends with it, so \"every day\" on a 17:00 " +
+                    "deadline rings at 17:00 each day, and \"every 2 hours\" rings on the due time's own " +
+                    "two-hour beat -- including overnight. The shortest repeat is 5 minutes. Each ring says " +
+                    "how long is left."
+            ),
+            HelpBlock.Callout(
                 CalloutKind.Caution,
                 "On some phones (Android 12+, or certain manufacturers) the system can silently delay " +
                     "alarms unless exact alarms are allowed. Settings shows an \"Allow Exact Alarms\" row " +
                     "whenever this app doesn't currently have that permission."
             )
         ),
-        whyItMatters = "Clearing the deadline clears the alarm with it -- an alarm with nothing to ring for " +
-            "is never left dangling, waiting for a date that might come back. The lead time is stored as " +
-            "plain minutes-before rather than a fixed enum, so the same field would still display sensibly " +
-            "even for a value written by a future version that adds more choices.",
+        whyItMatters = "Clearing the deadline clears the reminders with it -- an alarm with nothing to ring " +
+            "for is never left dangling, waiting for a date that might come back. Only the next reminder is " +
+            "ever handed to the system's alarm clock; when it rings, the one after it is lined up. That is " +
+            "why a todo that reminds every 2 hours for a month costs one alarm, not hundreds, and why " +
+            "anything the phone slept through while it was off is skipped rather than replayed all at once.",
         related = listOf("todos-deadline", "todos-alarm-style", "todos-alarm-actions"),
         keywords = listOf("reminder", "notification", "ring", "lead time", "bell")
     ),

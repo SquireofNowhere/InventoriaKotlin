@@ -47,8 +47,16 @@ data class Todo(
     // at the deadline, 60 an hour before, 1440 a day before. Meaningless (and always cleared) when
     // deadline is null, same as deadlineMinuteOfDay. Firebase reads an absent field as null, so
     // todos written before this existed simply have no alarm rather than a surprise one. See
-    // [reminderTriggerAt] for how it combines with an all-day deadline.
+    // [nextReminderAfter] for how it combines with an all-day deadline. Once a todo has a
+    // [reminderPlan] this is only a mirror of the plan's closest lead time (see [withReminders]),
+    // kept so a device on an older build still rings; the plan is what is read.
     @get:PropertyName("reminderOffsetMinutes") @set:PropertyName("reminderOffsetMinutes") var reminderOffsetMinutes: Int? = null,
+    // Everything about when this todo reminds, as ReminderPlan.encode() text: several lead times
+    // ("4, 5 and 6 hours before") and/or a repeat ("every 2 hours until the deadline"). Blank means
+    // no plan stored, in which case reminderOffsetMinutes alone speaks -- so a todo from before
+    // this field existed (or a Firebase node without it, where the setter is never called) keeps
+    // exactly the alarm it had.
+    @get:PropertyName("reminderPlan") @set:PropertyName("reminderPlan") var reminderPlan: String = "",
     // Null means unprioritized -- always counts as procrastination if that penalty is enabled,
     // regardless of the configured cutoff tier.
     @get:PropertyName("priority") @set:PropertyName("priority") var priority: TodoPriority? = null,
@@ -84,22 +92,10 @@ data class Todo(
 )
 
 /** Where an all-day deadline's alarm lands when the todo carries no time of its own: 09:00, late
- * enough to be awake for, early enough to still act on. */
+ * enough to be awake for, early enough to still act on. The reminder maths lives in ReminderPlan.kt:
+ * [nextReminderAfter] is a pure function of the row, so the scheduler can derive every pending
+ * alarm from the table alone -- nothing else has to remember what was armed. */
 const val ALL_DAY_REMINDER_MINUTE_OF_DAY = 9 * 60
-
-/**
- * The wall-clock instant this todo's alarm should fire, or null when nothing should ring: no
- * deadline, no alarm set, already complete, or deleted. Purely a function of the row, so the
- * scheduler can derive every pending alarm from the table alone -- nothing else has to remember
- * what was armed.
- */
-fun Todo.reminderTriggerAt(): Long? {
-    val day = deadline ?: return null
-    val offset = reminderOffsetMinutes ?: return null
-    if (isDeleted || state == TodoState.COMPLETE) return null
-    val minuteOfDay = deadlineMinuteOfDay ?: ALL_DAY_REMINDER_MINUTE_OF_DAY
-    return day + minuteOfDay * 60_000L - offset * 60_000L
-}
 
 /** How often a repeating todo starts over. NONE is the ordinary one-off. */
 enum class TodoRepeat { NONE, DAILY, WEEKLY, MONTHLY }

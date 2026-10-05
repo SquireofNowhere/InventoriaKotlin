@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.FocusArea
 import com.inventoria.app.data.model.ScheduleBlock
 import com.inventoria.app.data.model.Task
+import com.inventoria.app.data.model.hasReminder
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.components.KindBreakdownDonut
 import com.inventoria.app.ui.components.LinearProductivityChart
@@ -703,7 +704,7 @@ private fun NudgeBanner(nudge: Nudge, nowMinuteOfDay: Int, onClick: () -> Unit) 
                     val detail = buildString {
                         append(soonest.title)
                         if (time != null) append(" · ${formatMinuteOfDay(time)}, ${countdownLabel(time, nowMinuteOfDay)}")
-                        if (soonest.reminderOffsetMinutes != null) append(" · alarm set")
+                        if (soonest.hasReminder) append(" · alarm set")
                     }
                     Text(
                         detail,
@@ -755,7 +756,7 @@ private fun UpNextCard(
                         title = item.todo.title,
                         caption = "Todo due",
                         accent = taskCategoryColor(item.todo.kind.category),
-                        hasAlarm = item.todo.reminderOffsetMinutes != null,
+                        hasAlarm = item.todo.hasReminder,
                         onClick = onOpenTodos
                     )
                 }
