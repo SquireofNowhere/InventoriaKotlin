@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
+import androidx.compose.ui.graphics.toArgb
 import com.inventoria.app.R
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.screens.todo.TodoSections
 import com.inventoria.app.ui.screens.todo.TodoTreeEntry
+import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.util.formatMinuteOfDay
 import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.widget.WidgetActionReceiver
@@ -88,6 +90,26 @@ private class TodoWidgetFactory(
         val subtitle = parts.joinToString(" · ")
         views.setTextViewText(R.id.widget_todo_subtitle, subtitle)
         views.setViewVisibility(R.id.widget_todo_subtitle, if (subtitle.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE)
+
+        // The same tri-state the Todos tab's checkbox shows: a dash once some sub-todos are done,
+        // green once they all are and the parent only needs its own tap. Completed rows are
+        // filtered out above, so the filled tick only appears for a parent whose children
+        // finished it.
+        val allChildrenComplete = entry.childProgress?.let { (done, total) -> total > 0 && done == total } ?: false
+        val readyToComplete = entry.effectiveState == TodoState.IN_PROGRESS && allChildrenComplete
+        views.setImageViewResource(
+            R.id.widget_todo_check,
+            when (entry.effectiveState) {
+                TodoState.COMPLETE -> R.drawable.ic_widget_check_filled
+                TodoState.IN_PROGRESS -> R.drawable.ic_widget_check_partial
+                TodoState.INCOMPLETE -> R.drawable.ic_widget_check_empty
+            }
+        )
+        views.setInt(
+            R.id.widget_todo_check,
+            "setColorFilter",
+            if (readyToComplete) Success.toArgb() else context.getColor(R.color.widget_on_surface_variant)
+        )
 
         views.setOnClickFillInIntent(
             R.id.widget_todo_check,

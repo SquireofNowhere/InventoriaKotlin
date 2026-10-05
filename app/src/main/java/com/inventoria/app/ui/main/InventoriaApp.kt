@@ -539,7 +539,9 @@ fun InventoriaApp(
             }
 
             composable("location_picker") {
-                val backStackEntry = remember(it) { navController.getBackStackEntry("add_item") }
+                // The picker is opened from both add_item and edit_item; sharing the launcher's
+                // ViewModel works for either, where a lookup by "add_item" threw for edits.
+                val backStackEntry = remember(it) { navController.previousBackStackEntry ?: it }
                 val viewModel: AddEditItemViewModel = hiltViewModel(backStackEntry)
                 LocationPickerScreen(
                     initialLocation = viewModel.uiState.value.geoPoint,
