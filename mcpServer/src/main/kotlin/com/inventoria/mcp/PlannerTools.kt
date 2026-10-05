@@ -24,7 +24,7 @@ private fun todayStart(): Long = LocalDate.now(zone).atStartOfDay(zone).toInstan
  * same way whichever route it came in by, and kept consistent: a todo with no date has no time, no
  * reminder and no repeat, because all three only mean something relative to a day.
  */
-private suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
+internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
     var t = base
     if (args.has("title")) t = t.copy(title = args.reqStr("title").trim())
     if (args.has("description")) t = t.copy(description = args.str("description") ?: "")
@@ -83,7 +83,41 @@ private suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
     return t
 }
 
-private val TODO_FIELDS = arrayOf(
+/**
+ * Moves a todo to [state] the way the app's tick-off does, and returns the ids it changed. COMPLETE
+ * also moves every unfinished descendant to IN_PROGRESS (covered, not individually verified);
+ * INCOMPLETE moves IN_PROGRESS descendants back; IN_PROGRESS sets just this one.
+ */
+internal suspend fun setTodoState(vault: Vault, id: String, state: TodoState): List<String> {
+    vault.requireTodo(id)
+    val changed = mutableListOf<String>()
+
+    suspend fun setState(todoId: String, to: TodoState) {
+        vault.edit("todos", todoId, Todo.serializer()) { t ->
+            t.copy(state = to, completedAt = if (to == TodoState.COMPLETE) nowMillis() else null)
+        }
+        changed += todoId
+    }
+
+    setState(id, state)
+    if (state != TodoState.IN_PROGRESS) {
+        val from = if (state == TodoState.COMPLETE) TodoState.INCOMPLETE else TodoState.IN_PROGRESS
+        val to = if (state == TodoState.COMPLETE) TodoState.IN_PROGRESS else TodoState.INCOMPLETE
+        val children = vault.todos().groupBy { it.parentTodoId }
+        val visited = mutableSetOf(id)
+        suspend fun visit(parentId: String) {
+            for (child in children[parentId].orEmpty()) {
+                if (!visited.add(child.id)) continue
+                if (child.state == from) setState(child.id, to)
+                visit(child.id)
+            }
+        }
+        visit(id)
+    }
+    return changed
+}
+
+internal val TODO_FIELDS = arrayOf(
     "title" to strP("What needs doing"),
     "description" to strP("Longer notes", nullable = true),
     "kind" to strP("Kind: $KIND_LEGEND", enum = KIND_NAMES),
@@ -140,31 +174,7 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
     ) { args ->
         val id = args.reqStr("id")
         val state = args.enum<TodoState>("state") ?: throw ToolError("'state' is required")
-        vault.requireTodo(id)
-        val changed = mutableListOf<String>()
-
-        suspend fun setState(todoId: String, to: TodoState) {
-            vault.edit("todos", todoId, Todo.serializer()) { t ->
-                t.copy(state = to, completedAt = if (to == TodoState.COMPLETE) nowMillis() else null)
-            }
-            changed += todoId
-        }
-
-        setState(id, state)
-        if (state != TodoState.IN_PROGRESS) {
-            val from = if (state == TodoState.COMPLETE) TodoState.INCOMPLETE else TodoState.IN_PROGRESS
-            val to = if (state == TodoState.COMPLETE) TodoState.IN_PROGRESS else TodoState.INCOMPLETE
-            val children = vault.todos().groupBy { it.parentTodoId }
-            val visited = mutableSetOf(id)
-            suspend fun visit(parentId: String) {
-                for (child in children[parentId].orEmpty()) {
-                    if (!visited.add(child.id)) continue
-                    if (child.state == from) setState(child.id, to)
-                    visit(child.id)
-                }
-            }
-            visit(id)
-        }
+        val changed = setTodoState(vault, id, state)
         obj("state" to state.name, "updatedTodoIds" to JsonArray(changed.map { JsonPrimitive(it) }))
     },
 

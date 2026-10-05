@@ -4,12 +4,13 @@ import com.inventoria.shared.model.nowMillis
 import com.inventoria.shared.remote.AuthManager
 import com.inventoria.shared.remote.FirebaseAuthRest
 import com.inventoria.shared.remote.FirebaseConfig
+import com.inventoria.shared.remote.FirebaseStorageRest
 import com.inventoria.shared.remote.InventoriaJson
 import com.inventoria.shared.remote.RealtimeDatabaseRest
 import com.inventoria.shared.remote.SessionStore
 import com.inventoria.shared.remote.installInventoriaJson
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,18 +27,22 @@ import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermissions
 import kotlin.system.exitProcess
 
-private const val VERSION = "0.1.0"
+private const val VERSION = "0.2.0"
 
 private const val INSTRUCTIONS = """
-This server reads and edits one Inventoria vault: inventory items (which can nest inside container items), collections of items, todos (which can nest), time-tracking task segments, Task Types, and schedule blocks.
+This server reads and edits one Inventoria vault: inventory items (which can nest inside container items, and carry photos), collections of items, todos (which can nest), time-tracking task segments and live timers, Task Types, and schedule blocks.
 
 Start with vault_summary. Changes are written to the cloud database and reach the phone and web app the next time they sync, usually within seconds. Deletes are soft: nothing is erased, and restore brings it back. Dates are YYYY-MM-DD and times HH:MM, in the time zone vault_summary reports. Item and collection ids are numbers; todo, task, task type and schedule block ids are text.
 
-Prefer the specific tools (move_item, set_equipped, set_todo_state ...) over editing fields, because they keep related rows consistent the way the app does. Ask the user before deleting several things at once. Running time-trackers are live on a device and cannot be started, stopped or edited from here.
+Prefer the specific tools (move_item, set_equipped, set_todo_state ...) over editing fields, because they keep related rows consistent the way the app does. Ask the user before deleting several things at once.
+
+Timers: list_active_timers shows what is being tracked; start_timer, pause_timer, resume_timer and stop_timer drive it with the phone's own session rules, and create_task back-fills a finished stretch. A timer started or changed here is live on the user's phone, so confirm before starting or stopping one they did not ask for. Stopping a timer does not tick off the todo it came from.
+
+For many rows at once use bulk_update_todos, bulk_move_items and batch_create; time_report and todo_stats summarise; export_vault and import_vault back up and restore.
 """
 
 /** Where the server keeps its sign-in and which vault it joined. Override with INVENTORIA_MCP_HOME. */
-private val home: Path = System.getenv("INVENTORIA_MCP_HOME")?.takeIf { it.isNotBlank() }?.let { Paths.get(it) }
+internal val home: Path = System.getenv("INVENTORIA_MCP_HOME")?.takeIf { it.isNotBlank() }?.let { Paths.get(it) }
     ?: Paths.get(System.getProperty("user.home"), ".inventoria-mcp")
 
 private val sessionFile = home.resolve("session.json")
@@ -94,6 +99,8 @@ private object ProjectConfig {
     fun load(): FirebaseConfig {
         val apiKey = lookup("FIREBASE_WEB_API_KEY")
         val databaseUrl = lookup("FIREBASE_DATABASE_URL")
+        // Optional: only photo upload needs it.
+        val storageBucket = lookup("FIREBASE_STORAGE_BUCKET")
         if (apiKey == null || databaseUrl == null) {
             fail(
                 "Missing Firebase settings. Set FIREBASE_WEB_API_KEY and FIREBASE_DATABASE_URL (the same values as in " +
@@ -102,22 +109,33 @@ private object ProjectConfig {
             )
         }
         // Remember them so the server works from any directory afterwards.
-        if (saved["FIREBASE_WEB_API_KEY"] != apiKey || saved["FIREBASE_DATABASE_URL"] != databaseUrl) {
+        if (saved["FIREBASE_WEB_API_KEY"] != apiKey || saved["FIREBASE_DATABASE_URL"] != databaseUrl ||
+            (storageBucket != null && saved["FIREBASE_STORAGE_BUCKET"] != storageBucket)
+        ) {
             writePrivate(
                 configFile,
                 InventoriaJson.encodeToString(
                     JsonObject.serializer(),
-                    obj("FIREBASE_WEB_API_KEY" to apiKey, "FIREBASE_DATABASE_URL" to databaseUrl)
+                    obj(
+                        "FIREBASE_WEB_API_KEY" to apiKey,
+                        "FIREBASE_DATABASE_URL" to databaseUrl,
+                        "FIREBASE_STORAGE_BUCKET" to storageBucket
+                    )
                 )
             )
         }
-        return FirebaseConfig(apiKey = apiKey, databaseUrl = databaseUrl, googleWebClientId = lookup("DEFAULT_WEB_CLIENT_ID") ?: "")
+        return FirebaseConfig(
+            apiKey = apiKey,
+            databaseUrl = databaseUrl,
+            googleWebClientId = lookup("DEFAULT_WEB_CLIENT_ID") ?: "",
+            storageBucket = storageBucket ?: ""
+        )
     }
 }
 
 /** The HTTP client, sign-in and database access every command needs. */
 private class Connection(config: FirebaseConfig) {
-    val http = HttpClient(CIO) { installInventoriaJson() }
+    val http = HttpClient(OkHttp) { installInventoriaJson() }
     val auth = AuthManager(FirebaseAuthRest(http, config), FileSessionStore(sessionFile))
     val db = RealtimeDatabaseRest(http, config) { force -> auth.idToken(force) }
 }
@@ -187,11 +205,19 @@ private suspend fun status() {
 
 private suspend fun serve() {
     val owner = savedOwnerUid() ?: fail("Not set up yet. Run once: join <CODE> (invite code from the app).")
-    val connection = Connection(ProjectConfig.load())
-    if (connection.auth.session.value == null) fail("Signed out. Run: join <CODE> again.")
+    val config = ProjectConfig.load()
+    val connection = Connection(config)
+    val uid = connection.auth.session.value?.uid ?: fail("Signed out. Run: join <CODE> again.")
 
     val vault = Vault(connection.db, owner)
-    val tools = readTools(vault) + inventoryTools(vault) + plannerTools(vault)
+    // Photos go to this server's own Storage folder, as a second phone's would. No bucket, no upload tool.
+    var uploader: (suspend (ByteArray, SniffedImage) -> String)? = null
+    if (config.storageBucket.isNotBlank()) {
+        val storage = FirebaseStorageRest(connection.http, config.storageBucket) { force -> connection.auth.idToken(force) }
+        uploader = { bytes, image -> storage.uploadItemImage(uid, bytes, image.contentType, image.extension) }
+    }
+    val base = readTools(vault) + inventoryTools(vault) + plannerTools(vault) + timerTools(vault) + imageTools(vault, uploader)
+    val tools = base + analyticsTools(vault, base)
     val server = McpServer(tools, "inventoria", VERSION, INSTRUCTIONS.trim())
 
     // stdout is the protocol channel. Take the real one, and point System.out at stderr so a stray

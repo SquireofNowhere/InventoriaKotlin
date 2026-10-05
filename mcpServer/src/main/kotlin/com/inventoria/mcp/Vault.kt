@@ -83,6 +83,11 @@ class Vault(private val db: RealtimeDatabaseRest, val ownerUid: String) {
         row
     }
 
+    /** Writes a row exactly as given, whole. For restoring a row from an export; callers check it is absent first. */
+    suspend fun putRaw(node: String, key: String, row: JsonElement) = writeLock.withLock {
+        db.put("$root/$node/$key", row)
+    }
+
     /**
      * Applies [change] to the row at [key] and writes back only what differs. Returns the row as
      * written (with its new `updatedAt`). Throws [ToolError] when there is no such row.

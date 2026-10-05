@@ -58,6 +58,52 @@ private suspend fun requireContainer(vault: Vault, id: Long): InventoryItem {
     return parent
 }
 
+/**
+ * Moves an item into the container [parentId] (or out to the open when null), taking along every
+ * item linked to it as leader or follower, as the app does. Returns one summary per item moved.
+ */
+internal suspend fun moveItem(vault: Vault, id: Long, parentId: Long?, location: String?): List<JsonElement> {
+    vault.requireItem(id)
+    val newParent = parentId?.let { requireContainer(vault, it).id }
+
+    // The item plus everything connected to it by leader/follower links, which move as one.
+    val adjacency = mutableMapOf<Long, MutableList<Long>>()
+    for (link in vault.itemLinks()) {
+        adjacency.getOrPut(link.leaderId) { mutableListOf() }.add(link.followerId)
+        adjacency.getOrPut(link.followerId) { mutableListOf() }.add(link.leaderId)
+    }
+    val group = linkedSetOf<Long>()
+    val queue = ArrayDeque(listOf(id))
+    while (queue.isNotEmpty()) {
+        val current = queue.removeFirst()
+        if (group.add(current)) adjacency[current]?.let { queue.addAll(it) }
+    }
+
+    // A container may not end up inside itself or anything it holds.
+    val all = vault.items().associateBy { it.id }
+    var cursor = newParent
+    val seen = mutableSetOf<Long>()
+    while (cursor != null && seen.add(cursor)) {
+        if (cursor in group) throw ToolError("That would put an item inside itself (or something it contains)")
+        cursor = all[cursor]?.parentId
+    }
+
+    val moved = mutableListOf<JsonElement>()
+    for (memberId in group) {
+        if (all[memberId] == null) continue
+        val updated = vault.edit("items", memberId.toString(), InventoryItem.serializer()) { item ->
+            item.copy(
+                parentId = newParent,
+                lastParentId = if (newParent == null) null else item.lastParentId,
+                equipped = if (newParent != null) false else item.equipped,
+                location = if (newParent != null) "" else location ?: item.location
+            )
+        }
+        moved += obj("id" to updated.id, "name" to updated.name, "parentId" to updated.parentId)
+    }
+    return moved
+}
+
 private val ITEM_FIELDS = arrayOf(
     "name" to strP("Item name"),
     "quantity" to intP("How many are held"),
@@ -165,46 +211,7 @@ fun inventoryTools(vault: Vault): List<Tool> = listOf(
     ) { args ->
         val id = args.reqLong("id")
         if (!args.has("parent_id")) throw ToolError("'parent_id' is required (use null to take the item out)")
-        vault.requireItem(id)
-        val newParent = args.long("parent_id")?.let { requireContainer(vault, it).id }
-
-        // The item plus everything connected to it by leader/follower links, which move as one.
-        val adjacency = mutableMapOf<Long, MutableList<Long>>()
-        for (link in vault.itemLinks()) {
-            adjacency.getOrPut(link.leaderId) { mutableListOf() }.add(link.followerId)
-            adjacency.getOrPut(link.followerId) { mutableListOf() }.add(link.leaderId)
-        }
-        val group = linkedSetOf<Long>()
-        val queue = ArrayDeque(listOf(id))
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-            if (group.add(current)) adjacency[current]?.let { queue.addAll(it) }
-        }
-
-        // A container may not end up inside itself or anything it holds.
-        val all = vault.items().associateBy { it.id }
-        var cursor = newParent
-        val seen = mutableSetOf<Long>()
-        while (cursor != null && seen.add(cursor)) {
-            if (cursor in group) throw ToolError("That would put an item inside itself (or something it contains)")
-            cursor = all[cursor]?.parentId
-        }
-
-        val location = args.str("location")
-        val moved = mutableListOf<JsonElement>()
-        for (memberId in group) {
-            if (all[memberId] == null) continue
-            val updated = vault.edit("items", memberId.toString(), InventoryItem.serializer()) { item ->
-                item.copy(
-                    parentId = newParent,
-                    lastParentId = if (newParent == null) null else item.lastParentId,
-                    equipped = if (newParent != null) false else item.equipped,
-                    location = if (newParent != null) "" else location ?: item.location
-                )
-            }
-            moved += obj("id" to updated.id, "name" to updated.name, "parentId" to updated.parentId)
-        }
-        obj("moved" to JsonArray(moved))
+        obj("moved" to JsonArray(moveItem(vault, id, args.long("parent_id"), args.str("location"))))
     },
 
     Tool(

@@ -19,7 +19,10 @@ kotlin {
 dependencies {
     implementation(project(":shared"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.ktor.client.cio)
+    // OkHttp, not CIO: CIO needs an NIO selector, which cannot start on a Windows machine where the
+    // JDK's loopback pipe fails ("Unable to establish loopback connection"), and every request then
+    // times out. OkHttp uses blocking sockets.
+    implementation(libs.ktor.client.okhttp)
 
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")

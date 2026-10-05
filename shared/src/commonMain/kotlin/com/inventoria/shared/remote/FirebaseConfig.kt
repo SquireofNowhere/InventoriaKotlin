@@ -12,7 +12,9 @@ data class FirebaseConfig(
     /** e.g. https://your-project-default-rtdb.europe-west1.firebasedatabase.app */
     val databaseUrl: String,
     /** The same OAuth web client id the Android app signs in with. */
-    val googleWebClientId: String
+    val googleWebClientId: String,
+    /** e.g. your-project.firebasestorage.app. Only needed by clients that upload photos. */
+    val storageBucket: String = ""
 ) {
     val isComplete: Boolean
         get() = apiKey.isNotBlank() && databaseUrl.isNotBlank() && googleWebClientId.isNotBlank()
