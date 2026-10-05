@@ -243,7 +243,7 @@ internal val todoListArticles = listOf(
         id = "todos-sections",
         title = "How todos are grouped by day",
         summary = "Today first (with overdue carried in), then upcoming, then a No Deadline list.",
-        whatItIs = "The list is cut into day sections by deadline: Today first, soonest upcoming days " +
+        whatItIs = "By default the list is cut into day sections by deadline (the sort and group menu can change that -- see \"Sort and group the list\"): Today first, soonest upcoming days " +
             "next, then past days most recent first. Anything with no deadline anywhere in its own " +
             "ancestor chain falls into a separate \"No Deadline\" list at the bottom.",
         blocks = listOf(
@@ -267,14 +267,48 @@ internal val todoListArticles = listOf(
         whyItMatters = "The same grouping logic runs the Todos screen, the Today tab and the home-screen " +
             "widget, so all three always agree on what \"due today\" means -- there is exactly one " +
             "definition of it in the app, not three that could quietly drift apart.",
-        related = listOf("todos-deadline", "todos-hide-collapse"),
+        related = listOf("todos-deadline", "todos-sort-group", "todos-hide-collapse"),
         keywords = listOf("overdue", "today", "upcoming", "no deadline", "grouping", "carry over")
+    ),
+
+    HelpArticle(
+        id = "todos-sort-group",
+        title = "Sort and group the list",
+        summary = "One menu in the top bar: order the todos your way, or drop the day sections.",
+        whatItIs = "The Sort icon in the Todos top bar opens a menu with two choices. Sort by orders the " +
+            "todos -- soonest or latest deadline, priority, name, or when they were created or last " +
+            "changed. Group by decides what the list is cut into: Date (the usual day sections), No " +
+            "Grouping (one plain list), Priority (A, B, C, then none) or Kind.",
+        blocks = listOf(
+            HelpBlock.Steps(
+                listOf(
+                    HelpStep(
+                        "Tap the Sort icon and pick a Sort by option and a Group by option.",
+                        DiagramSpec(listOf(todosTopBar(highlight = 1)))
+                    ),
+                    HelpStep("A chip at the top of the list names anything that is not the default. Tap it to put that part back.")
+                )
+            ),
+            HelpBlock.Bullets(
+                listOf(
+                    "Todos with no deadline (or no priority) always go last, whichever way the rest runs.",
+                    "Outside the Date grouping, finished todos sink to the bottom of their group.",
+                    "A sub-todo stays nested under its parent whenever both are in the same group; if grouping puts them apart, the sub-todo shows a \"sub-todo of\" line instead.",
+                    "In the Date grouping the sort orders the rows inside each day; the days themselves stay Today, upcoming, then past."
+                )
+            )
+        ),
+        whyItMatters = "Your choice is remembered, and it only changes how the Todos screen looks. The Today " +
+            "tab and the home-screen widget keep their own day-based view, so they never disagree with " +
+            "each other about what is due today.",
+        related = listOf("todos-sections", "todos-hide-collapse"),
+        keywords = listOf("sort", "order", "group", "flat list", "no grouping", "priority", "kind", "date")
     ),
 
     HelpArticle(
         id = "todos-hide-collapse",
         title = "Hide completed work, or fold a branch away",
-        summary = "Two view toggles in the top bar -- neither changes any data.",
+        summary = "View toggles in the top bar -- none of them change any data.",
         whatItIs = "Hide Completed removes finished todos from view (keeping any that still parent " +
             "unfinished work, so a branch doesn't lose its context). Collapse folds a todo's sub-todos " +
             "under it; the header button folds or unfolds every branch at once.",
@@ -283,7 +317,7 @@ internal val todoListArticles = listOf(
                 listOf(
                     HelpStep(
                         "Tap the eye icon to hide or show completed todos.",
-                        DiagramSpec(listOf(todosTopBar(highlight = 1)))
+                        DiagramSpec(listOf(todosTopBar(highlight = 2)))
                     ),
                     HelpStep(
                         "Tap the chevron on a row with sub-todos to fold just that branch, or the fold-all icon in the top bar for every branch at once.",

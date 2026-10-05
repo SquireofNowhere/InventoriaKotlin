@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -58,6 +60,9 @@ fun TodoHubScreen(
     }
 
     val hideCompleted by todoViewModel.hideCompleted.collectAsState()
+    val sortOption by todoViewModel.sortOption.collectAsState()
+    val groupOption by todoViewModel.groupOption.collectAsState()
+    var showSortMenu by remember { mutableStateOf(false) }
     val collapsedIds by todoViewModel.collapsedTodoIds.collectAsState()
 
     Scaffold(
@@ -80,6 +85,47 @@ fun TodoHubScreen(
                                     if (collapsedIds.isEmpty()) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                                     contentDescription = if (collapsedIds.isEmpty()) "Collapse all sub-todos" else "Expand all sub-todos"
                                 )
+                            }
+                            Box {
+                                IconButton(onClick = { showSortMenu = true }) {
+                                    Icon(
+                                        Icons.Default.Sort,
+                                        contentDescription = "Sort and group todos",
+                                        tint = if (sortOption != TodoSortOption.DEADLINE_ASC || groupOption != TodoGroupOption.DATE) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else LocalContentColor.current
+                                    )
+                                }
+                                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Sort by", style = MaterialTheme.typography.labelMedium) },
+                                        onClick = {},
+                                        enabled = false
+                                    )
+                                    TodoSortOption.entries.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.displayName) },
+                                            onClick = { todoViewModel.setSortOption(option); showSortMenu = false },
+                                            trailingIcon = if (sortOption == option) {
+                                                { Icon(Icons.Default.Check, contentDescription = null) }
+                                            } else null
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Group by", style = MaterialTheme.typography.labelMedium) },
+                                        onClick = {},
+                                        enabled = false
+                                    )
+                                    TodoGroupOption.entries.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.displayName) },
+                                            onClick = { todoViewModel.setGroupOption(option); showSortMenu = false },
+                                            trailingIcon = if (groupOption == option) {
+                                                { Icon(Icons.Default.Check, contentDescription = null) }
+                                            } else null
+                                        )
+                                    }
+                                }
                             }
                             IconButton(onClick = { todoViewModel.toggleHideCompleted() }) {
                                 Icon(

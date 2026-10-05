@@ -69,6 +69,9 @@ fun TodoScreen(
     // deliberately not on Today. See TodoViewModel.todoSections.
     val todoSections by viewModel.plannerSections.collectAsState()
     val undatedTodoEntries by viewModel.undatedTodoEntries.collectAsState()
+    val todoGroups by viewModel.plannerGroups.collectAsState()
+    val sortOption by viewModel.sortOption.collectAsState()
+    val groupOption by viewModel.groupOption.collectAsState()
     val isAddingNew by viewModel.isAddingNew.collectAsState()
     val pendingEditTodo by viewModel.pendingEditTodo.collectAsState()
     val selectedTodoId by viewModel.selectedTodoId.collectAsState()
@@ -94,8 +97,8 @@ fun TodoScreen(
     // collapsed parent, or hidden with the rest of the completed work -- would otherwise leave its
     // last known Y range in here forever, and a drag over that empty space would silently resolve
     // to a todo that is not on screen.
-    val renderedTodoIds = remember(todoSections, undatedTodoEntries) {
-        (todoSections.flatMap { it.visibleTodos } + undatedTodoEntries).mapTo(mutableSetOf()) { it.todo.id }
+    val renderedTodoIds = remember(todoSections, undatedTodoEntries, todoGroups) {
+        (todoSections.flatMap { it.visibleTodos } + undatedTodoEntries + todoGroups.flatMap { it.entries }).mapTo(mutableSetOf()) { it.todo.id }
     }
     LaunchedEffect(renderedTodoIds) { itemBoundsY.keys.retainAll(renderedTodoIds) }
     var contentBoxTopLeft by remember { mutableStateOf(Offset.Zero) }
@@ -139,6 +142,38 @@ fun TodoScreen(
         }
     }
 
+    // One todo row with every callback wired, shared by the day sections, the undated list and
+    // the other groupings so the three cannot drift apart.
+    val todoRow: @Composable (TodoTreeEntry) -> Unit = { entry ->
+        TodoRow(
+            entry = entry,
+            todayStart = todayStart,
+            nowMinuteOfDay = nowMinuteOfDay,
+            taskTypeNames = taskTypeNames,
+            hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
+            isDragged = draggedTodoId == entry.todo.id,
+            isHoverTarget = hoverTodoId == entry.todo.id,
+            isSelected = selectedTodoId == entry.todo.id,
+            onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
+            onToggleCollapsed = { viewModel.toggleCollapsed(entry.todo.id) },
+            onClick = {
+                if (selectedTodoId == entry.todo.id) viewModel.startEditingTodo(entry.todo)
+                else viewModel.selectTodo(entry.todo.id)
+            },
+            onDelete = { viewModel.deleteTodo(entry.todo) },
+            onStart = { viewModel.startTaskFromTodo(entry.todo) },
+            onViewTask = onNavigateToTasks,
+            onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
+            onDragStart = { iconRootTopLeft, localOffset ->
+                draggedTodoId = entry.todo.id
+                grabOffset = localOffset
+                dragOffset = iconRootTopLeft + localOffset
+            },
+            onDragDelta = { delta -> dragOffset += delta },
+            onDragEnd = { endDrag() }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(undoSnackbarHostState) },
         floatingActionButton = {
@@ -158,7 +193,7 @@ fun TodoScreen(
                     detectTapGestures(onTap = { viewModel.clearSelection() })
                 }
         ) {
-            if (todoSections.isEmpty() && undatedTodoEntries.isEmpty()) {
+            if (todoSections.isEmpty() && undatedTodoEntries.isEmpty() && todoGroups.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No todos yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -168,38 +203,47 @@ fun TodoScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (sortOption != TodoSortOption.DEADLINE_ASC || groupOption != TodoGroupOption.DATE) {
+                        item(key = "sort_group_chips") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (groupOption != TodoGroupOption.DATE) {
+                                    SuggestionChip(
+                                        onClick = { viewModel.setGroupOption(TodoGroupOption.DATE) },
+                                        label = { Text("Group: ${groupOption.displayName}") },
+                                        icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                                    )
+                                }
+                                if (sortOption != TodoSortOption.DEADLINE_ASC) {
+                                    SuggestionChip(
+                                        onClick = { viewModel.setSortOption(TodoSortOption.DEADLINE_ASC) },
+                                        label = { Text("Sort: ${sortOption.displayName}") },
+                                        icon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    todoGroups.forEach { group ->
+                        if (group.title != null) {
+                            item(key = "group_${group.key}") {
+                                Text(
+                                    text = group.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                )
+                            }
+                        }
+                        items(group.entries, key = { it.todo.id }) { entry ->
+                            todoRow(entry)
+                        }
+                    }
                     todoSections.forEach { section ->
                         item(key = "day_${section.dayStart}") {
                             TodoDayHeader(section.dayStart, section.totalDueCount, section.completedDueCount)
                         }
                         items(section.visibleTodos, key = { it.todo.id }) { entry ->
-                            TodoRow(
-                                entry = entry,
-                                todayStart = todayStart,
-                                nowMinuteOfDay = nowMinuteOfDay,
-                                taskTypeNames = taskTypeNames,
-                                hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
-                                isDragged = draggedTodoId == entry.todo.id,
-                                isHoverTarget = hoverTodoId == entry.todo.id,
-                                isSelected = selectedTodoId == entry.todo.id,
-                                onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
-                                onToggleCollapsed = { viewModel.toggleCollapsed(entry.todo.id) },
-                                onClick = {
-                                    if (selectedTodoId == entry.todo.id) viewModel.startEditingTodo(entry.todo)
-                                    else viewModel.selectTodo(entry.todo.id)
-                                },
-                                onDelete = { viewModel.deleteTodo(entry.todo) },
-                                onStart = { viewModel.startTaskFromTodo(entry.todo) },
-                                onViewTask = onNavigateToTasks,
-                                onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
-                                onDragStart = { iconRootTopLeft, localOffset ->
-                                    draggedTodoId = entry.todo.id
-                                    grabOffset = localOffset
-                                    dragOffset = iconRootTopLeft + localOffset
-                                },
-                                onDragDelta = { delta -> dragOffset += delta },
-                                onDragEnd = { endDrag() }
-                            )
+                            todoRow(entry)
                         }
                     }
                     if (undatedTodoEntries.isNotEmpty()) {
@@ -212,33 +256,7 @@ fun TodoScreen(
                             )
                         }
                         items(undatedTodoEntries, key = { it.todo.id }) { entry ->
-                            TodoRow(
-                                entry = entry,
-                                todayStart = todayStart,
-                                nowMinuteOfDay = nowMinuteOfDay,
-                                taskTypeNames = taskTypeNames,
-                                hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
-                                isDragged = draggedTodoId == entry.todo.id,
-                                isHoverTarget = hoverTodoId == entry.todo.id,
-                                isSelected = selectedTodoId == entry.todo.id,
-                                onToggleCompleted = { viewModel.toggleComplete(entry.todo) },
-                                onToggleCollapsed = { viewModel.toggleCollapsed(entry.todo.id) },
-                                onClick = {
-                                    if (selectedTodoId == entry.todo.id) viewModel.startEditingTodo(entry.todo)
-                                    else viewModel.selectTodo(entry.todo.id)
-                                },
-                                onDelete = { viewModel.deleteTodo(entry.todo) },
-                                onStart = { viewModel.startTaskFromTodo(entry.todo) },
-                                onViewTask = onNavigateToTasks,
-                                onBoundsChanged = { range -> itemBoundsY[entry.todo.id] = range },
-                                onDragStart = { iconRootTopLeft, localOffset ->
-                                    draggedTodoId = entry.todo.id
-                                    grabOffset = localOffset
-                                    dragOffset = iconRootTopLeft + localOffset
-                                },
-                                onDragDelta = { delta -> dragOffset += delta },
-                                onDragEnd = { endDrag() }
-                            )
+                            todoRow(entry)
                         }
                     }
                 }

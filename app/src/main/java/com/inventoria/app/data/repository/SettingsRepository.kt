@@ -50,6 +50,8 @@ class SettingsRepository @Inject constructor(
     // away is about how you are reading the list right now, not something the other devices on the
     // account should have decided for them.
     private val TODO_HIDE_COMPLETED = booleanPreferencesKey("todo_hide_completed")
+    private val TODO_SORT_OPTION = stringPreferencesKey("todo_sort_option")
+    private val TODO_GROUP_OPTION = stringPreferencesKey("todo_group_option")
     private val TODO_COLLAPSED_IDS = stringSetPreferencesKey("todo_collapsed_ids")
     // Calendar-sourced tasks are re-read from the system calendar on every refresh and have no
     // local row to delete, so "get this off my list" can only be a list of ids to skip. Device-
@@ -101,6 +103,8 @@ class SettingsRepository @Inject constructor(
     fun getProcrastinationPenaltyAmount(): Flow<Int> = context.dataStore.data.map { it[PROCRASTINATION_PENALTY_AMOUNT] ?: 2 }
     fun hasSeededTaskTypes(): Flow<Boolean> = context.dataStore.data.map { it[TASK_TYPES_SEEDED] ?: false }
     fun isTodoHideCompletedEnabled(): Flow<Boolean> = context.dataStore.data.map { it[TODO_HIDE_COMPLETED] ?: true }
+    fun getTodoSortOption(): Flow<String> = context.dataStore.data.map { it[TODO_SORT_OPTION] ?: "DEADLINE_ASC" }
+    fun getTodoGroupOption(): Flow<String> = context.dataStore.data.map { it[TODO_GROUP_OPTION] ?: "DATE" }
     fun getFocusArea(): Flow<String> = context.dataStore.data.map { it[FOCUS_AREA] ?: "TASKS" }
     fun hasSeenFocusPrompt(): Flow<Boolean> = context.dataStore.data.map { it[FOCUS_PROMPT_SHOWN] ?: false }
     fun getLastSeenVersionCode(): Flow<Int> = context.dataStore.data.map { it[LAST_SEEN_VERSION_CODE] ?: 0 }
@@ -109,6 +113,14 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setTodoAlarmStyle(name: String) {
         context.dataStore.edit { it[TODO_ALARM_STYLE] = name }
+    }
+
+    suspend fun saveTodoSort(option: String) {
+        context.dataStore.edit { it[TODO_SORT_OPTION] = option }
+    }
+
+    suspend fun saveTodoGroup(option: String) {
+        context.dataStore.edit { it[TODO_GROUP_OPTION] = option }
     }
 
     suspend fun setTodoHideCompleted(enabled: Boolean) {

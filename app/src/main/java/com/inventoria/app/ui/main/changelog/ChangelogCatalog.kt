@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 119,
+                versionName = "2.38",
+                changes = listOf(
+                    "The Todos list can be sorted and grouped your way. Tap the new Sort icon in the top bar to order todos by deadline, priority, name, or when they were created or changed, and to group them by date (the usual day sections), by priority, by kind, or not at all for one plain list. Your choice is remembered, and a chip at the top of the list lets you put it back with one tap."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 118,
                 versionName = "2.37",
                 changes = listOf(

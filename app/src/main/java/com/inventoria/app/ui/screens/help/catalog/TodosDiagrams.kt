@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.Visibility
@@ -47,7 +48,8 @@ internal fun todosTopBar(highlight: Int? = null, callout: Int? = null) = Diagram
     title = "Todos",
     actions = listOf(
         DiagramIcon(Icons.Default.UnfoldLess, highlight = highlight == 0, callout = if (highlight == 0) callout else null),
-        DiagramIcon(Icons.Default.Visibility, highlight = highlight == 1, callout = if (highlight == 1) callout else null)
+        DiagramIcon(Icons.Default.Sort, highlight = highlight == 1, callout = if (highlight == 1) callout else null),
+        DiagramIcon(Icons.Default.Visibility, highlight = highlight == 2, callout = if (highlight == 2) callout else null)
     )
 )
 

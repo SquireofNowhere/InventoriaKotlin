@@ -41,6 +41,14 @@ data class TodoDaySection(
     val completedDueCount: Int
 )
 
+/** One group of a list that is not cut by day. [title] is null for the single group of a plain list,
+ * which gets no header. */
+data class TodoGroup(
+    val key: String,
+    val title: String?,
+    val entries: List<TodoTreeEntry>
+)
+
 /**
  * How the todo list is cut into day sections and nested into trees -- the one definition of
  * "what belongs under Today", shared by the Todos screen, the Today tab and the Today's Todos
@@ -64,7 +72,8 @@ object TodoSections {
         all: List<Todo>,
         hideCompleted: Boolean = false,
         collapsedIds: Set<String> = emptySet(),
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        sort: TodoSortOption = TodoSortOption.DEADLINE_ASC
     ): List<TodoDaySection> {
         val todayStart = getStartOfDay(nowMillis)
         val byId = all.associateBy { it.id }
@@ -83,7 +92,10 @@ object TodoSections {
             val ownForDay = ownDueByDeadline[day] ?: emptyList()
             return TodoDaySection(
                 dayStart = day,
-                visibleTodos = buildTodoTree(sortedByDeadlineTime(bySectionDay[day]!!), byId, childCounts, collapsedIds),
+                visibleTodos = buildTodoTree(
+                    bySectionDay[day]!!.sortedWith(sort.comparator(withinDay = true, sinkCompleted = false)),
+                    byId, childCounts, collapsedIds
+                ),
                 totalDueCount = ownForDay.size,
                 completedDueCount = ownForDay.count { it.state == TodoState.COMPLETE }
             )
@@ -122,14 +134,56 @@ object TodoSections {
         all: List<Todo>,
         hideCompleted: Boolean = false,
         collapsedIds: Set<String> = emptySet(),
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        sort: TodoSortOption = TodoSortOption.DEADLINE_ASC
     ): List<TodoTreeEntry> {
         val byId = all.associateBy { it.id }
         val childCounts = computeChildCounts(all)
         val todayStart = getStartOfDay(nowMillis)
         val undated = (if (hideCompleted) withoutCompleted(all, byId) else all)
             .filter { effectiveSectionDay(it, byId, todayStart) == null }
+            .sortedWith(sort.comparator(withinDay = true, sinkCompleted = false))
         return buildTodoTree(undated, byId, childCounts, collapsedIds)
+    }
+
+    /**
+     * The list cut some way other than by day: one plain list, or groups by priority tier or kind.
+     * Not used for [TodoGroupOption.DATE], which is [build] and [undated].
+     *
+     * Sorting happens once over the whole list and the groups are then cut from it, so each group
+     * is in order. A sub-todo that lands in a different group from its parent (a different
+     * priority, say) is a root of its own group with the parent's name as its breadcrumb -- the same
+     * thing a sub-todo on a different day already is. Finished work sinks to the end of each group.
+     * Empty groups are simply absent.
+     */
+    fun grouped(
+        all: List<Todo>,
+        group: TodoGroupOption,
+        sort: TodoSortOption,
+        hideCompleted: Boolean = false,
+        collapsedIds: Set<String> = emptySet()
+    ): List<TodoGroup> {
+        val byId = all.associateBy { it.id }
+        val childCounts = computeChildCounts(all)
+        val sorted = (if (hideCompleted) withoutCompleted(all, byId) else all)
+            .sortedWith(sort.comparator(withinDay = false, sinkCompleted = true))
+
+        // (sort position, key, title) per todo; the position orders the groups.
+        fun slot(todo: Todo): Triple<Int, String, String?> = when (group) {
+            TodoGroupOption.NONE, TodoGroupOption.DATE -> Triple(0, "all", null)
+            TodoGroupOption.PRIORITY -> todo.priority
+                ?.let { Triple(it.name[0] - 'A', "tier_${it.name[0]}", "Priority ${it.name[0]}") }
+                ?: Triple(Int.MAX_VALUE, "tier_none", "No priority")
+            TodoGroupOption.KIND -> Triple(todo.kind.ordinal, "kind_${todo.kind.name}", todo.kind.displayName)
+        }
+
+        return sorted.groupBy { slot(it).second }
+            .map { (key, todos) ->
+                val first = slot(todos.first())
+                Triple(first.first, key, TodoGroup(key, first.third, buildTodoTree(todos, byId, childCounts, collapsedIds)))
+            }
+            .sortedBy { it.first }
+            .map { it.third }
     }
 
     private fun computeChildCounts(all: List<Todo>): Map<String, Pair<Int, Int>> =
@@ -229,9 +283,4 @@ object TodoSections {
         return all.filter { it.id in keep }
     }
 
-    /** Within a day, todos carrying a deadline time come first in chronological order, all-day
-     * ones after them. sortedBy is stable, so everything untimed keeps the DAO's createdAt DESC
-     * order untouched, and so do timed todos sharing a minute. */
-    private fun sortedByDeadlineTime(todos: List<Todo>): List<Todo> =
-        todos.sortedBy { it.deadlineMinuteOfDay ?: Int.MAX_VALUE }
 }

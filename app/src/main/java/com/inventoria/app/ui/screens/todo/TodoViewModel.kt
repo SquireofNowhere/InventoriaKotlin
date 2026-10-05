@@ -77,9 +77,27 @@ class TodoViewModel @Inject constructor(
     val collapsedTodoIds: StateFlow<Set<String>> = settingsRepository.getCollapsedTodoIds()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    /** How the Todos screen orders its lists, and what it cuts them into. A name the app does not
+     * know (a build that is older than the one that saved it) falls back to the default. */
+    val sortOption: StateFlow<TodoSortOption> = settingsRepository.getTodoSortOption()
+        .map { name -> TodoSortOption.entries.firstOrNull { it.name == name } ?: TodoSortOption.DEADLINE_ASC }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TodoSortOption.DEADLINE_ASC)
+
+    val groupOption: StateFlow<TodoGroupOption> = settingsRepository.getTodoGroupOption()
+        .map { name -> TodoGroupOption.entries.firstOrNull { it.name == name } ?: TodoGroupOption.DATE }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TodoGroupOption.DATE)
+
+    fun setSortOption(option: TodoSortOption) {
+        viewModelScope.launch { settingsRepository.saveTodoSort(option.name) }
+    }
+
+    fun setGroupOption(option: TodoGroupOption) {
+        viewModelScope.launch { settingsRepository.saveTodoGroup(option.name) }
+    }
+
     val undatedTodoEntries: StateFlow<List<TodoTreeEntry>> =
-        combine(todos, hideCompleted, collapsedTodoIds) { list, hide, collapsed ->
-            TodoSections.undated(list, hide, collapsed)
+        combine(todos, hideCompleted, collapsedTodoIds, sortOption, groupOption) { list, hide, collapsed, sort, group ->
+            if (group == TodoGroupOption.DATE) TodoSections.undated(list, hide, collapsed, sort = sort) else emptyList()
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -95,10 +113,19 @@ class TodoViewModel @Inject constructor(
         .map { list -> TodoSections.build(list) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** [todoSections] with this screen's hide/collapse preferences applied. */
+    /** [todoSections] with this screen's hide/collapse/sort preferences applied. Empty unless the
+     * list is grouped by date -- every other grouping is [plannerGroups]. */
     val plannerSections: StateFlow<List<TodoDaySection>> =
-        combine(todos, hideCompleted, collapsedTodoIds) { list, hide, collapsed ->
-            TodoSections.build(list, hide, collapsed)
+        combine(todos, hideCompleted, collapsedTodoIds, sortOption, groupOption) { list, hide, collapsed, sort, group ->
+            if (group == TodoGroupOption.DATE) TodoSections.build(list, hide, collapsed, sort = sort) else emptyList()
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The Todos screen's list when it is not grouped by date: one plain list, or groups by priority
+     * or kind. Empty when grouped by date, which is [plannerSections]. */
+    val plannerGroups: StateFlow<List<TodoGroup>> =
+        combine(todos, hideCompleted, collapsedTodoIds, sortOption, groupOption) { list, hide, collapsed, sort, group ->
+            if (group == TodoGroupOption.DATE) emptyList() else TodoSections.grouped(list, group, sort, hide, collapsed)
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
