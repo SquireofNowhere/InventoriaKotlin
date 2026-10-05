@@ -49,8 +49,8 @@ class ReportsTest {
         val rows = report(
             listOf(
                 segment(at("2026-10-01", 9), at("2026-10-01", 10), name = "Email"),
-                segment(at("2026-10-01", 11), at("2026-10-01", 13), name = "Deep work"),
-                segment(at("2026-10-01", 14), at("2026-10-01", 15), name = "Email")
+                segment(at("2026-10-01", 11), at("2026-10-01", 14), name = "Deep work"),
+                segment(at("2026-10-01", 15), at("2026-10-01", 16), name = "Email")
             ),
             "2026-10-01", "2026-10-02", ReportGroup.NAME
         )
