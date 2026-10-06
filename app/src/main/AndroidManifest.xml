@@ -133,6 +133,18 @@
         </receiver>
 
         <receiver
+            android:name=".widget.todo.UpcomingTodoWidgetProvider"
+            android:label="@string/widget_todo_upcoming_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_todo_upcoming_info"/>
+        </receiver>
+
+        <receiver
             android:name=".widget.collection.CollectionWidgetProvider"
             android:label="@string/widget_collection_label"
             android:exported="true">

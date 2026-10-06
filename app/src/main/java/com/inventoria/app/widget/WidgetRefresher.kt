@@ -8,6 +8,7 @@ import com.inventoria.app.data.local.TodoDao
 import com.inventoria.app.widget.collection.CollectionWidgetProvider
 import com.inventoria.app.widget.task.TaskWidgetProvider
 import com.inventoria.app.widget.todo.TodoWidgetProvider
+import com.inventoria.app.widget.todo.UpcomingTodoWidgetProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +56,10 @@ class WidgetRefresher @Inject constructor(
         if (started) return
         started = true
         scope.launch {
-            todoDao.getVisibleTodos().debounce(DEBOUNCE_MILLIS).collect { TodoWidgetProvider.requestUpdate(context) }
+            todoDao.getVisibleTodos().debounce(DEBOUNCE_MILLIS).collect {
+                TodoWidgetProvider.requestUpdate(context)
+                UpcomingTodoWidgetProvider.requestUpdate(context)
+            }
         }
         scope.launch {
             taskDao.getVisibleTasks().debounce(DEBOUNCE_MILLIS).collect { TaskWidgetProvider.requestUpdate(context) }

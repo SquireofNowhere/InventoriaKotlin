@@ -20,6 +20,17 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 120,
+                versionName = "2.39",
+                changes = listOf(
+                    "There's a new Upcoming Todos home-screen widget: what's due over the next week, soonest first, each day's todos labelled with the day and ready to tick off.",
+                    "Both todo widgets show more. Rows now say how many sub-todos are done (\"2/3 sub-todos\"), the Today widget's header counts how many are overdue, and a todo's tick matches the Todos tab: empty, a dash once some sub-todos are done, and green once they all are.",
+                    "The Task Tracker widget's header now shows how much time you've tracked today.",
+                    "Splitting a segment is easier: drag the bar in the Split dialog to move the cut, and the Hrs/Min/Sec fields follow.",
+                    "Fixed a crash when choosing an item's location on a map while editing it."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 119,
                 versionName = "2.38",
                 changes = listOf(

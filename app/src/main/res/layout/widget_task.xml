@@ -39,6 +39,15 @@
             android:textSize="14sp"
             android:textStyle="bold"/>
 
+        <TextView
+            android:id="@+id/widget_task_today"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:textColor="@color/widget_on_header_muted"
+            android:textSize="12sp"
+            android:visibility="gone"/>
+
         <ImageButton
             android:id="@+id/widget_task_add"
             android:layout_width="32dp"

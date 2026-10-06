@@ -40,6 +40,13 @@
     <string name="widget_todo_title">Today</string>
     <string name="widget_todo_empty">Nothing due today</string>
     <string name="widget_overdue">Overdue</string>
+    <string name="widget_overdue_count">%1$d overdue</string>
+    <string name="widget_sub_todos">%1$d/%2$d sub-todos</string>
+    <string name="widget_todo_upcoming_label">Upcoming Todos</string>
+    <string name="widget_todo_upcoming_description">What is due over the next week, soonest first, with a tap to tick it off.</string>
+    <string name="widget_todo_upcoming_title">Upcoming</string>
+    <string name="widget_todo_upcoming_empty">Nothing due in the next week</string>
+    <string name="widget_task_today">%1$s today</string>
     <string name="widget_task_label">Task Tracker</string>
     <string name="widget_task_description">Your running sessions, with pause, resume and stop.</string>
     <string name="widget_task_empty">No active session</string>

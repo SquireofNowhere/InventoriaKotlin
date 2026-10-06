@@ -14,6 +14,7 @@ import com.inventoria.app.data.TaskRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.ui.screens.task.formatTime
+import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.widget.WidgetActionReceiver
 import com.inventoria.app.widget.WidgetNav
 import dagger.hilt.android.AndroidEntryPoint
@@ -118,6 +119,18 @@ class TaskWidgetProvider : AppWidgetProvider() {
             val now = System.currentTimeMillis()
 
             views.setOnClickPendingIntent(R.id.widget_task_header, WidgetNav.openPendingIntent(context, WidgetNav.ROUTE_TASKS))
+
+            // Finished time only: a running segment's length would be stale by the next tick,
+            // and the widget is not redrawn every second (its Chronometers tick by themselves).
+            val trackedToday = tasks
+                .filter { !it.isRunning && it.startTime >= getStartOfDay(now) }
+                .sumOf { it.duration }
+            val trackedMinutes = trackedToday / 60_000L
+            views.setTextViewText(
+                R.id.widget_task_today,
+                context.getString(R.string.widget_task_today, "${trackedMinutes / 60}h ${"%02d".format(trackedMinutes % 60)}m")
+            )
+            views.setViewVisibility(R.id.widget_task_today, if (trackedMinutes > 0) View.VISIBLE else View.GONE)
             val startNew = WidgetActionReceiver.broadcast(context, WidgetActionReceiver.ACTION_TASK_START_NEW)
             views.setOnClickPendingIntent(R.id.widget_task_add, startNew)
             views.setOnClickPendingIntent(R.id.widget_task_start, startNew)

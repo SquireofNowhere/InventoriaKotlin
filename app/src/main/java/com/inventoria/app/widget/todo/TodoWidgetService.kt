@@ -8,10 +8,9 @@ import androidx.compose.ui.graphics.toArgb
 import com.inventoria.app.R
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.TodoState
-import com.inventoria.app.ui.screens.todo.TodoSections
-import com.inventoria.app.ui.screens.todo.TodoTreeEntry
 import com.inventoria.app.ui.theme.Success
 import com.inventoria.app.util.formatMinuteOfDay
+import com.inventoria.app.util.getDayLabel
 import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.widget.WidgetActionReceiver
 import com.inventoria.app.widget.WidgetNav
@@ -21,9 +20,10 @@ import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 /**
- * Supplies the Today's Todos widget's rows. A Service, so @AndroidEntryPoint injects the
- * repository, which is then handed to the factory -- a RemoteViewsFactory is a plain object with
- * no Hilt story of its own.
+ * Supplies the rows of both todo widgets: Today's Todos, and Upcoming Todos when the adapter
+ * intent carries [EXTRA_UPCOMING]. A Service, so @AndroidEntryPoint injects the repository, which
+ * is then handed to the factory -- a RemoteViewsFactory is a plain object with no Hilt story of
+ * its own.
  */
 @AndroidEntryPoint
 class TodoWidgetService : RemoteViewsService() {
@@ -32,20 +32,26 @@ class TodoWidgetService : RemoteViewsService() {
     lateinit var todoRepository: TodoRepository
 
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory =
-        TodoWidgetFactory(applicationContext, todoRepository)
+        TodoWidgetFactory(applicationContext, todoRepository, upcoming = intent.getBooleanExtra(EXTRA_UPCOMING, false))
+
+    companion object {
+        const val EXTRA_UPCOMING = "upcoming"
+    }
 }
 
 /**
- * The Today section exactly as the Today tab computes it ([TodoSections.today]), minus completed
- * rows: the tab shows those ticked, a widget has no room for finished work. Nesting depth becomes
+ * Today: the Today section exactly as the Today tab computes it ([TodoSections.today]), minus
+ * completed rows -- the tab shows those ticked, a widget has no room for finished work. Upcoming:
+ * the following days, each day's root rows labelled with the day. Nesting depth becomes
  * indentation; folds are ignored (there is no way to toggle one here).
  */
 private class TodoWidgetFactory(
     private val context: Context,
-    private val todoRepository: TodoRepository
+    private val todoRepository: TodoRepository,
+    private val upcoming: Boolean
 ) : RemoteViewsService.RemoteViewsFactory {
 
-    private var rows: List<TodoTreeEntry> = emptyList()
+    private var rows: List<TodoWidgetRow> = emptyList()
     private var todayStart: Long = 0L
 
     override fun onCreate() = Unit
@@ -55,9 +61,8 @@ private class TodoWidgetFactory(
     override fun onDataSetChanged() {
         val now = System.currentTimeMillis()
         todayStart = getStartOfDay(now)
-        rows = runBlocking {
-            TodoSections.today(todoRepository.getVisibleTodos().first(), hideCompleted = true, nowMillis = now)
-        }
+        val all = runBlocking { todoRepository.getVisibleTodos().first() }
+        rows = if (upcoming) TodoWidgetRows.upcoming(all, now) else TodoWidgetRows.today(all, now)
     }
 
     override fun onDestroy() {
@@ -67,7 +72,8 @@ private class TodoWidgetFactory(
     override fun getCount(): Int = rows.size
 
     override fun getViewAt(position: Int): RemoteViews {
-        val entry = rows[position]
+        val row = rows[position]
+        val entry = row.entry
         val todo = entry.todo
         val views = RemoteViews(context.packageName, R.layout.widget_todo_row)
 
@@ -79,12 +85,15 @@ private class TodoWidgetFactory(
         views.setViewPadding(R.id.widget_todo_row, startPadding, (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
 
         val parts = mutableListOf<String>()
+        // Upcoming spans days, so each day's root rows say which one; nested rows sit under theirs.
+        if (entry.depth == 0) row.dayStart?.let { parts += getDayLabel(it) }
         todo.deadlineMinuteOfDay?.let { parts += formatMinuteOfDay(it) }
         val deadline = todo.deadline
         if (deadline != null && deadline < todayStart && todo.state != TodoState.COMPLETE) {
             parts += context.getString(R.string.widget_overdue)
         }
         todo.priority?.let { parts += it.name }
+        entry.childProgress?.let { (done, total) -> parts += context.getString(R.string.widget_sub_todos, done, total) }
         // Only at depth 0: nested rows already sit under their parent.
         if (entry.depth == 0) entry.parentName?.let { parts += "in $it" }
         val subtitle = parts.joinToString(" · ")
@@ -130,7 +139,7 @@ private class TodoWidgetFactory(
 
     override fun getViewTypeCount(): Int = 1
 
-    override fun getItemId(position: Int): Long = rows[position].todo.id.hashCode().toLong()
+    override fun getItemId(position: Int): Long = rows[position].entry.todo.id.hashCode().toLong()
 
     override fun hasStableIds(): Boolean = true
 }

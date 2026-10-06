@@ -12,7 +12,6 @@ import android.util.Log
 import android.widget.RemoteViews
 import com.inventoria.app.R
 import com.inventoria.app.data.TodoRepository
-import com.inventoria.app.ui.screens.todo.TodoSections
 import com.inventoria.app.widget.WidgetActionReceiver
 import com.inventoria.app.widget.WidgetNav
 import dagger.hilt.android.AndroidEntryPoint
@@ -46,6 +45,8 @@ class TodoWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         if (intent.action == ACTION_MIDNIGHT) {
             requestUpdate(context)
+            // The Upcoming widget's days move at midnight too, and this is the only alarm armed.
+            UpcomingTodoWidgetProvider.requestUpdate(context)
             armMidnightRefresh(context)
         }
     }
@@ -54,9 +55,10 @@ class TodoWidgetProvider : AppWidgetProvider() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val dueCount = TodoSections.today(todoRepository.getVisibleTodos().first(), hideCompleted = true).size
+                val rows = TodoWidgetRows.today(todoRepository.getVisibleTodos().first())
+                val overdueCount = TodoWidgetRows.overdueCount(rows)
                 appWidgetIds.forEach { id ->
-                    appWidgetManager.updateAppWidget(id, build(context, id, dueCount))
+                    appWidgetManager.updateAppWidget(id, build(context, id, rows.size, overdueCount))
                 }
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.widget_todo_list)
                 armMidnightRefresh(context)
@@ -93,10 +95,17 @@ class TodoWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun build(context: Context, appWidgetId: Int, dueCount: Int): RemoteViews {
+        private fun build(context: Context, appWidgetId: Int, dueCount: Int, overdueCount: Int): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_todo)
             views.setOnClickPendingIntent(R.id.widget_todo_header, WidgetNav.openPendingIntent(context, WidgetNav.ROUTE_TODOS))
-            views.setTextViewText(R.id.widget_todo_count, if (dueCount == 0) "" else dueCount.toString())
+            views.setTextViewText(
+                R.id.widget_todo_count,
+                when {
+                    dueCount == 0 -> ""
+                    overdueCount == 0 -> dueCount.toString()
+                    else -> "$dueCount · ${context.getString(R.string.widget_overdue_count, overdueCount)}"
+                }
+            )
 
             // One adapter intent per widget instance: the host caches factories by intent
             // identity, and a shared one would make two instances fight over one factory.

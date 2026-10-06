@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +42,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import kotlin.math.roundToLong
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -1702,11 +1705,41 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<S
                     // divider between them so the boundary stays visible even when both halves
                     // happen to share the same Kind (and thus the same color).
                     val secondOffsetMs = (totalSpan - offsetMs).coerceAtLeast(0L)
+                    // Drag anywhere on it to move the cut: the first segment grows or shrinks under
+                    // the finger and the Hrs/Min/Sec fields follow, the same as typing them. Snaps
+                    // to whole seconds and stays strictly inside the segment, so a drag can never
+                    // produce a split the dialog would then refuse.
+                    var splitBarWidthPx by remember { mutableStateOf(0) }
+                    val setOffsetFromDrag: (Float) -> Unit = { x ->
+                        if (splitBarWidthPx > 0) {
+                            useLiveOffset = false
+                            val rawMs = (x / splitBarWidthPx).coerceIn(0f, 1f) * totalSpan
+                            val snappedMs = (rawMs / 1000f).roundToLong() * 1000L
+                            val dragged = snappedMs.coerceIn(1000L, (totalSpan - 1000L).coerceAtLeast(1000L))
+                            hoursStr = TimeUnit.MILLISECONDS.toHours(dragged).toString()
+                            minutesStr = (TimeUnit.MILLISECONDS.toMinutes(dragged) % 60).toString()
+                            secondsStr = (TimeUnit.MILLISECONDS.toSeconds(dragged) % 60).toString()
+                        }
+                    }
+                    // A running segment's totalSpan grows every second, so the gesture is keyed on
+                    // Unit and reads the latest lambda -- keying on totalSpan would cancel a drag
+                    // each time the clock ticks.
+                    val latestSetOffsetFromDrag by rememberUpdatedState(setOffsetFromDrag)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(20.dp)
+                            .height(28.dp)
                             .clip(RoundedCornerShape(4.dp))
+                            .onSizeChanged { splitBarWidthPx = it.width }
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = { latestSetOffsetFromDrag(it.x) },
+                                    onHorizontalDrag = { change, _ ->
+                                        change.consume()
+                                        latestSetOffsetFromDrag(change.position.x)
+                                    }
+                                )
+                            }
                     ) {
                         Box(modifier = Modifier.weight(splitFraction.coerceAtLeast(0.001f)).fillMaxHeight().background(Color(task.kind.colorValue)))
                         Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.onSurface))
