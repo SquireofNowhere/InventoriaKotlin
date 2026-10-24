@@ -21,8 +21,9 @@ import javax.inject.Singleton
  * Keeps AlarmManager in step with the Todo table.
  *
  * Watches the visible-todos flow for the life of the process and, on every emission, works out
- * the set of alarms that *should* exist (one per incomplete todo with a deadline and a reminder
- * plan that still has something ahead of it -- the todo's [nextReminderAfter] now) and reconciles
+ * the set of alarms that *should* exist (one per incomplete todo with a reminder plan that still
+ * has something ahead of it -- the todo's [nextReminderAfter] now, from its deadline or its
+ * calendar schedules) and reconciles
  * AlarmManager to it: new or moved triggers are (re)set, everything else is cancelled.
  *
  * Deriving from the table rather than hooking each write path is the whole design. A todo can

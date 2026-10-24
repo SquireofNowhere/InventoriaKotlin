@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 121,
+                versionName = "2.40",
+                changes = listOf(
+                    "A todo can now have alarms on a schedule, with or without a deadline. Open a todo's Reminders row and tap Add under \"On a schedule\": every day, chosen weekdays, a day of the month, or one date, at the time you pick. Switch on \"Ring again and again\" to ring several times that day, every few minutes until a later time -- as many as a few hundred. Add as many schedules as you like next to the lead times and \"keep reminding me\"; the row stays one quiet line, and reads \"Add reminders\" until you use it."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 120,
                 versionName = "2.39",
                 changes = listOf(

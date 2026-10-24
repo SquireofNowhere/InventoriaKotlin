@@ -171,4 +171,145 @@ class ReminderPlanTest {
         assertEquals("in 3 hr 20 min", ReminderPlan.remainingLabel(200 * 60_000L))
         assertEquals("in 2 days", ReminderPlan.remainingLabel(49 * 3_600_000L))
     }
+
+    // --- calendar schedules ----------------------------------------------------------------
+    // 10 October 2026 is a Saturday, so the 12th is a Monday and the 16th a Friday.
+
+    private fun daily(minute: Int = 8 * 60) = ReminderSchedule(ScheduleKind.DAILY, minute)
+    private fun weekly(vararg days: Int, minute: Int = 8 * 60) =
+        ReminderSchedule(ScheduleKind.WEEKLY, minute, weekdays = days.toSet())
+    private fun monthly(day: Int, minute: Int = 9 * 60, every: Int = 0, until: Int = minute) =
+        ReminderSchedule(ScheduleKind.MONTHLY, minute, dayOfMonth = day, burstEveryMinutes = every, burstUntilMinute = until)
+    private fun once(date: Int, minute: Int = 10 * 60) = ReminderSchedule(ScheduleKind.ONCE, minute, date = date)
+
+    @Test
+    fun `schedules survive encoding and parsing next to the other rules`() {
+        val plan = ReminderPlan.of(
+            listOf(0, 240),
+            ReminderSpan(2, ReminderUnit.HOUR),
+            listOf(daily(), weekly(1, 5), monthly(15, every = 5, until = 17 * 60), once(20261103))
+        )
+        assertEquals("before=4h,0m every=2h on=d@0800,w15@0800,m15@0900~5-1700,o20261103@1000", plan.encode())
+        assertEquals(plan, ReminderPlan.parse(plan.encode()))
+    }
+
+    @Test
+    fun `a plan with only schedules is not empty and needs no deadline`() {
+        val plan = ReminderPlan.of(emptyList(), null, listOf(daily()))
+        assertTrue(!plan.isEmpty)
+        assertTrue(!plan.needsDeadline)
+        assertTrue(ReminderPlan.of(listOf(60), null).needsDeadline)
+    }
+
+    @Test
+    fun `schedules that cannot ring are dropped`() {
+        val plan = ReminderPlan.parse("on=d@0800,zz,w9@0800,m40@0800,o20260231@0800,d@2561,m31@0800")
+        assertEquals(listOf(daily(), monthly(31, minute = 8 * 60)), plan.schedules)
+    }
+
+    @Test
+    fun `a repeat on the day is lifted to five minutes and needs a later end`() {
+        val fast = ReminderSchedule(ScheduleKind.DAILY, 9 * 60, burstEveryMinutes = 1, burstUntilMinute = 10 * 60).normalised()!!
+        assertEquals(5, fast.burstEveryMinutes)
+        assertEquals(13, fast.ringsPerDay)
+        val noRoom = ReminderSchedule(ScheduleKind.DAILY, 9 * 60, burstEveryMinutes = 10, burstUntilMinute = 9 * 60).normalised()!!
+        assertEquals(0, noRoom.burstEveryMinutes)
+        assertEquals(1, noRoom.ringsPerDay)
+    }
+
+    @Test
+    fun `a plan keeps at most twenty schedules, each once`() {
+        val many = (0 until 30).map { daily(it) } + daily(0)
+        assertEquals(ReminderPlan.MAX_SCHEDULES, ReminderPlan.of(emptyList(), null, many).schedules.size)
+    }
+
+    @Test
+    fun `a daily schedule rings at its time every day`() {
+        assertEquals(at(2026, 10, 10, 8), daily().nextAfter(at(2026, 10, 10, 7)))
+        assertEquals(at(2026, 10, 11, 8), daily().nextAfter(at(2026, 10, 10, 8)))
+        assertEquals(at(2026, 10, 11, 8), daily().nextAfter(at(2026, 10, 10, 20)))
+    }
+
+    @Test
+    fun `a weekly schedule rings on the chosen weekdays only`() {
+        val monAndFri = weekly(1, 5)
+        assertEquals(at(2026, 10, 12, 8), monAndFri.nextAfter(at(2026, 10, 10, 12)))
+        assertEquals(at(2026, 10, 16, 8), monAndFri.nextAfter(at(2026, 10, 12, 8)))
+        assertEquals(at(2026, 10, 19, 8), monAndFri.nextAfter(at(2026, 10, 16, 8)))
+    }
+
+    @Test
+    fun `a monthly schedule rings on its day and clamps to short months`() {
+        assertEquals(at(2026, 10, 15, 9), monthly(15).nextAfter(at(2026, 10, 1)))
+        assertEquals(at(2026, 11, 15, 9), monthly(15).nextAfter(at(2026, 10, 15, 9)))
+        assertEquals(at(2026, 2, 28, 9), monthly(31).nextAfter(at(2026, 2, 1)))
+        assertEquals(at(2026, 3, 31, 9), monthly(31).nextAfter(at(2026, 2, 28, 9)))
+    }
+
+    @Test
+    fun `a one-off rings once and then never again`() {
+        val s = once(20261103)
+        assertEquals(at(2026, 11, 3, 10), s.nextAfter(at(2026, 10, 1)))
+        assertNull(s.nextAfter(at(2026, 11, 3, 10)))
+        assertNull(s.nextAfter(at(2027, 1, 1)))
+    }
+
+    @Test
+    fun `a day can carry many rings`() {
+        val s = monthly(15, every = 5, until = 17 * 60)
+        assertEquals(97, s.ringsPerDay)
+        assertEquals(at(2026, 10, 15, 9, 5), s.nextAfter(at(2026, 10, 15, 9, 2)))
+        assertEquals(at(2026, 10, 15, 12, 30), s.nextAfter(at(2026, 10, 15, 12, 29)))
+        assertEquals(at(2026, 10, 15, 17), s.nextAfter(at(2026, 10, 15, 16, 57)))
+        assertEquals(at(2026, 11, 15, 9), s.nextAfter(at(2026, 10, 15, 17)))
+        // 200 reminders on one day is just a 5-minute run; a whole day from midnight is 288.
+        assertEquals(288, ReminderSchedule(ScheduleKind.DAILY, 0, burstEveryMinutes = 5, burstUntilMinute = 23 * 60 + 55).ringsPerDay)
+    }
+
+    @Test
+    fun `schedules ring with no deadline at all`() {
+        val t = todo(deadlineDay = null, minuteOfDay = null, plan = ReminderPlan.of(listOf(60), null, listOf(daily())))
+        assertTrue(t.hasReminder)
+        // The lead time counted from nothing is gone; the schedule is not.
+        assertTrue(t.reminders().leadMinutes.isEmpty())
+        assertEquals(listOf(daily()), t.reminders().schedules)
+        assertEquals(at(2026, 10, 10, 8), t.nextReminderAfter(at(2026, 10, 10, 7)))
+        assertNull(t.copy(state = TodoState.COMPLETE).nextReminderAfter(at(2026, 10, 10, 7)))
+        assertNull(t.copy(isDeleted = true).nextReminderAfter(at(2026, 10, 10, 7)))
+    }
+
+    @Test
+    fun `the soonest of the deadline reminders and the schedules wins`() {
+        val t = todo(plan = ReminderPlan.of(listOf(60), null, listOf(daily())))
+        // Lead: 16:00 on the 10th. Schedule: 08:00 every day.
+        assertEquals(at(2026, 10, 10, 8), t.nextReminderAfter(at(2026, 10, 10, 7)))
+        assertEquals(at(2026, 10, 10, 16), t.nextReminderAfter(at(2026, 10, 10, 9)))
+        // Past the deadline the schedule keeps going until the todo is ticked off.
+        assertEquals(at(2026, 10, 11, 8), t.nextReminderAfter(at(2026, 10, 10, 18)))
+    }
+
+    @Test
+    fun `asking only about one-offs ignores recurring schedules`() {
+        val t = todo(plan = ReminderPlan.of(emptyList(), null, listOf(daily(), once(20261103))))
+        assertEquals(at(2026, 11, 3, 10), t.nextReminderAfter(at(2026, 10, 10, 7), includeRepeats = false))
+    }
+
+    @Test
+    fun `schedule wording reads naturally`() {
+        assertEquals("Every day at 08:00", daily().describe())
+        assertEquals("Weekdays at 08:00", weekly(1, 2, 3, 4, 5).describe())
+        assertEquals("Weekends at 08:00", weekly(6, 7).describe())
+        assertEquals("Every Mon, Fri at 08:00", weekly(1, 5).describe())
+        assertEquals("Monthly on the 15th at 09:00", monthly(15).describe())
+        assertEquals("Monthly on the 22nd at 09:00", monthly(22).describe())
+        assertEquals("Monthly on the 11th at 09:00", monthly(11).describe())
+        assertEquals(
+            "Monthly on the 15th at 09:00, then every 5 min until 17:00",
+            monthly(15, every = 5, until = 17 * 60).describe()
+        )
+        assertEquals("3 Nov 2026 at 10:00", once(20261103).describe())
+        val both = ReminderPlan.of(listOf(0), null, listOf(daily(), weekly(1)))
+        assertEquals("At due time · Every day at 08:00 · Every Mon at 08:00", both.describe())
+        assertEquals("At due time · 2 schedules", both.summary())
+    }
 }

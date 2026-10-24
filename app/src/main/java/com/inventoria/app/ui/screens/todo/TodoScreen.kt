@@ -496,12 +496,12 @@ private fun TodoEditDialog(
                         }
                     }
                 }
-                // Reminders: lead times and/or "every so often until the deadline". Only meaningful
-                // with a deadline, so the row sits greyed out until one exists -- but stays visible
-                // so it is obvious the option is there. All-day deadlines ring at 09:00 (see
-                // ALL_DAY_REMINDER_MINUTE_OF_DAY).
+                // Reminders: lead times and/or "every so often until the deadline", and calendar
+                // schedules that need no deadline. One quiet line that opens the full dialog; the
+                // deadline-based parts switch themselves off inside it until a deadline exists.
+                // All-day deadlines ring at 09:00 (see ALL_DAY_REMINDER_MINUTE_OF_DAY).
                 ReminderRow(
-                    enabled = deadline != null,
+                    hasDeadline = deadline != null,
                     isAllDay = deadline != null && deadlineMinuteOfDay == null,
                     plan = reminders,
                     onPlanChange = { reminders = it }

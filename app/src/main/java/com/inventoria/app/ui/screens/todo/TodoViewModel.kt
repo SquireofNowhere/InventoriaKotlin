@@ -254,7 +254,8 @@ class TodoViewModel @Inject constructor(
                     repeatInterval = repeat,
                     parentTodoId = parentTodoId,
                     priority = priority
-                    // withReminders also drops the plan when there is no deadline to count from.
+                    // withReminders also drops the deadline-based reminders when there is no
+                    // deadline to count from; calendar schedules need none and are kept.
                 ).withReminders(reminders)
             )
         }
@@ -290,8 +291,8 @@ class TodoViewModel @Inject constructor(
         // A time without a date would be unreachable in the UI and would sort/display as a due
         // time nothing is actually due at, so the "null deadline clears the time" invariant is
         // enforced here rather than trusted from the dialog. The alarm follows the same rule
-        // (withReminders below): an alarm with nothing to ring for is cleared, not carried around
-        // waiting for a date.
+        // (withReminders below): a reminder with nothing to count from is cleared, not carried
+        // around waiting for a date. Calendar schedules count from the clock and survive.
         val time = deadlineMinuteOfDay.takeIf { deadline != null }
         // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
         val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE

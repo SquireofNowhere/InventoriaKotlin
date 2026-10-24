@@ -11,17 +11,19 @@ internal val todoAlarmsArticles = listOf(
     HelpArticle(
         id = "todos-alarm",
         title = "Give a todo an alarm",
-        summary = "Ring at the due moment, before it, or every so often until it.",
-        whatItIs = "A todo with a deadline can carry as many reminders as it needs, in two flavours that " +
-            "combine freely. Lead times ring once each, that long before the due moment -- \"4, 5 and 6 " +
-            "hours before\". A repeat keeps ringing until the deadline -- \"every 2 hours\", \"every day\", " +
-            "\"every week\", \"every month\". An all-day deadline (no time of its own) counts from 09:00.",
+        summary = "Ring at the due moment, before it, every so often until it, or on a calendar schedule.",
+        whatItIs = "A todo can carry as many reminders as it needs, in three flavours that combine freely. " +
+            "Lead times ring once each, that long before the due moment -- \"4, 5 and 6 hours before\". A " +
+            "repeat keeps ringing until the deadline -- \"every 2 hours\", \"every day\", \"every week\", " +
+            "\"every month\". Both count from the deadline, and an all-day deadline (no time of its own) " +
+            "counts from 09:00. The third flavour, a schedule, counts from the calendar instead and needs " +
+            "no deadline at all -- see \"Alarms on a schedule\".",
         blocks = listOf(
             HelpBlock.Steps(
                 listOf(
-                    HelpStep("Give the todo a deadline first -- the reminders row stays visible but greyed out until one exists."),
+                    HelpStep("Give the todo a deadline for the first two -- they switch off inside the dialog until one exists."),
                     HelpStep(
-                        "Tap the Reminders row. Tick any of the quick lead times, or type your own amount and pick minutes, hours, days or weeks. Switch on Keep reminding me for a repeat.",
+                        "Tap the Reminders row (it reads \"Add reminders\" until you have some). Tick any of the quick lead times, or type your own amount and pick minutes, hours, days or weeks. Switch on Keep reminding me for a repeat.",
                         DiagramSpec(listOf(DiagramElement.Popup(
                             title = "Edit Todo",
                             fields = listOf(DiagramField("Reminders", "6 hr, 4 hr before · every 2 hours until due", FieldKind.Dropdown, highlight = true))
@@ -52,13 +54,62 @@ internal val todoAlarmsArticles = listOf(
                     "whenever this app doesn't currently have that permission."
             )
         ),
-        whyItMatters = "Clearing the deadline clears the reminders with it -- an alarm with nothing to ring " +
-            "for is never left dangling, waiting for a date that might come back. Only the next reminder is " +
+        whyItMatters = "Clearing the deadline clears the reminders that count from it -- one with nothing " +
+            "to ring for is never left dangling, waiting for a date that might come back. Schedules are " +
+            "kept, because they never needed the date. Only the next reminder is " +
             "ever handed to the system's alarm clock; when it rings, the one after it is lined up. That is " +
             "why a todo that reminds every 2 hours for a month costs one alarm, not hundreds, and why " +
             "anything the phone slept through while it was off is skipped rather than replayed all at once.",
-        related = listOf("todos-deadline", "todos-alarm-style", "todos-alarm-actions"),
+        related = listOf("todos-alarm-schedule", "todos-deadline", "todos-alarm-style", "todos-alarm-actions"),
         keywords = listOf("reminder", "notification", "ring", "lead time", "bell")
+    ),
+
+    HelpArticle(
+        id = "todos-alarm-schedule",
+        title = "Alarms on a schedule",
+        summary = "Every day, on chosen weekdays, on a day of the month, or once -- with or without a deadline.",
+        whatItIs = "A schedule is a reminder that comes from the calendar rather than from the deadline. " +
+            "\"Every day at 08:00\", \"Mondays and Fridays at 08:00\", \"the 15th of every month at 09:00\", " +
+            "\"on 3 November at 10:00\". A todo can have several, next to its lead times and repeat, and a " +
+            "schedule works on a todo that has no deadline at all.",
+        blocks = listOf(
+            HelpBlock.Steps(
+                listOf(
+                    HelpStep(
+                        "Tap the Reminders row in the todo's dialog, then Add under \"On a schedule\".",
+                        DiagramSpec(listOf(DiagramElement.Popup(
+                            title = "Edit Todo",
+                            fields = listOf(DiagramField("Reminders", "Monthly on the 15th at 09:00", FieldKind.Dropdown, highlight = true))
+                        )))
+                    ),
+                    HelpStep("Pick Daily, Weekly (and the days), Monthly (and the day of the month) or Once (and the date), then the time."),
+                    HelpStep("Switch on Ring again and again to ring several times that day: every so many minutes (at least 5) until a later time. The line under the fields counts the rings, so \"every 5 minutes from 09:00 to 17:00\" says 97."),
+                    HelpStep("Tap a schedule in the list to change it, or the cross to remove it.")
+                )
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "A month without the day you chose rings on its last day, so \"the 31st\" is also the 30th, " +
+                    "the 28th and the 29th when those are the last day."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "A schedule keeps ringing past the todo's deadline, until you tick the todo off or delete " +
+                    "it. A one-off ring is gone once it has rung."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Caution,
+                "Every ring of a todo replaces the last notification for that todo rather than stacking, so " +
+                    "a schedule that rings every 5 minutes leaves one notification, not ninety-seven."
+            )
+        ),
+        whyItMatters = "Lead times and repeats answer \"remind me before this is due\". A schedule answers a " +
+            "different question -- \"remind me about this on the 15th\", or \"every morning\" -- which has " +
+            "nothing to do with a due date, so it does not wait for one. Only the next ring is ever worked " +
+            "out and handed to the system's alarm clock, so a schedule that rings 200 times in a day is " +
+            "still a single alarm waiting at a time.",
+        related = listOf("todos-alarm", "todos-alarm-actions"),
+        keywords = listOf("recurring", "repeat", "daily", "weekly", "monthly", "every day", "day of month", "many reminders")
     ),
 
     HelpArticle(

@@ -138,7 +138,7 @@ class TodoAlarmReceiver : BroadcastReceiver() {
         val dueText = (todo.deadline?.let { day ->
             val time = todo.deadlineMinuteOfDay?.let { " at ${formatMinuteOfDay(it)}" } ?: ""
             "Due ${getDayLabel(day)}$time"
-        } ?: "Due") + remaining
+        } ?: "Reminder") + remaining // no deadline: this ring came from a calendar schedule
 
         // SplashActivity is the app's one exported entry point; it forwards to MainActivity.
         val openIntent = Intent(context, SplashActivity::class.java).apply {

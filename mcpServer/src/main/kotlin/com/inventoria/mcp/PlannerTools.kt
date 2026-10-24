@@ -1,6 +1,7 @@
 package com.inventoria.mcp
 
 import com.inventoria.shared.model.ReminderPlan
+import com.inventoria.shared.model.ReminderSchedule
 import com.inventoria.shared.model.ReminderSpan
 import com.inventoria.shared.model.ScheduleBlock
 import com.inventoria.shared.model.Task
@@ -51,12 +52,30 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
             t.copy(deadlineMinuteOfDay = parseMinuteOfDay(args.reqStr("due_time")), deadline = t.deadline ?: todayStart())
         }
     }
-    if (args.has("reminder_offset_minutes") || args.has("reminder_before") || args.has("reminder_every")) {
-        // Each field changes only its own half of the plan: sending reminder_every leaves the lead
-        // times alone, and the other way round.
+    if (args.has("reminder_offset_minutes") || args.has("reminder_before") || args.has("reminder_every") ||
+        args.has("reminder_schedules")
+    ) {
+        // Each field changes only its own part of the plan: sending reminder_every leaves the lead
+        // times and schedules alone, and so on round.
         val current = t.reminders()
         var leads = current.leadMinutes
         var every = current.every
+        var schedules = current.schedules
+        if (args.has("reminder_schedules")) {
+            schedules = if (args.isNull("reminder_schedules")) emptyList() else {
+                val tokens = args.strList("reminder_schedules") ?: emptyList()
+                if (tokens.size > ReminderPlan.MAX_SCHEDULES) {
+                    throw ToolError("'reminder_schedules' takes at most ${ReminderPlan.MAX_SCHEDULES} entries")
+                }
+                tokens.map {
+                    ReminderSchedule.parse(it)
+                        ?: throw ToolError(
+                            "'reminder_schedules' entries look like d@0800, w15@0800, m15@0900 or o20261103@1000, " +
+                                "optionally ending ~5-1700; got '$it'"
+                        )
+                }
+            }
+        }
         if (args.has("reminder_offset_minutes")) {
             val offset = args.pickInt("reminder_offset_minutes", null)
             if (offset != null && (offset < 0 || offset > ReminderPlan.MAX_LEAD_MINUTES)) {
@@ -86,7 +105,7 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
                 span
             }
         }
-        t = t.withReminders(ReminderPlan.of(leads, every))
+        t = t.withReminders(ReminderPlan.of(leads, every, schedules))
     }
     if (args.has("priority")) {
         t = t.copy(priority = if (args.isNull("priority")) null else args.enum<TodoPriority>("priority"))
@@ -113,7 +132,8 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
         if (t.repeatInterval != TodoRepeat.NONE && args.has("repeat")) {
             throw ToolError("A repeating todo needs a due_date")
         }
-        t = t.copy(deadlineMinuteOfDay = null, repeatInterval = TodoRepeat.NONE).withReminders(ReminderPlan.NONE)
+        // withReminders drops what counts from the deadline and keeps the calendar schedules.
+        t = t.copy(deadlineMinuteOfDay = null, repeatInterval = TodoRepeat.NONE).withReminders(t.reminders())
     }
     if (t.title.isBlank()) throw ToolError("'title' cannot be empty")
     return t
@@ -175,6 +195,14 @@ internal val TODO_FIELDS = arrayOf(
         "Keep ringing every so often until it is due, counted back from the due time and ending with it: 30m, " +
             "2h, 1d, 1w or 1mo (at least 5m). Combines with reminder_before. null stops the repeat. Needs a due_date.",
         nullable = true
+    ),
+    "reminder_schedules" to arrP(
+        "string",
+        "Calendar reminders that need no due_date, one per entry, as compact tokens: d@0800 (every day at " +
+            "08:00), w15@0800 (weekdays 1=Mon..7=Sun: here Mon and Fri), m15@0900 (the 15th of every month; a " +
+            "shorter month rings on its last day), o20261103@1000 (once, on that date). Add ~5-1700 to ring " +
+            "again and again that day, every 5 minutes (at least 5) until 17:00, e.g. m15@0900~5-1700 for 97 " +
+            "rings. Up to ${ReminderPlan.MAX_SCHEDULES}. Replaces the schedules; [] clears them."
     ),
     "priority" to strP("Priority, A1 (highest) to C3 (lowest)", nullable = true, enum = TodoPriority.entries.map { it.name }),
     "parent_id" to strP("Make this a sub-todo of the todo with this id", nullable = true),
