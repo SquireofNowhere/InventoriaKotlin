@@ -28,7 +28,7 @@ import javax.inject.Singleton
  * notification instead.
  */
 @Singleton
-class SessionStarter @Inject constructor(
+open class SessionStarter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val taskRepository: TaskRepository,
     private val todoRepository: TodoRepository,
@@ -93,6 +93,14 @@ class SessionStarter @Inject constructor(
 
     private suspend fun begin(task: Task) {
         taskRepository.insertTask(task)
+        onSessionInserted()
+    }
+
+    /** What has to follow the running task being written: bring the timer service up so it ticks and
+     * shows its notification, and push. The only part of a start that needs Android, so it is open
+     * for the JVM tests to stand in for -- everything that decides *whether* and *what* to start runs
+     * for real there. */
+    protected open suspend fun onSessionInserted() {
         val intent = Intent(context, TaskTimerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
         else context.startService(intent)
