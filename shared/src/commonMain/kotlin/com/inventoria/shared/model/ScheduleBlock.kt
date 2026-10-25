@@ -18,12 +18,16 @@ data class ScheduleBlock(
     val endMinuteOfDay: Int = 60,
     val repeatWeekly: Boolean = false,
     val repeatDaily: Boolean = false,
+    // Last day (start-of-day, inclusive) the block shows on; null is no end. Removing a repeating
+    // block going forward sets this rather than deleting it, so past days keep it.
+    val endDay: Long? = null,
     val notes: String = "",
     val isDeleted: Boolean = false,
     val updatedAt: Long = 0L
 ) {
     /** Whether this block shows on [day]: its own day, or a later (same-weekday) day when repeating. */
     fun occursOn(day: Long, zone: TimeZone = TimeZone.currentSystemDefault()): Boolean {
+        if (endDay != null && day > endDay) return false
         if (day == dayStart) return true
         if (day < dayStart) return false
         if (repeatDaily) return true

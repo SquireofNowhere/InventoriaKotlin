@@ -135,6 +135,10 @@ class InventoryDatabaseMigrationTest {
                 assertEquals(true, block?.repeatWeekly)
                 // Added by MIGRATION_17_18; must round-trip like taskTypeId does.
                 assertEquals(true, block?.repeatDaily)
+                // Added by MIGRATION_20_21, nullable: a new block has no end, and must round-trip one.
+                assertNull(block?.endDay)
+                db.scheduleBlockDao().updateBlock(block!!.copy(endDay = 4000))
+                assertEquals(4000L, db.scheduleBlockDao().getBlockById("block-1")?.endDay)
             }
         } finally {
             db.close()

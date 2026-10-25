@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 122,
+                versionName = "2.41",
+                changes = listOf(
+                    "Removing a schedule block no longer erases it from the days already gone. Delete a repeating block that has already happened and you can choose Stop going forward: every earlier day keeps showing it, so you can look back and see what your schedule used to be beside what it is now. Delete all still removes it everywhere, and a one-off block that already happened tells you before it disappears from the past."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 121,
                 versionName = "2.40",
                 changes = listOf(

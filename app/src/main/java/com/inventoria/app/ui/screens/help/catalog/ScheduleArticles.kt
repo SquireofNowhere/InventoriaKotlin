@@ -100,12 +100,19 @@ internal val scheduleArticles = listOf(
             HelpBlock.Callout(
                 CalloutKind.Tip,
                 "A deleted block offers an Undo snackbar for a few seconds, same as everywhere else in the app."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "Deleting a block that has already happened asks first. A repeating block can be stopped going " +
+                    "forward: every earlier day still shows it, so you can look back and see what your schedule " +
+                    "used to be next to what it is now. Delete all erases it from the past too. A one-off block " +
+                    "that already happened can only be deleted outright, and says so before it goes."
             )
         ),
         whyItMatters = "The same dialog handles both creating and editing, so a block never has two " +
             "different-looking forms depending on how you got to it.",
         related = listOf("schedule-add-block"),
-        keywords = listOf("change", "remove", "undo", "delete block")
+        keywords = listOf("change", "remove", "undo", "delete block", "history", "past", "stop going forward", "end")
     ),
 
     HelpArticle(

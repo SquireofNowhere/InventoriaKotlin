@@ -123,6 +123,7 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
     val weekStart by viewModel.weekStart.collectAsState()
     val selectedDay by viewModel.selectedDay.collectAsState()
     val pendingBlock by viewModel.pendingBlock.collectAsState()
+    val deleteChoice by viewModel.deleteChoice.collectAsState()
     val taskTypes by viewModel.taskTypes.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val rawData by viewModel.rawData.collectAsState()
@@ -272,10 +273,19 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
             isNew = block.id.isBlank(),
             taskTypes = taskTypes,
             onDismiss = { viewModel.dismissDialog() },
-            onDelete = { viewModel.deleteBlock(block) },
+            onDelete = { viewModel.requestDelete(block) },
             onSave = { title, kind, taskTypeId, dayStart, start, end, repeat, notes ->
                 viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeat, notes)
             }
+        )
+    }
+
+    deleteChoice?.let { choice ->
+        BlockDeleteDialog(
+            choice = choice,
+            onEnd = { viewModel.endBlockKeepingHistory(choice) },
+            onDeleteAll = { viewModel.deleteEverything(choice) },
+            onDismiss = { viewModel.dismissDeleteChoice() }
         )
     }
 }
@@ -895,6 +905,46 @@ private fun TaskSegmentCard(
 }
 
 // ---- Block dialog -----------------------------------------------------------------------------
+
+/**
+ * Asked when deleting a block that has already happened, so the past is never rewritten by accident.
+ * A repeating block can be stopped from today on -- every earlier day keeps it, which is how the
+ * calendar can still show what the schedule used to be -- or erased outright.
+ */
+@Composable
+private fun BlockDeleteDialog(
+    choice: BlockDeleteChoice,
+    onEnd: () -> Unit,
+    onDeleteAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val name = choice.block.title.ifBlank { "This block" }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete \"$name\"?") },
+        text = {
+            Text(
+                if (choice.endDay != null) {
+                    "It has already happened on earlier days. Stop it going forward and those days keep showing it, " +
+                        "so you can look back at what your schedule used to be. Or delete it everywhere, past included."
+                } else {
+                    "It has already happened, so deleting it removes it from your past schedule as well."
+                }
+            )
+        },
+        confirmButton = {
+            Row {
+                if (choice.endDay != null) {
+                    TextButton(onClick = onEnd) { Text("Stop going forward") }
+                }
+                TextButton(onClick = onDeleteAll) {
+                    Text(if (choice.endDay != null) "Delete all" else "Delete", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
 
 @Composable
 private fun ScheduleBlockDialog(

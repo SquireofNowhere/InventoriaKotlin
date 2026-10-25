@@ -14,6 +14,7 @@ import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.ui.components.UndoableDeleteController
+import com.inventoria.app.util.currentMinuteOfDay
 import com.inventoria.app.util.getStartOfDay
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.BufferOverflow
@@ -68,6 +69,11 @@ data class WeekDayMarker(
     val hasTodos: Boolean,
     val hasTasks: Boolean
 )
+
+/** What the delete dialog offers for a block that has already begun. [endDay] is the last day to keep
+ * when the block is only stopped from today on, or null when it cannot be (a one-off, or one that
+ * already stops by then) and the only choice is erasing it, past included. */
+data class BlockDeleteChoice(val block: ScheduleBlock, val endDay: Long?)
 
 private const val DAY_MILLIS = 24 * 60 * 60 * 1000L
 
@@ -252,6 +258,49 @@ class ScheduleViewModel @Inject constructor(
             else scheduleBlockRepository.updateBlock(block)
         }
         _pendingBlock.value = null
+    }
+
+    private val _deleteChoice = MutableStateFlow<BlockDeleteChoice?>(null)
+    val deleteChoice: StateFlow<BlockDeleteChoice?> = _deleteChoice.asStateFlow()
+
+    /**
+     * The Delete button. A block that has not begun yet is simply deleted. One that has already
+     * happened -- on any day -- would rewrite the past if it vanished, so the user is asked first:
+     * stop it from today on (a repeating block keeps every day gone by, which is what lets the
+     * calendar show what the schedule used to be), or erase it outright.
+     */
+    fun requestDelete(block: ScheduleBlock) {
+        val today = getStartOfDay(System.currentTimeMillis())
+        val minute = currentMinuteOfDay()
+        if (!block.hasHistory(today, minute)) {
+            deleteBlock(block)
+            return
+        }
+        _pendingBlock.value = null
+        _deleteChoice.value = BlockDeleteChoice(block, block.historyEnd(today, minute))
+    }
+
+    fun dismissDeleteChoice() {
+        _deleteChoice.value = null
+    }
+
+    /** Stops a repeating block after [BlockDeleteChoice.endDay], keeping every day up to then, and
+     * offers the stop back. */
+    fun endBlockKeepingHistory(choice: BlockDeleteChoice) {
+        val lastDay = choice.endDay ?: return
+        _deleteChoice.value = null
+        viewModelScope.launch {
+            scheduleBlockRepository.setEndDay(choice.block.id, lastDay)
+            undoController.offer("${choice.block.title.ifBlank { "block" }} going forward") {
+                scheduleBlockRepository.setEndDay(choice.block.id, choice.block.endDay)
+            }
+        }
+    }
+
+    /** Erases the block from every day, past included, after the user has been asked. */
+    fun deleteEverything(choice: BlockDeleteChoice) {
+        _deleteChoice.value = null
+        deleteBlock(choice.block)
     }
 
     /** Soft-deletes a block and offers it straight back, same as the Todos screen. */

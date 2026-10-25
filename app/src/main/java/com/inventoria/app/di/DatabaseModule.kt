@@ -164,12 +164,23 @@ object DatabaseModule {
     }
 
     /**
+     * Schedule blocks that end (v21). One nullable column: the last day a block shows on, so removing
+     * a repeating block can stop it from today on while the days already past keep it. Null -- what
+     * every existing block gets -- is "no end", which is what they all were.
+     */
+    private val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE ScheduleBlock ADD COLUMN endDay INTEGER")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
 
     @Provides
     @Singleton

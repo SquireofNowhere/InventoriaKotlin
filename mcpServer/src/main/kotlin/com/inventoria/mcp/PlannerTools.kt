@@ -372,6 +372,10 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
             "kind" to strP("Kind: $KIND_LEGEND", enum = KIND_NAMES),
             "task_type_id" to strP("Task Type id", nullable = true),
             "repeat" to strP("Repeat", enum = listOf("NONE", "DAILY", "WEEKLY")),
+            "end_date" to strP(
+                "The last day a repeating block shows on, YYYY-MM-DD; earlier days keep it. null removes the end.",
+                nullable = true
+            ),
             "notes" to strP("Notes"),
             required = listOf("id")
         ),
@@ -393,9 +397,11 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
                 endMinuteOfDay = args.str("end")?.let(::parseMinuteOfDay) ?: b.endMinuteOfDay,
                 repeatDaily = if (repeat != null) repeat == "DAILY" else b.repeatDaily,
                 repeatWeekly = if (repeat != null) repeat == "WEEKLY" else b.repeatWeekly,
+                endDay = if (args.has("end_date")) args.str("end_date")?.let(::parseDay) else b.endDay,
                 notes = if (args.has("notes")) args.str("notes") ?: "" else b.notes
             )
             if (next.endMinuteOfDay <= next.startMinuteOfDay) throw ToolError("'end' must be later than 'start'")
+            if (next.endDay != null && next.endDay < next.dayStart) throw ToolError("'end_date' cannot be before the block's start date")
             next
         }
         obj("block" to blockView(updated))
@@ -403,14 +409,36 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
 
     Tool(
         name = "delete_schedule_block",
-        description = "Delete a schedule block (soft delete, restorable). A repeating block is removed on every day.",
-        inputSchema = schema("id" to strP("Block id"), required = listOf("id")),
+        description = "Delete a schedule block (soft delete, restorable). A repeating block is removed on every day, " +
+            "past included -- which rewrites what the calendar shows for days already gone. To stop a repeating " +
+            "block going forward and keep its past, pass keep_past_until (its last day) instead of deleting.",
+        inputSchema = schema(
+            "id" to strP("Block id"),
+            "keep_past_until" to strP(
+                "Instead of deleting, end the repeating block after this day (YYYY-MM-DD, usually yesterday or " +
+                    "today) so every day up to it still shows it.",
+                nullable = true
+            ),
+            required = listOf("id")
+        ),
         readOnly = false,
         destructive = true
     ) { args ->
         val id = args.reqStr("id")
-        if (!vault.setDeleted("schedule_blocks", id, true)) throw ToolError("No schedule block '$id'")
-        obj("deleted" to id)
+        val keepUntil = args.str("keep_past_until")?.let(::parseDay)
+        if (keepUntil != null) {
+            val existing = vault.row("schedule_blocks", id, ScheduleBlock.serializer())
+            if (existing == null || existing.isDeleted) throw ToolError("No schedule block '$id'")
+            if (!existing.repeatDaily && !existing.repeatWeekly) {
+                throw ToolError("Only a repeating block can be ended; delete this one without keep_past_until")
+            }
+            if (keepUntil < existing.dayStart) throw ToolError("'keep_past_until' is before the block starts; delete it instead")
+            val ended = vault.edit("schedule_blocks", id, ScheduleBlock.serializer()) { it.copy(endDay = keepUntil) }
+            obj("ended" to id, "block" to blockView(ended))
+        } else {
+            if (!vault.setDeleted("schedule_blocks", id, true)) throw ToolError("No schedule block '$id'")
+            obj("deleted" to id)
+        }
     },
 
     Tool(

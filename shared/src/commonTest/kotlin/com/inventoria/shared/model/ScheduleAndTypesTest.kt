@@ -21,6 +21,17 @@ class ScheduleAndTypesTest {
     }
 
     @Test
+    fun aBlockStopsAfterItsEndDayButKeepsEverythingBefore() {
+        val daily = ScheduleBlock(dayStart = day(2026, 9, 1), repeatDaily = true, endDay = day(2026, 9, 10))
+        assertTrue(daily.occursOn(day(2026, 9, 5), zone))
+        assertTrue(daily.occursOn(day(2026, 9, 10), zone))
+        assertFalse(daily.occursOn(day(2026, 9, 11), zone))
+        val weekly = ScheduleBlock(dayStart = day(2026, 9, 7), repeatWeekly = true, endDay = day(2026, 9, 14))
+        assertTrue(weekly.occursOn(day(2026, 9, 14), zone))
+        assertFalse(weekly.occursOn(day(2026, 9, 21), zone))
+    }
+
+    @Test
     fun averageLabelRoundsToOneDecimalWithSign() {
         fun label(avg: Double?) = TaskTypeStats("t", "T", 1, avg, null, 0).averageLabel
         assertEquals("+0.5", label(0.5))

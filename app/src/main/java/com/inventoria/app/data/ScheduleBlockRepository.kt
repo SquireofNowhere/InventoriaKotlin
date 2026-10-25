@@ -60,6 +60,14 @@ class ScheduleBlockRepository @Inject constructor(
         scheduleBlockDao.softDeleteBlockById(id, getNextTimestamp(existing?.updatedAt ?: 0L))
     }
 
+    /** Stops a repeating block after [lastDay] (inclusive) rather than deleting it, so the days up
+     * to then keep showing it. Null puts the end back to "none" -- the undo of this. */
+    suspend fun setEndDay(id: String, lastDay: Long?) {
+        val existing = scheduleBlockDao.getBlockById(id) ?: return
+        val timestamp = getNextTimestamp(existing.updatedAt)
+        scheduleBlockDao.updateBlock(existing.copy(endDay = lastDay, updatedAt = timestamp, isDirty = true))
+    }
+
     /** Puts a soft-deleted block back; the timestamp must beat the tombstone's own. */
     suspend fun restoreBlock(id: String) {
         val existing = scheduleBlockDao.getBlockById(id)

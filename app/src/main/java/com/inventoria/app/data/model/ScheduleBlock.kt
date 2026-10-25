@@ -46,6 +46,10 @@ data class ScheduleBlock(
     /** Repeats every day from [dayStart] on. Wins over [repeatWeekly] if a stray sync ever leaves
      * both set -- the editor only ever writes one of the two. */
     @get:PropertyName("repeatDaily") @set:PropertyName("repeatDaily") var repeatDaily: Boolean = false,
+    /** The last day (inclusive, start-of-day) this block shows on, or null for no end. Removing a
+     * repeating block from today on sets this to the day before instead of deleting the row, so the
+     * days already gone by keep showing what the schedule used to be. See [historyEnd]. */
+    @get:PropertyName("endDay") @set:PropertyName("endDay") var endDay: Long? = null,
     @get:PropertyName("notes") @set:PropertyName("notes") var notes: String = "",
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
@@ -55,6 +59,7 @@ data class ScheduleBlock(
      * repeating -- any later day (daily) or later day on the same weekday (weekly). Not a bean
      * getter, so Firebase's mapper never mistakes it for a field. */
     fun occursOn(day: Long): Boolean {
+        if (endDay != null && day > endDay!!) return false
         if (day == dayStart) return true
         if (day < dayStart) return false
         if (repeatDaily) return true
@@ -63,4 +68,28 @@ data class ScheduleBlock(
         val target = Calendar.getInstance().apply { timeInMillis = day }.get(Calendar.DAY_OF_WEEK)
         return own == target
     }
+
+    /**
+     * The day to end this block on so that everything that has already begun stays on the calendar,
+     * or null when there is nothing to keep (it has not started yet) or nothing to end (it does not
+     * repeat, or already stops by then). [todayStart] is the start of today and [nowMinute] the
+     * minutes since midnight: today's occurrence counts as history once its start time has passed.
+     * Not a bean getter, so Firebase's mapper never mistakes it for a field.
+     */
+    fun historyEnd(todayStart: Long, nowMinute: Int): Long? {
+        if (!repeatDaily && !repeatWeekly) return null
+        val keepsToday = occursOn(todayStart) && startMinuteOfDay <= nowMinute
+        val last = if (keepsToday) todayStart else Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, -1)
+        }.timeInMillis
+        if (last < dayStart) return null
+        val current = endDay
+        return if (current != null && current <= last) null else last
+    }
+
+    /** Whether any occurrence of this block has already begun -- the case where deleting it would
+     * rewrite the past. */
+    fun hasHistory(todayStart: Long, nowMinute: Int): Boolean =
+        dayStart < todayStart || (dayStart == todayStart && startMinuteOfDay <= nowMinute)
 }
