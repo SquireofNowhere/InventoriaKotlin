@@ -22,6 +22,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.inventoria.app.data.model.FocusArea
+import com.inventoria.app.ui.screens.chat.ChatScreen
+import com.inventoria.app.ui.screens.chat.ChatViewModel
 import com.inventoria.app.ui.screens.clock.ClockScreen
 import com.inventoria.app.ui.screens.clock.ClockViewModel
 import com.inventoria.app.ui.screens.help.HelpArticleScreen
@@ -282,7 +284,16 @@ fun InventoriaApp(
                     onNavigateToHelp = { openHelpFor(Screen.Today.helpCategoryId) },
                     // Both of these are tab jumps, not drill-downs -- must not plain-push.
                     onNavigateToTodos = { navController.switchToTab(Screen.Todos.route) },
-                    onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) }
+                    onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) },
+                    onNavigateToChat = { navController.navigate("claude_chat") }
+                )
+            }
+
+            // Reached from the Today bar and Settings; a drill-down, so it has its own back arrow.
+            composable("claude_chat") {
+                ChatScreen(
+                    viewModel = hiltViewModel<ChatViewModel>(),
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
 
@@ -443,7 +454,8 @@ fun InventoriaApp(
                     // still opens the manual's index, which is what that row has always meant.
                     onNavigateToHelp = { openHelpFor(Screen.Settings.helpCategoryId) },
                     onNavigateToHelpIndex = { navController.navigate("help") },
-                    onNavigateToVersionHistory = { navController.navigate("version_history") }
+                    onNavigateToVersionHistory = { navController.navigate("version_history") },
+                    onNavigateToChat = { navController.navigate("claude_chat") }
                 )
             }
 

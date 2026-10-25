@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Checklist
@@ -78,7 +79,8 @@ fun TodayScreen(
     todoViewModel: TodoViewModel,
     onNavigateToHelp: () -> Unit,
     onNavigateToTodos: () -> Unit,
-    onNavigateToTasks: () -> Unit
+    onNavigateToTasks: () -> Unit,
+    onNavigateToChat: () -> Unit
 ) {
     val tasks by todayViewModel.tasks.collectAsState()
     val nowState by todayViewModel.nowState.collectAsState()
@@ -116,6 +118,9 @@ fun TodayScreen(
                 // How To. Settings is a tab again and How To is the "?" the bar now draws on
                 // every screen, so the menu had nothing left in it.
                 actions = {
+                    IconButton(onClick = onNavigateToChat) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Chat with Claude")
+                    }
                     IconButton(onClick = { todayViewModel.refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }

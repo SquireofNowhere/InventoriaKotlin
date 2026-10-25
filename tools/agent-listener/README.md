@@ -1,37 +1,58 @@
 # Agent listener
 
-Write a todo titled `@claude ...` in Inventoria (phone, web app or anywhere) and Claude acts on it.
-`listener.py` streams the vault's `todos` node from Firebase, and when one appears it runs
-`claude -p` once for it on your own Claude login. The answer is written into the todo's description
-and the todo is ticked off.
+Lets Claude answer Inventoria, on your own Claude login. `listener.py` runs on your PC, watches the
+vault in Firebase, and starts one `claude -p` run for each request. Two things send it a request:
+
+- **The in-app chat** (Today's top bar, or Settings > Claude). You type a message, the listener
+  answers it using the Inventoria tools (so it can look things up and make changes), and the reply
+  appears as Claude's bubble.
+- **A todo titled `@claude ...`**, written anywhere. The reply goes into the todo's description and
+  the todo is ticked off.
 
 ```bash
 python tools/agent-listener/listener.py            # run it for real
-python tools/agent-listener/listener.py --dry-run  # only say what it would run
+python tools/agent-listener/listener.py --dry-run  # only say what it would do
 ```
 
 Needs Python 3 (standard library only), the `claude` CLI on `PATH`, and the Inventoria MCP server
 already set up (see `mcpServer/README.md`): the listener borrows its sign-in from
-`~/.inventoria-mcp/`, so it gets no access the MCP server does not already have, and no database
-rule changes are needed.
+`~/.inventoria-mcp/`, so it gets no access the MCP server does not already have.
+
+## One-time setup for the chat
+
+The chat lives in `users/<uid>/agent_chat`. The app (the vault owner) can always write there, but the
+listener signs in as a joiner, which only has write access to nodes named in `database.rules.json`.
+That file now has an `agent_chat` entry, but **rules are not deployed from the repo**: paste the
+current `database.rules.json` into the Firebase console (Realtime Database > Rules) and publish.
+Until you do, the chat sends but never gets an answer, and the listener logs a 401.
+(`@claude` todos need no rule change.)
 
 ## What a run can and cannot do
 
 - Only the Inventoria MCP tools are loaded (`--strict-mcp-config`), so no shell, files, Mixar or
   anything else.
-- The delete tools and `import_vault` are denied. Edits are otherwise unrestricted: a `@claude`
-  todo can create, change and move things, and start or stop timers.
+- The delete tools and `import_vault` are denied. Edits are otherwise unrestricted: a request can
+  create, change and move things, and start or stop timers.
 - Anyone who can write to your vault (the app, the web app, anyone you invited) can start a run.
-  The todo text is treated as the user's request.
+- Runs go one at a time, and are cut off after 10 minutes (`--timeout`).
 
-## Details
+## How the chat works
+
+Each message is `{role, text, createdAt, status}` under a push-id key. The app writes a user message
+with `status: "pending"`. The listener sets it to `working`, runs Claude on the last 20 messages,
+writes the reply as a message keyed `<question key>~r` (which sorts straight after its question),
+and sets the question to `done` (or `error`). If the listener dies mid-run, the next start marks the
+stuck message `error` so the app stops waiting. The app shows a hint if a message sits at `pending`
+for a minute: the listener is probably not running.
+
+## Details for the todo trigger
 
 - Each todo runs once. Handled ids are kept in `~/.inventoria-mcp/agent-listener-state.json`. The
   first ever start marks any existing `@claude` todos as handled so old ones don't fire.
 - It waits 5 seconds after a todo appears (`--settle`) so a title still being typed is not run
-  half-written, and runs one at a time. A run is cut off after 10 minutes (`--timeout`).
-- Only an open (not completed, not deleted) todo whose title starts with `@claude` triggers.
-- Reconnects on its own, and every 50 minutes to renew the Firebase token.
+  half-written. Only an open (not completed, not deleted) todo whose title starts with `@claude`
+  triggers.
+- Both streams reconnect on their own, and every 50 minutes to renew the Firebase token.
 
 ## Known limit
 
@@ -41,3 +62,7 @@ claude-code-router (`apiKeyHelper` plus `ANTHROPIC_BASE_URL`): started from insi
 session it failed with "Invalid API key", and started with that session's variables removed it
 hung. Run `claude -p "say ok"` in a normal terminal first; if that works, so will the listener when
 started from the same terminal.
+
+Also untested end to end: the chat round trip (it needs the rule above, and a build of the app).
+The stream handling, message ordering and prompt building were checked with a dry run and a small
+script.

@@ -60,6 +60,9 @@
         },
         "settings": {
           ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
+        },
+        "agent_chat": {
+          ".write": "auth != null && !root.child('deletedAccounts').child($uid).exists() && root.child('users').child($uid).child('sharedWith').child(auth.uid).exists()"
         }
       }
     }

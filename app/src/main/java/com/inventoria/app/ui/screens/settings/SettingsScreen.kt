@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
@@ -57,7 +58,9 @@ fun SettingsScreen(
     /** The "How To" row further down: the manual's index, as that row has always meant. */
     onNavigateToHelpIndex: () -> Unit,
     /** The About section's "Version History" row: every What's New entry, newest first. */
-    onNavigateToVersionHistory: () -> Unit
+    onNavigateToVersionHistory: () -> Unit,
+    /** The "Chat with Claude" row: the in-app chat answered by the agent listener on the PC. */
+    onNavigateToChat: () -> Unit
 ) {
     val context = LocalContext.current
     val focusArea by viewModel.focusArea.collectAsState()
@@ -235,6 +238,14 @@ fun SettingsScreen(
 
             // Sits directly above About, in the same "about the app" band at the bottom -- putting
             // it at the top would push actual settings below the fold.
+            SettingsCategoryHeader("Claude")
+            SettingsNavigationRow(
+                title = "Chat with Claude",
+                subtitle = "Ask about your vault; answered by Claude running on your PC",
+                icon = Icons.AutoMirrored.Filled.Chat,
+                onClick = onNavigateToChat
+            )
+
             SettingsCategoryHeader("Help")
             SettingsNavigationRow(
                 title = "How To",

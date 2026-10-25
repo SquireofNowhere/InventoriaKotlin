@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 123,
+                versionName = "2.42",
+                changes = listOf(
+                    "You can chat with Claude from the app. Tap the chat icon on the Today screen (or Settings > Claude), ask about your todos, items and time, or have things added and changed, and Claude answers from your PC. It needs the agent listener running there (tools/agent-listener) and one rule pasted into the Firebase console; the chat tells you if nothing is answering."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 122,
                 versionName = "2.41",
                 changes = listOf(
