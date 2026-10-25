@@ -113,6 +113,45 @@ internal val todoAlarmsArticles = listOf(
     ),
 
     HelpArticle(
+        id = "todos-start-automatically",
+        title = "Start a todo by itself",
+        summary = "Begin tracking at a set time, so the timer is already running when you sit down.",
+        whatItIs = "A todo can start its own tracked session: some time before it is due, and/or on a calendar " +
+            "schedule (every day, chosen weekdays, a day of the month, or one date). It can also stop again by " +
+            "itself after a set length. A schedule works without a deadline; \"before it's due\" needs one.",
+        blocks = listOf(
+            HelpBlock.Steps(
+                listOf(
+                    HelpStep(
+                        "In a todo's dialog, tap the \"Start automatically\" line under Reminders.",
+                        DiagramSpec(listOf(DiagramElement.Popup(
+                            title = "Edit Todo",
+                            fields = listOf(DiagramField("Start automatically", "15 min before it's due", FieldKind.Dropdown, highlight = true))
+                        )))
+                    ),
+                    HelpStep("Pick how long before it is due, and/or add a schedule with the time you want it to begin."),
+                    HelpStep("Under Then stop after, pick a length if the session should end on its own.")
+                )
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "When it starts you get a quiet notification saying so. If the todo is a sub-todo and its " +
+                    "parent is being tracked, it runs under the parent, the same as pressing Start would."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Caution,
+                "At most five sessions can run at once. If five already are, the start is skipped and a " +
+                    "notification says so, rather than quietly pushing one out."
+            )
+        ),
+        whyItMatters = "Pressing Start is the step that gets forgotten. Starting from the todo itself means the " +
+            "time is on the record even on the mornings you sit down and just begin -- and it is skipped, not " +
+            "doubled, if you got there first and already started it.",
+        related = listOf("todos-alarm", "tasks-time-plan", "schedule-add-block"),
+        keywords = listOf("auto start", "automatic", "begin tracking", "timer", "schedule")
+    ),
+
+    HelpArticle(
         id = "todos-alarm-style",
         title = "Alarm or Notification style",
         summary = "Settings → Alarm vs Notification decides how every todo alarm arrives.",

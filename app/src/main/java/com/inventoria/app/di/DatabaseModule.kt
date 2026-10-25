@@ -175,12 +175,27 @@ object DatabaseModule {
     }
 
     /**
+     * Time plans and auto-start (v22). A session's plan (Task.timePlan) and a todo's auto-start rules
+     * (Todo.autoStart) are text columns, NOT NULL with a '' default so every existing row reads as
+     * "no plan" and nothing starts or stops by itself the morning after the update. A block's two
+     * switches default to 0 for the same reason: every block stays the plain plan it was.
+     */
+    private val MIGRATION_21_22 = object : Migration(21, 22) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE Task ADD COLUMN timePlan TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE Todo ADD COLUMN autoStart TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE ScheduleBlock ADD COLUMN autoStart INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE ScheduleBlock ADD COLUMN autoStop INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    /**
      * Every migration, in one place so the builder below and InventoryDatabaseMigrationTest cannot
      * drift apart -- a migration added to only one of them is exactly the mistake the test exists
      * to catch. Declared after the migrations it references, since object properties initialize in
      * declaration order.
      */
-    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
+    val ALL_MIGRATIONS = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
 
     @Provides
     @Singleton

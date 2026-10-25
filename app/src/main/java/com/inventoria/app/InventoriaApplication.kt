@@ -6,6 +6,8 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.*
 import com.google.firebase.database.FirebaseDatabase
 import com.inventoria.app.data.TodoCycleRoller
+import com.inventoria.app.data.alarm.AutoStartScheduler
+import com.inventoria.app.data.alarm.TaskPlanScheduler
 import com.inventoria.app.data.alarm.TodoAlarmScheduler
 import com.inventoria.app.data.worker.SyncWorker
 import com.inventoria.app.widget.WidgetRefresher
@@ -22,6 +24,12 @@ class InventoriaApplication : Application(), Configuration.Provider {
 
     @Inject
     lateinit var todoAlarmScheduler: TodoAlarmScheduler
+
+    @Inject
+    lateinit var taskPlanScheduler: TaskPlanScheduler
+
+    @Inject
+    lateinit var autoStartScheduler: AutoStartScheduler
 
     @Inject
     lateinit var todoCycleRoller: TodoCycleRoller
@@ -60,6 +68,12 @@ class InventoriaApplication : Application(), Configuration.Provider {
         // Also the whole reboot story: BootReceiver only brings the process up, and this is what
         // then re-arms every alarm the restart threw away.
         todoAlarmScheduler.start()
+
+        // The same for tracked sessions: rings and automatic stops from a running session's time
+        // plan, and the alarms that start a todo or schedule block's session by itself. Also what
+        // re-arms them after a reboot, and what catches a stop that came due while the phone was off.
+        taskPlanScheduler.start()
+        autoStartScheduler.start()
 
         // Starts repeating todos over when their cycle ends, and counts the cycle as done or missed.
         todoCycleRoller.start()

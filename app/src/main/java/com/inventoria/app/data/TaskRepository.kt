@@ -60,6 +60,7 @@ class TaskRepository @Inject constructor(
                 old.isKindCustom != new.isKindCustom ||
                 old.isDeleted != new.isDeleted ||
                 old.countsForStreak != new.countsForStreak ||
+                old.timePlan != new.timePlan ||
                 old.score != new.score
     }
 
@@ -124,6 +125,25 @@ class TaskRepository @Inject constructor(
         var timestamp = getNextTimestamp(maxT)
         tasks.forEach { task ->
             taskDao.updateTask(task.copy(taskTypeId = newTaskTypeId, updatedAt = timestamp, isDirty = true))
+            timestamp += 1
+        }
+    }
+
+    /** Every segment of [groupId] that still exists, oldest first: the session as the table has it. */
+    suspend fun getSessionSegments(groupId: String): List<Task> =
+        taskDao.getTasksByGroupId(groupId).sortedBy { it.startTime }
+
+    /**
+     * Sets the time plan of a whole session -- planned length, rings, auto-stop (see TaskTimePlan).
+     * Written to every segment so whichever is latest, or is added by the next resume, agrees; like a
+     * retype it never touches the score. [plan] is TaskTimePlan.encode() text, blank for none.
+     */
+    suspend fun updateSessionTimePlan(groupId: String, plan: String) {
+        val tasks = taskDao.getTasksByGroupId(groupId)
+        val maxT = tasks.maxOfOrNull { it.updatedAt } ?: 0L
+        var timestamp = getNextTimestamp(maxT)
+        tasks.forEach { task ->
+            taskDao.updateTask(task.copy(timePlan = plan, updatedAt = timestamp, isDirty = true))
             timestamp += 1
         }
     }
@@ -348,10 +368,10 @@ class TaskRepository @Inject constructor(
      * interruption chain stacked on top (resuming "back to this" means none of those have
      * anything left to return to). No-op if the session is already running or is gone.
      *
-     * interruptedGroupId/countsForStreak/originTodoId/taskTypeId carry over from the session's
-     * most recent segment, or a resume would silently sever the parent-child link, streak opt-in,
-     * todo origin or type -- and since this always reads the MOST RECENT segment, one un-propagated
-     * resume would sever them for every resume after it too.
+     * interruptedGroupId/countsForStreak/originTodoId/taskTypeId/timePlan carry over from the
+     * session's most recent segment, or a resume would silently sever the parent-child link, streak
+     * opt-in, todo origin, type or time plan -- and since this always reads the MOST RECENT segment,
+     * one un-propagated resume would sever them for every resume after it too.
      */
     suspend fun resumeSession(groupId: String, now: Long): Task? {
         val segments = taskDao.getTasksByGroupId(groupId)
@@ -368,7 +388,8 @@ class TaskRepository @Inject constructor(
             startTime = now,
             interruptedGroupId = latest.interruptedGroupId,
             countsForStreak = latest.countsForStreak,
-            originTodoId = latest.originTodoId
+            originTodoId = latest.originTodoId,
+            timePlan = latest.timePlan
         )
         insertTask(newTask)
         return newTask

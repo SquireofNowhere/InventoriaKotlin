@@ -56,8 +56,11 @@ import androidx.compose.ui.window.PopupProperties
 import com.inventoria.app.data.CALENDAR_SAVE_RETENTION_MILLIS
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskTimePlan
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TaskTypeStats
+import com.inventoria.app.data.model.sessionElapsedMillis
+import com.inventoria.app.data.model.sessionTimePlan
 import com.inventoria.app.ui.components.InventoriaTopBar
 import com.inventoria.app.ui.main.Screen
 import com.inventoria.app.ui.theme.PurplePrimary
@@ -587,7 +590,14 @@ fun TaskTrackerScreen(
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
             previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
             onSplit = { splitTime, secondName, secondKind, secondTypeId -> viewModel.splitSegment(task, splitTime, secondName, secondKind, secondTypeId) },
-            nextTaskName = viewModel.nextTaskName
+            nextTaskName = viewModel.nextTaskName,
+            sessionSegments = remember(task, activeSessions, completedSessions) {
+                (activeSessions.flatMap { it.segments + listOfNotNull(it.activeSegment?.task) } + completedSessions.flatten())
+                    .filter { it.groupId == task.groupId }
+                    .distinctBy { it.id }
+                    .ifEmpty { listOf(task) }
+            },
+            onTimePlanChange = { viewModel.updateSessionTimePlan(task.groupId, it) }
         )
     }
 
@@ -1456,7 +1466,7 @@ private fun FlattenSegmentsDialog(segments: List<Task>, onDismiss: () -> Unit, o
 }
 
 @Composable
-fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, suggestionSourceTasks: List<Task>, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onTaskTypeChange: (String?) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind, String?) -> Unit, nextTaskName: String) {
+fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<String, TaskTypeStats>, suggestionSourceTasks: List<Task>, onDismiss: () -> Unit, onSaveName: (String) -> Unit, onKindChange: (TaskKind) -> Unit, onTaskTypeChange: (String?) -> Unit, onToggleCalendar: (Boolean) -> Unit, onUpdateTime: (Long, Long) -> Unit, onDelete: () -> Unit, previewScore: suspend (TaskKind, Long) -> Int, onSplit: (Long, String, TaskKind, String?) -> Unit, nextTaskName: String, sessionSegments: List<Task> = emptyList(), onTimePlanChange: ((TaskTimePlan) -> Unit)? = null) {
     val context = LocalContext.current; var name by remember(task.name) { mutableStateOf(task.name) }; var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }; val focusManager = LocalFocusManager.current; val keyboardController = LocalSoftwareKeyboardController.current; val isCalendarTask = task.id.startsWith("cal_")
     var showSplitDialog by remember { mutableStateOf(false) }
     
@@ -1538,8 +1548,19 @@ fun TaskDetailDialog(task: Task, taskTypes: List<TaskType>, taskTypeStats: Map<S
                         enabled = !isCalendarTask
                     )
                 }
+                // Whole-session, like the Type picker's reach in the session dialog: how long this is
+                // meant to go for and what rings or stops it on the way. One quiet line until used.
+                if (!isCalendarTask && onTimePlanChange != null) {
+                    val planSegments = sessionSegments.ifEmpty { listOf(task) }
+                    TimePlanRow(
+                        plan = planSegments.sessionTimePlan(),
+                        elapsedMs = sessionElapsedMillis(planSegments, currentTime),
+                        running = planSegments.any { it.isRunning },
+                        onPlanChange = onTimePlanChange
+                    )
+                }
                 HorizontalDivider()
-                
+
                 Text("Edit Duration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DurationPartField("Days", days, { days = it }, Modifier.weight(1f), !isCalendarTask && !task.isRunning)

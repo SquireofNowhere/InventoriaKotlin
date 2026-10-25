@@ -14,6 +14,7 @@ import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskCategory
 import com.inventoria.app.data.model.TaskKind
+import com.inventoria.app.data.model.TaskTimePlan
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.TaskTypeStats
 import com.inventoria.app.data.model.computeTaskTypeStats
@@ -689,6 +690,12 @@ class TaskTrackerViewModel @Inject constructor(
             if (typeId != null) repository.updateSessionTaskType(groupId, typeId)
             _isLoading.value = false
         }
+    }
+
+    /** Sets how long a session is meant to go for and what rings or stops it (see TaskTimePlan);
+     * TaskPlanScheduler re-arms from the table change, so nothing else has to be told. */
+    fun updateSessionTimePlan(groupId: String, plan: TaskTimePlan) {
+        viewModelScope.launch { repository.updateSessionTimePlan(groupId, plan.encode()) }
     }
 
     fun updateSessionTaskType(groupId: String, newTaskTypeId: String?) {

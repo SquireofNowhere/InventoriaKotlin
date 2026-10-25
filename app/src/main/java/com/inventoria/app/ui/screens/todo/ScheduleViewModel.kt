@@ -236,7 +236,9 @@ class ScheduleViewModel @Inject constructor(
         startMinuteOfDay: Int,
         endMinuteOfDay: Int,
         repeat: BlockRepeat,
-        notes: String
+        notes: String,
+        autoStart: Boolean = false,
+        autoStop: Boolean = false
     ) {
         val pending = _pendingBlock.value ?: return
         val trimmed = title.trim()
@@ -251,6 +253,9 @@ class ScheduleViewModel @Inject constructor(
             endMinuteOfDay = endMinuteOfDay,
             repeatDaily = repeat == BlockRepeat.DAILY,
             repeatWeekly = repeat == BlockRepeat.WEEKLY,
+            // Stopping is only meaningful for a block that starts something.
+            autoStart = autoStart,
+            autoStop = autoStart && autoStop,
             notes = notes.trim()
         )
         viewModelScope.launch {

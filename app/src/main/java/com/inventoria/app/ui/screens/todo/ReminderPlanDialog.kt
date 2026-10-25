@@ -385,10 +385,14 @@ private fun ReminderPlanDialog(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ScheduleEditorDialog(
+internal fun ScheduleEditorDialog(
     initial: ReminderSchedule?,
     onDismiss: () -> Unit,
-    onConfirm: (ReminderSchedule) -> Unit
+    onConfirm: (ReminderSchedule) -> Unit,
+    /** False hides "Ring again and again" -- right for a schedule that starts something, where a
+     * second start the same day means nothing. */
+    allowBurst: Boolean = true,
+    title: String = if (initial == null) "Add a schedule" else "Edit schedule"
 ) {
     val context = LocalContext.current
     val tomorrow = remember { Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) } }
@@ -406,7 +410,7 @@ private fun ScheduleEditorDialog(
                 )
         )
     }
-    val wasRepeating = (initial?.burstEveryMinutes ?: 0) > 0
+    val wasRepeating = allowBurst && (initial?.burstEveryMinutes ?: 0) > 0
     var burstOn by remember { mutableStateOf(wasRepeating) }
     var everyText by remember { mutableStateOf((initial?.burstEveryMinutes?.takeIf { it > 0 } ?: 30).toString()) }
     var untilMinute by remember {
@@ -436,7 +440,7 @@ private fun ScheduleEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "Add a schedule" else "Edit schedule") },
+        title = { Text(title) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -503,7 +507,7 @@ private fun ScheduleEditorDialog(
                     Text("At ${formatMinuteOfDay(minute)}")
                 }
 
-                Row(
+                if (allowBurst) Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -514,7 +518,7 @@ private fun ScheduleEditorDialog(
                     }
                     Switch(checked = burstOn, onCheckedChange = { burstOn = it })
                 }
-                if (burstOn) {
+                if (allowBurst && burstOn) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Every")
                         OutlinedTextField(

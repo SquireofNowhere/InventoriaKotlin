@@ -43,6 +43,13 @@ data class Task(
     // streak, rounded. Not recomputed afterward so historical totals don't drift if the rate
     // formula is later tuned.
     @get:PropertyName("score") @set:PropertyName("score") var score: Int = 0,
+    // How long this session is meant to go for and what happens on the way -- a planned length,
+    // "ring when it has gone for 25 minutes", "ring every 30", stop by itself -- as
+    // TaskTimePlan.encode() text. A session's segments all carry the same value (it is written to
+    // the whole session and copied forward when a pause is resumed), and the latest segment's is
+    // the one read. Blank means no plan; Firebase reads an absent field as that, so every task from
+    // before this existed simply has none.
+    @get:PropertyName("timePlan") @set:PropertyName("timePlan") var timePlan: String = "",
     @get:Exclude @set:Exclude var isDirty: Boolean = false
 )
 

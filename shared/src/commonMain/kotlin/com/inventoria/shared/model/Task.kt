@@ -25,7 +25,10 @@ data class Task(
     val interruptedGroupId: String? = null,
     val countsForStreak: Boolean = false,
     val originTodoId: String? = null,
-    val score: Int = 0
+    val score: Int = 0,
+    // TaskTimePlan.encode() text: planned length, rings, automatic stop. Not interpreted here --
+    // carried so a round-trip through the MCP server or web never drops it.
+    val timePlan: String = ""
 ) {
     /** Time spent so far: live from [startTime] while running, the stored [duration] once stopped
      * -- the same rule the Android task screen displays with. */

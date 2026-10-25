@@ -90,6 +90,15 @@
             android:name=".data.alarm.TodoAlarmReceiver"
             android:exported="false" />
 
+        <!-- A running session's time plan going off (a ring, or an automatic stop), and a todo or
+             schedule block starting a session by itself. Both armed by their schedulers. -->
+        <receiver
+            android:name=".data.alarm.TaskPlanReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".data.alarm.AutoStartReceiver"
+            android:exported="false" />
+
         <!-- Exported because the system sends these; the receiver itself does nothing but exist
              so the process starts and TodoAlarmScheduler re-arms alarms from the table. -->
         <receiver

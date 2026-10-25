@@ -4,8 +4,9 @@ import kotlinx.datetime.TimeZone
 import kotlinx.serialization.Serializable
 
 /**
- * users/$uid/schedule_blocks: a stretch of a day designated for something. Cosmetic -- it scores
- * nothing. [dayStart] is a start-of-day timestamp and the minutes are since midnight.
+ * users/$uid/schedule_blocks: a stretch of a day designated for something. It scores nothing, and
+ * starts nothing unless [autoStart] says so. [dayStart] is a start-of-day timestamp and the minutes
+ * are since midnight.
  */
 @Serializable
 data class ScheduleBlock(
@@ -21,6 +22,10 @@ data class ScheduleBlock(
     // Last day (start-of-day, inclusive) the block shows on; null is no end. Removing a repeating
     // block going forward sets this rather than deleting it, so past days keep it.
     val endDay: Long? = null,
+    // Start a tracked session by itself when the block begins, and optionally end it with the
+    // block. Interpreted by the Android app only; carried here so nothing is dropped.
+    val autoStart: Boolean = false,
+    val autoStop: Boolean = false,
     val notes: String = "",
     val isDeleted: Boolean = false,
     val updatedAt: Long = 0L

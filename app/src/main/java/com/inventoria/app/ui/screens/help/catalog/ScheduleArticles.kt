@@ -68,6 +68,13 @@ internal val scheduleArticles = listOf(
                     ),
                     HelpStep("Save. The block appears as a flat wash of its Kind's colour across the full width of that span.")
                 )
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Tip,
+                "A block can also start tracking by itself. Switch on \"Start tracking by itself\" in its " +
+                    "dialog and a session named after the block begins when it does; add \"Stop when it ends\" " +
+                    "and the session ends with the block. It is skipped if a session of that name is already " +
+                    "running, or if five are already going."
             )
         ),
         whyItMatters = "Blocks and tasks are lined up on the same day deliberately so the screen can draw " +

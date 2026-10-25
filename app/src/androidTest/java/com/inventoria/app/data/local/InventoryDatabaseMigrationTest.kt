@@ -113,6 +113,8 @@ class InventoryDatabaseMigrationTest {
                 // Added by MIGRATION_19_20 as NOT NULL DEFAULT '': a pre-existing todo has no stored
                 // plan, so its old single offset (null here) stays the whole story.
                 assertEquals("", todo?.reminderPlan)
+                // Added by MIGRATION_21_22 the same way: a pre-existing todo never starts itself.
+                assertEquals("", todo?.autoStart)
 
                 // The table MIGRATION_15_16 creates has to be usable through its DAO, not merely
                 // present -- a column with the wrong affinity passes CREATE TABLE and fails here.
@@ -139,6 +141,13 @@ class InventoryDatabaseMigrationTest {
                 assertNull(block?.endDay)
                 db.scheduleBlockDao().updateBlock(block!!.copy(endDay = 4000))
                 assertEquals(4000L, db.scheduleBlockDao().getBlockById("block-1")?.endDay)
+                // Added by MIGRATION_21_22 as NOT NULL DEFAULT 0: a block stays a plain plan until
+                // someone switches it on, and both switches must round-trip.
+                assertEquals(false, block.autoStart)
+                assertEquals(false, block.autoStop)
+                db.scheduleBlockDao().updateBlock(block.copy(autoStart = true, autoStop = true))
+                assertEquals(true, db.scheduleBlockDao().getBlockById("block-1")?.autoStart)
+                assertEquals(true, db.scheduleBlockDao().getBlockById("block-1")?.autoStop)
             }
         } finally {
             db.close()

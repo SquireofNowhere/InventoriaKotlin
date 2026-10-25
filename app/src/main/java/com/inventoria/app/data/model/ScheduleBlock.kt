@@ -11,11 +11,12 @@ import java.util.Calendar
  * Deep work". The Schedule segment draws these next to tracked [Task] segments, which are what the
  * time was actually *used* for, so plan and reality sit side by side.
  *
- * Deliberately cosmetic: a block scores nothing, starts no session by itself and is linked to no
- * task or todo. It says what an hour was meant to be for, and that is all. The one thing it does
- * carry forward is [taskTypeId]: when Today's Now card starts a session from a block, the task
- * lands typed the way the block says, so planned hours count under the same activity as tracked
- * ones instead of guessing from the name.
+ * Deliberately cosmetic by default: a block scores nothing, starts no session on its own and is
+ * linked to no task or todo. It says what an hour was meant to be for, and that is all -- unless
+ * [autoStart] is switched on, which makes the block begin tracking when it starts (and, with
+ * [autoStop], end it when the block ends). The one thing it always carries forward is [taskTypeId]:
+ * when a session is started from a block, the task lands typed the way the block says, so planned
+ * hours count under the same activity as tracked ones instead of guessing from the name.
  *
  * [dayStart] is a start-of-day timestamp in the device's zone, the same convention as
  * Todo.deadline, and the times are minutes since midnight, the same as Todo.deadlineMinuteOfDay.
@@ -50,6 +51,11 @@ data class ScheduleBlock(
      * repeating block from today on sets this to the day before instead of deleting the row, so the
      * days already gone by keep showing what the schedule used to be. See [historyEnd]. */
     @get:PropertyName("endDay") @set:PropertyName("endDay") var endDay: Long? = null,
+    /** Start tracking a session by itself when this block begins, named, kinded and typed like the
+     * block. Off by default: a block stays a plan unless asked to do more. */
+    @get:PropertyName("autoStart") @set:PropertyName("autoStart") var autoStart: Boolean = false,
+    /** Stop that session by itself when the block ends. Only meaningful with [autoStart]. */
+    @get:PropertyName("autoStop") @set:PropertyName("autoStop") var autoStop: Boolean = false,
     @get:PropertyName("notes") @set:PropertyName("notes") var notes: String = "",
     @get:PropertyName("isDeleted") @set:PropertyName("isDeleted") var isDeleted: Boolean = false,
     @get:PropertyName("updatedAt") @set:PropertyName("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
@@ -92,4 +98,33 @@ data class ScheduleBlock(
      * rewrite the past. */
     fun hasHistory(todayStart: Long, nowMinute: Int): Boolean =
         dayStart < todayStart || (dayStart == todayStart && startMinuteOfDay <= nowMinute)
+
+    /**
+     * The first moment after [now] this block begins, when it is set to start tracking by itself --
+     * null when it is not, is deleted, or has no occurrence left. Occurrences are found on the
+     * calendar day by day: a weekly block is at most a week away, so a week is as far as it looks.
+     * Not a bean getter, so Firebase's mapper never mistakes it for a field.
+     */
+    fun nextStartAfter(now: Long): Long? {
+        if (isDeleted || !autoStart) return null
+        val day = Calendar.getInstance().apply {
+            timeInMillis = maxOf(now, dayStart)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        repeat(if (repeatDaily || repeatWeekly) 8 else 1) {
+            if (occursOn(day.timeInMillis)) {
+                val start = Calendar.getInstance().apply {
+                    timeInMillis = day.timeInMillis
+                    set(Calendar.HOUR_OF_DAY, startMinuteOfDay / 60)
+                    set(Calendar.MINUTE, startMinuteOfDay % 60)
+                }.timeInMillis
+                if (start > now) return start
+            }
+            day.add(Calendar.DAY_OF_YEAR, 1)
+        }
+        return null
+    }
 }

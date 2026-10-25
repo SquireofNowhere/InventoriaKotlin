@@ -20,6 +20,14 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 124,
+                versionName = "2.43",
+                changes = listOf(
+                    "Tasks can be given a length and told what to do about it. Open a task's details and tap \"Time and alarms\": set how long it is supposed to go for, ring when it has gone for 25 or 45 minutes (or every half hour), and have it stop by itself when the planned length is up or at a time of day. The task details also show how far along you are.",
+                    "Todos and schedule blocks can start tracking by themselves. In a todo, tap \"Start automatically\" to begin some time before it is due or on a schedule, and optionally stop again after a set length. In a schedule block, switch on \"Start tracking by itself\" (and \"Stop when it ends\"). You get a quiet notification when one starts."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 123,
                 versionName = "2.42",
                 changes = listOf(

@@ -268,7 +268,49 @@ internal val taskReviewArticles = listOf(
         ),
         whyItMatters = "The timer is the system's, not Inventoria's, so it keeps running and rings normally even " +
             "if this app is closed — but it also knows nothing about your session and will not pause when you do.",
-        related = listOf("tasks-start", "todos-alarm"),
+        related = listOf("tasks-start", "todos-alarm", "tasks-time-plan"),
         keywords = listOf("timer", "alarm", "countdown", "pomodoro", "clock")
+    ),
+
+    HelpArticle(
+        id = "tasks-time-plan",
+        title = "How long a task should go for",
+        summary = "A planned length, rings along the way, and stopping by itself -- from Task Details.",
+        whatItIs = "Open a task's details and tap the \"Time and alarms\" line. There you can say how long the " +
+            "task is supposed to go for, be told when it has gone for a while, and have it stop on its own. " +
+            "It applies to the whole session, so it carries on across pauses and resumes.",
+        blocks = listOf(
+            HelpBlock.Definitions(
+                listOf(
+                    HelpTerm("Planned length", "How long this is meant to go for. Task Details shows how far along you are, and it rings when the length is reached."),
+                    HelpTerm("Ring when it has gone for", "One ring each time the task has been running that long -- 25 and 45 minutes in, say."),
+                    HelpTerm("Keep ringing", "A ring every so often while it runs, at least every 5 minutes."),
+                    HelpTerm("Stop by itself", "End the task when the planned length is up, or at a time of day.")
+                )
+            ),
+            HelpBlock.Steps(
+                listOf(
+                    HelpStep("Tap a task to open Task Details, then the \"Time and alarms\" line."),
+                    HelpStep("Pick a planned length, tick the marks you want to be told about, and switch on Keep ringing or Stop by itself."),
+                    HelpStep("Save. While the task runs, the notification says how long it has gone and has a Stop button.")
+                )
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "Only time actually running counts. Pause a task for an hour and its 25-minute mark is still " +
+                    "25 minutes of running away, not 25 minutes after it started."
+            ),
+            HelpBlock.Callout(
+                CalloutKind.Note,
+                "A task that stops by itself ends at the moment it was meant to, not when the phone got round " +
+                    "to noticing, so its length is the one you planned. A stop that came due while the phone was " +
+                    "off is applied the next time the app starts."
+            )
+        ),
+        whyItMatters = "Tracking only tells you how long something took after the fact. A planned length and a " +
+            "few rings turn it into something you can steer while it is happening -- a focus block that ends " +
+            "when you said it would, instead of an hour you only notice has gone.",
+        related = listOf("tasks-timers", "todos-start-automatically", "todos-alarm-style"),
+        keywords = listOf("planned length", "goal", "pomodoro", "auto stop", "stop automatically", "ring", "how long")
     )
 )

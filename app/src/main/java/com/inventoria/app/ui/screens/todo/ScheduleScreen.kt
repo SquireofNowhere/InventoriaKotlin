@@ -274,8 +274,8 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
             taskTypes = taskTypes,
             onDismiss = { viewModel.dismissDialog() },
             onDelete = { viewModel.requestDelete(block) },
-            onSave = { title, kind, taskTypeId, dayStart, start, end, repeat, notes ->
-                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeat, notes)
+            onSave = { title, kind, taskTypeId, dayStart, start, end, repeat, notes, autoStart, autoStop ->
+                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeat, notes, autoStart, autoStop)
             }
         )
     }
@@ -953,9 +953,11 @@ private fun ScheduleBlockDialog(
     taskTypes: List<TaskType>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onSave: (String, TaskKind, String?, Long, Int, Int, BlockRepeat, String) -> Unit
+    onSave: (String, TaskKind, String?, Long, Int, Int, BlockRepeat, String, Boolean, Boolean) -> Unit
 ) {
     var title by remember { mutableStateOf(block.title) }
+    var autoStart by remember { mutableStateOf(block.autoStart) }
+    var autoStop by remember { mutableStateOf(block.autoStop) }
     var kind by remember { mutableStateOf(block.kind) }
     var taskTypeId by remember { mutableStateOf(block.taskTypeId) }
     var dayStart by remember { mutableStateOf(block.dayStart) }
@@ -1066,6 +1068,42 @@ private fun ScheduleBlockDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                // A block is a plan unless you ask more of it: with this on, the timer starts itself
+                // when the block begins (and can end itself when the block does). Two quiet switches.
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Start tracking by itself")
+                            Text(
+                                "Begins a session when the block starts",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = autoStart, onCheckedChange = { autoStart = it })
+                    }
+                    if (autoStart) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Stop when it ends")
+                                Text(
+                                    "Ends the session at ${formatMinuteOfDay(endMinute)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(checked = autoStop, onCheckedChange = { autoStop = it })
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
@@ -1078,7 +1116,7 @@ private fun ScheduleBlockDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeat, notes) },
+                onClick = { onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeat, notes, autoStart, autoStop) },
                 enabled = title.isNotBlank() && spanValid
             ) {
                 Text("Save")

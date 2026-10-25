@@ -57,6 +57,10 @@ data class Todo(
     // this field existed (or a Firebase node without it, where the setter is never called) keeps
     // exactly the alarm it had.
     @get:PropertyName("reminderPlan") @set:PropertyName("reminderPlan") var reminderPlan: String = "",
+    // When this todo starts tracking itself, as AutoStartPlan.encode() text: some time before it is
+    // due, and/or on a calendar schedule, optionally stopping again after a set length. Blank means
+    // it only starts when you press Start; an absent Firebase field reads as that.
+    @get:PropertyName("autoStart") @set:PropertyName("autoStart") var autoStart: String = "",
     // Null means unprioritized -- always counts as procrastination if that penalty is enabled,
     // regardless of the configured cutoff tier.
     @get:PropertyName("priority") @set:PropertyName("priority") var priority: TodoPriority? = null,

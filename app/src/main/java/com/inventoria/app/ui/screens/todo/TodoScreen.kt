@@ -36,12 +36,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.AutoStartPlan
 import com.inventoria.app.data.model.ReminderPlan
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoRepeat
+import com.inventoria.app.data.model.autoStartPlan
 import com.inventoria.app.data.model.reminders
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
 import com.inventoria.app.ui.screens.task.TaskTypeDropdownMenu
@@ -340,6 +342,7 @@ fun TodoScreen(
             // New todos ring at their due moment unless told otherwise -- the whole reason alarms
             // exist is the deadline nobody looked at. Only takes effect once a deadline is set.
             initialReminders = ReminderPlan.AT_DUE,
+            initialAutoStart = AutoStartPlan.NONE,
             initialRepeat = TodoRepeat.NONE,
             repeatCompletedCount = 0,
             repeatMissedCount = 0,
@@ -348,8 +351,8 @@ fun TodoScreen(
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority ->
-                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart ->
+                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart)
             }
         )
     }
@@ -365,6 +368,7 @@ fun TodoScreen(
             initialDeadline = todo.deadline,
             initialDeadlineMinuteOfDay = todo.deadlineMinuteOfDay,
             initialReminders = todo.reminders(),
+            initialAutoStart = todo.autoStartPlan(),
             initialRepeat = todo.repeatInterval,
             repeatCompletedCount = todo.repeatCompletedCount,
             repeatMissedCount = todo.repeatMissedCount,
@@ -373,8 +377,8 @@ fun TodoScreen(
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority ->
-                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart ->
+                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart)
             }
         )
     }
@@ -390,6 +394,7 @@ private fun TodoEditDialog(
     initialDeadline: Long?,
     initialDeadlineMinuteOfDay: Int?,
     initialReminders: ReminderPlan,
+    initialAutoStart: AutoStartPlan,
     initialRepeat: TodoRepeat,
     repeatCompletedCount: Int,
     repeatMissedCount: Int,
@@ -398,7 +403,7 @@ private fun TodoEditDialog(
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, String, TaskKind, String?, Long?, Int?, ReminderPlan, TodoRepeat, String?, TodoPriority?) -> Unit
+    onSave: (String, String, TaskKind, String?, Long?, Int?, ReminderPlan, TodoRepeat, String?, TodoPriority?, AutoStartPlan) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var description by remember { mutableStateOf(initialDescription) }
@@ -407,6 +412,7 @@ private fun TodoEditDialog(
     var deadline by remember { mutableStateOf(initialDeadline) }
     var deadlineMinuteOfDay by remember { mutableStateOf(initialDeadlineMinuteOfDay) }
     var reminders by remember { mutableStateOf(initialReminders) }
+    var autoStart by remember { mutableStateOf(initialAutoStart) }
     var repeat by remember { mutableStateOf(initialRepeat) }
     var parentId by remember { mutableStateOf(initialParentId) }
     var priority by remember { mutableStateOf(initialPriority) }
@@ -506,6 +512,13 @@ private fun TodoEditDialog(
                     plan = reminders,
                     onPlanChange = { reminders = it }
                 )
+                // Starting the timer by itself: before it is due and/or on a schedule, optionally
+                // stopping again after a set length. Another single quiet line, same as Reminders.
+                AutoStartRow(
+                    hasDeadline = deadline != null,
+                    plan = autoStart,
+                    onPlanChange = { autoStart = it }
+                )
                 RepeatPicker(
                     enabled = deadline != null,
                     repeat = repeat,
@@ -529,7 +542,7 @@ private fun TodoEditDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminders, repeat, parentId, priority) },
+                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminders, repeat, parentId, priority, autoStart) },
                 enabled = title.isNotBlank()
             ) {
                 Text("Save")

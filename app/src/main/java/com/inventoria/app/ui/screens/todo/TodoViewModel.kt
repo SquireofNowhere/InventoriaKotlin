@@ -19,6 +19,8 @@ import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
 import com.inventoria.app.data.model.nextDeadline
+import com.inventoria.app.data.model.AutoStartPlan
+import com.inventoria.app.data.model.withAutoStart
 import com.inventoria.app.data.model.withReminders
 import com.inventoria.app.util.getStartOfDay
 import com.inventoria.app.data.repository.FirebaseSyncRepository
@@ -234,7 +236,8 @@ class TodoViewModel @Inject constructor(
         reminders: ReminderPlan,
         repeatInterval: TodoRepeat,
         parentTodoId: String?,
-        priority: TodoPriority?
+        priority: TodoPriority?,
+        autoStart: AutoStartPlan = AutoStartPlan.NONE
     ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
@@ -255,8 +258,9 @@ class TodoViewModel @Inject constructor(
                     parentTodoId = parentTodoId,
                     priority = priority
                     // withReminders also drops the deadline-based reminders when there is no
-                    // deadline to count from; calendar schedules need none and are kept.
-                ).withReminders(reminders)
+                    // deadline to count from; calendar schedules need none and are kept. The
+                    // auto-start plan follows the same rule.
+                ).withReminders(reminders).withAutoStart(autoStart)
             )
         }
         _isAddingNew.value = false
@@ -284,7 +288,8 @@ class TodoViewModel @Inject constructor(
         reminders: ReminderPlan,
         repeatInterval: TodoRepeat,
         parentTodoId: String?,
-        priority: TodoPriority?
+        priority: TodoPriority?,
+        autoStart: AutoStartPlan = AutoStartPlan.NONE
     ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
@@ -313,7 +318,7 @@ class TodoViewModel @Inject constructor(
                     repeatInterval = repeat,
                     parentTodoId = parentTodoId,
                     priority = priority
-                ).withReminders(reminders)
+                ).withReminders(reminders).withAutoStart(autoStart)
             )
         }
         _pendingEditTodo.value = null
