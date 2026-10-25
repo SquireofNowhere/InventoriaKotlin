@@ -386,7 +386,13 @@ fun TaskHistoryScreen(
             onDelete = { viewModel.deleteSegment(task); selectedTaskId = null },
             previewScore = { kind, durationMs -> viewModel.previewScore(kind, durationMs) },
             onSplit = { splitTime, secondName, secondKind, secondTypeId -> viewModel.splitSegment(task, splitTime, secondName, secondKind, secondTypeId) },
-            nextTaskName = viewModel.nextTaskName
+            nextTaskName = viewModel.nextTaskName,
+            // The same line as on the tracker: history is where "supposed to go for" gets marked
+            // after the fact, so a finished session shows how its length compared with the plan.
+            sessionSegments = remember(task, completedSessions) {
+                completedSessions.flatten().filter { it.groupId == task.groupId }.ifEmpty { listOf(task) }
+            },
+            onTimePlanChange = { viewModel.updateSessionTimePlan(task.groupId, it) }
         )
     }
 }
