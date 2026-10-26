@@ -42,6 +42,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -59,6 +60,8 @@ MODELS_KEY = "_models"
 # How often the list is read again (it changes when Claude is updated, not often).
 CATALOG_REFRESH_SECONDS = 6 * 60 * 60
 CATALOG_RETRY_SECONDS = 5 * 60
+# How often waiting messages are looked for again, in case an update missed one.
+RESCAN_SECONDS = 20
 # How much of an earlier conversation is replayed to a session that could not be resumed.
 CHAT_CONTEXT_MESSAGES = 20
 # A chat's session closes after this long with no message in it, and a message restarts it.
@@ -208,11 +211,16 @@ def stream_once(vault, node, on_snapshot, on_change, stop):
                 if event in ("put", "patch"):
                     message = json.loads(payload)
                     apply_event(mirror, message["path"], message["data"], merge=event == "patch")
-                    if first:
-                        first = False
-                        on_snapshot(mirror)
-                    else:
-                        on_change(mirror)
+                    try:
+                        if first:
+                            first = False
+                            on_snapshot(mirror)
+                        else:
+                            on_change(mirror)
+                    except Exception:
+                        # Whatever the handler tripped on, the stream must carry on: a dead stream
+                        # silently stops every later message from being answered.
+                        log(f"Handling an update on {node} failed:\n{traceback.format_exc()}")
                 elif event in ("cancel", "auth_revoked"):
                     log(f"Stream on {node} ended: {event}")
                     return
@@ -725,6 +733,13 @@ class ChatWorker(threading.Thread):
 
     # -- the thread --
     def run(self):
+        try:
+            self._loop()
+        except BaseException:
+            log(f"Chat {self.chat_id}: its worker stopped unexpectedly:\n{traceback.format_exc()}")
+            raise
+
+    def _loop(self):
         manager = self.manager
         while not manager.stop.is_set():
             try:
@@ -764,6 +779,8 @@ class ChatWorker(threading.Thread):
         manager = self.manager
         message = manager.message(self.chat_id, message_id)
         if not is_chat_trigger(message):
+            log(f"Chat {self.chat_id}: skipping {message_id}, it is no longer waiting "
+                f"(status {(message or {}).get('status')!r})")
             manager.done(self.chat_id, message_id)
             return
         with self.lock:
@@ -1093,13 +1110,33 @@ class ChatManager:
             key = (chat_id, message_id)
             if key in self.pending:
                 return
-            self.pending.add(key)
             worker = self.workers.get(chat_id)
+            if worker is not None and not worker.is_alive():
+                # Its thread ended without retiring (it crashed). Anything it had queued or was
+                # answering will never be finished, so forget that and let a new worker take over; the
+                # still-pending messages are picked up again from the mirror.
+                log(f"Chat {chat_id}: replacing a worker that is no longer running")
+                self.pending = {pending for pending in self.pending if pending[0] != chat_id}
+                orphan = worker.session
+                worker.session = None
+                if orphan is not None:
+                    threading.Thread(target=orphan.close, daemon=True).start()
+                worker = None
+            self.pending.add(key)
             if worker is None:
                 worker = ChatWorker(self, chat_id)
                 self.workers[chat_id] = worker
                 worker.start()
+            log(f"Chat {chat_id}: queued message {message_id}")
             worker.queue.put(message_id)
+
+    def rescan(self):
+        """Queues any waiting message that is not already queued. Updates do this as they arrive; this
+        is the safety net for the one that, for whatever reason, did not."""
+        before = len(self.pending)
+        self._consider()
+        if len(self.pending) > before:
+            log(f"Rescan queued {len(self.pending) - before} message(s) the updates had not")
 
     def done(self, chat_id, message_id):
         with self.lock:
@@ -1394,6 +1431,13 @@ def main():
             target=stream_forever, args=(vault, node, snapshot, change, stop), daemon=True
         ).start()
 
+    def rescan_chats():
+        while not stop.wait(RESCAN_SECONDS):
+            try:
+                manager.rescan()
+            except Exception:
+                log(f"Rescan failed:\n{traceback.format_exc()}")
+
     def publish_catalog():
         """Reads which models and effort levels Claude offers, and keeps the app's pickers in step."""
         while not stop.is_set():
@@ -1433,6 +1477,7 @@ def main():
     if not args.dry_run:
         threading.Thread(target=heartbeat, daemon=True).start()
         threading.Thread(target=publish_catalog, daemon=True).start()
+        threading.Thread(target=rescan_chats, daemon=True).start()
 
     try:
         while True:

@@ -234,6 +234,36 @@ class SessionTests(SessionCase):
         self.assertIn("turn 1", first["text"])
         self.assertIn("turn 2", second["text"])
 
+    def test_a_crashed_worker_is_replaced_and_nothing_it_held_is_lost(self):
+        manager = self.manager()
+        self.vault.post("chatA", "m1", "first")
+        self.answered("chatA", "m1")
+        original = listener.ChatWorker._handle
+
+        def die(self, message_id):
+            raise SystemExit  # ends the worker's thread quietly, as an unexpected failure could
+
+        listener.ChatWorker._handle = die
+        try:
+            self.vault.post("chatA", "m2", "second")
+            self.vault.wait_for(lambda: not manager.workers["chatA"].is_alive())
+        finally:
+            listener.ChatWorker._handle = original
+        self.vault.post("chatA", "m3", "third")  # submitting to the dead worker replaces it
+        third = self.answered("chatA", "m3")
+        second = self.answered("chatA", "m2")    # and the message the dead worker never answered
+        self.assertEqual("done", self.vault.message("chatA", "m2")["status"])
+        self.assertIn("turn", second["text"])
+        self.assertIn("turn", third["text"])
+
+    def test_a_rescan_queues_a_waiting_message_the_updates_missed(self):
+        manager = self.manager()
+        waiting = {"role": "user", "text": "hello", "createdAt": 1, "status": "pending"}
+        self.vault.db = {"agent_chat": {"messages": {"chatA": {"m1": dict(waiting)}}}}
+        manager.messages = {"chatA": {"m1": dict(waiting)}}  # in the mirror, but never queued
+        manager.rescan()
+        self.assertEqual("done", self.answered("chatA", "m1") and self.vault.message("chatA", "m1")["status"])
+
     def test_a_stopped_listener_closes_every_session(self):
         manager = self.manager()
         self.vault.post("chatA", "m1", "hello")
