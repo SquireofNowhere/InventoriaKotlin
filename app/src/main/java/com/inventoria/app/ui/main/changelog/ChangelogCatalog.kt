@@ -20,6 +20,13 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 125,
+                versionName = "2.44",
+                changes = listOf(
+                    "The Claude chat now tells you what is happening instead of leaving you guessing. Your message shows Sending, then Sent, then Claude is on it; while Claude works you see what it is doing (thinking, looking up your todos, updating a todo, writing the reply) and how long it has been. A line under the title says whether Claude's PC is online, and if it isn't, or your phone is offline, or Claude stops partway, the chat says so and what to check rather than spinning forever. For the live detail, restart the agent listener on your PC."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 124,
                 versionName = "2.43",
                 changes = listOf(

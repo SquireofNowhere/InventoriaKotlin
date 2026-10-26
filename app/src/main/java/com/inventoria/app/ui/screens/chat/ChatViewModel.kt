@@ -5,12 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.ChatMessage
 import com.inventoria.app.data.ChatRepository
+import com.inventoria.app.data.Connection
+import com.inventoria.app.data.ListenerPresence
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -34,6 +37,32 @@ class ChatViewModel @Inject constructor(
             emit(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The listener's heartbeat; null until the first reading, so "checking" is not mistaken for "gone". */
+    val presence: StateFlow<ListenerPresence?> = repository.listenerPresence()
+        .map<ListenerPresence, ListenerPresence?> { it }
+        .catch { e ->
+            Log.w(TAG, "Presence stream failed", e)
+            emit(ListenerPresence.NEVER)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val connection: StateFlow<Connection> = repository.connection()
+        .catch { e ->
+            Log.w(TAG, "Connection stream failed", e)
+            emit(Connection.UNKNOWN)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Connection.UNKNOWN)
+
+    init {
+        // A refused write rolls the message back out of the list, so say why and give the text back.
+        viewModelScope.launch {
+            repository.sendFailures.collect { failure ->
+                _error.value = "That message wasn't sent: ${failure.reason}"
+                if (_input.value.isEmpty()) _input.value = failure.text
+            }
+        }
+    }
 
     fun onInputChange(text: String) {
         _input.value = text

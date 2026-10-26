@@ -42,8 +42,31 @@ Each message is `{role, text, createdAt, status}` under a push-id key. The app w
 with `status: "pending"`. The listener sets it to `working`, runs Claude on the last 20 messages,
 writes the reply as a message keyed `<question key>~r` (which sorts straight after its question),
 and sets the question to `done` (or `error`). If the listener dies mid-run, the next start marks the
-stuck message `error` so the app stops waiting. The app shows a hint if a message sits at `pending`
-for a minute: the listener is probably not running.
+stuck message `error` so the app stops waiting.
+
+### What the chat shows while it waits
+
+The app tells the user where their message is, so a long wait never looks like a broken app:
+
+- **Sending / Sent**: the app knows the moment the server confirms its write. With no connection it says
+  so and that the message will go out later; if the server refuses it (a missing rule) the text is
+  given back with the reason.
+- **Claude's PC is online**: the listener writes a heartbeat to `agent_chat/_listener`
+  (`{at: <server time>, busy}`) every 20 seconds. It has no `text`, so the app skips it as a message,
+  and it sorts after every push id so it never lands inside a conversation's history. The line under
+  the chat's title reads online / busy / not connected, and a message that is still unclaimed after
+  a few seconds says which, with what to check. A listener without heartbeats (an older one) is given
+  a minute before the app doubts it. On a clean stop (Ctrl+C) the listener zeroes the beat so the app
+  says "not connected" at once.
+- **What Claude is doing**: runs use `claude -p --output-format stream-json`, and each event is turned
+  into an `activity` (`starting`, `thinking`, `looking`, `changing`, `writing`) and an `activityText`
+  such as "Looking up todos" or "Updating several todos" on the message. They are cleared when the
+  reply is written. Writes are skipped when nothing changed, and a new label inside the same phase
+  waits a second, so a burst of tool calls is not a burst of database writes.
+- **Stalls**: a run whose heartbeat stops mid-way shows "Lost contact with Claude's PC" rather than a
+  spinner that never ends, and a long run shows how long it has been going.
+
+`@claude` todos still use a plain, non-streaming run.
 
 ## Details for the todo trigger
 

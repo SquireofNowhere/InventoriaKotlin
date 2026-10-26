@@ -1,5 +1,6 @@
 package com.inventoria.app.ui.screens.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,9 +55,6 @@ import com.inventoria.app.data.ChatMessage
 import com.inventoria.app.data.ChatRole
 import kotlinx.coroutines.delay
 
-/** How long a message can sit unanswered before the screen suggests the PC side is not running. */
-private const val SLOW_REPLY_MILLIS = 60_000L
-
 /**
  * A chat with Claude. Messages are posted to the vault's database and answered by the agent
  * listener on the user's PC (tools/agent-listener), which runs Claude on their own login -- so this
@@ -69,18 +69,24 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val input by viewModel.input.collectAsState()
     val error by viewModel.error.collectAsState()
+    val presence by viewModel.presence.collectAsState()
+    val connection by viewModel.connection.collectAsState()
     var confirmClear by remember { mutableStateOf(false) }
 
     val waitingOn = messages.lastOrNull()?.takeIf { it.isAwaitingReply }
 
-    // Re-read the clock while a reply is awaited, so the "taking a while" hint can appear on its own.
+    // Re-read the clock every few seconds, so the elapsed time, the "taking a while" hint and the
+    // listener's heartbeat going stale all show up on their own -- not only when a database event
+    // happens to arrive.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(waitingOn?.id) {
-        while (waitingOn != null) {
+        while (true) {
             now = System.currentTimeMillis()
-            delay(5_000)
+            delay(if (waitingOn != null) 1_000 else 5_000)
         }
     }
+    val link = linkState(presence, connection, now)
+    val progress = chatProgress(waitingOn, presence, connection, now)
 
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size, waitingOn?.id) {
@@ -90,7 +96,12 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Claude", fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text("Claude", fontWeight = FontWeight.Bold)
+                        LinkLine(link)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -123,11 +134,8 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(messages, key = { it.id }) { message -> Bubble(message) }
-                        if (waitingOn != null) {
-                            item(key = "waiting") {
-                                WaitingRow(slow = waitingOn.status == ChatMessage.STATUS_PENDING &&
-                                    now - waitingOn.createdAt > SLOW_REPLY_MILLIS)
-                            }
+                        if (progress != null) {
+                            item(key = "progress") { ProgressRow(progress) }
                         }
                     }
                 }
@@ -223,11 +231,13 @@ private fun Bubble(message: ChatMessage) {
                         color = if (fromUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (fromUser && message.status == "error") {
+                // Where this one message has got to: sending, sent, being worked on, or not answered.
+                deliveryLabel(message)?.let { label ->
                     Text(
-                        "Not answered",
+                        label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error
+                        color = if (message.status == "error") MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
                 }
             }
@@ -235,19 +245,49 @@ private fun Bubble(message: ChatMessage) {
     }
 }
 
+/** The line under the title: is Claude's PC there to answer at all. */
 @Composable
-private fun WaitingRow(slow: Boolean) {
+private fun LinkLine(link: LinkState) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(
+                    if (link.isHealthy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    CircleShape
+                )
+        )
+        Spacer(Modifier.width(6.dp))
         Text(
-            if (slow) {
-                "Nothing has picked this up yet. Is the agent listener running on your PC?"
-            } else {
-                "Claude is thinking…"
-            },
-            style = MaterialTheme.typography.bodySmall,
+            link.label,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/** What is happening to the newest unanswered message, or what to check if it is stuck. */
+@Composable
+private fun ProgressRow(progress: ChatProgress) {
+    val warning = progress.tone == ProgressTone.WARNING
+    val color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.Top) {
+        if (progress.busy) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(top = 2.dp), strokeWidth = 2.dp)
+        } else {
+            Icon(
+                Icons.Default.WarningAmber,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp).padding(top = 2.dp),
+                tint = color
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(progress.headline, style = MaterialTheme.typography.bodySmall, color = color)
+            progress.detail?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }

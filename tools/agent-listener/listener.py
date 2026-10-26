@@ -44,6 +44,10 @@ TRIGGER = "@claude"
 CHAT_NODE = "agent_chat"
 # How much of the conversation a chat run is shown.
 CHAT_CONTEXT_MESSAGES = 20
+# The listener's heartbeat lives beside the messages (it has no `text`, so the app skips it as one).
+# '_' sorts after every push id, so it never lands inside a conversation's history.
+LISTENER_KEY = "_listener"
+HEARTBEAT_SECONDS = 20
 # A Firebase ID token lasts an hour; reconnect (and refresh) well inside that.
 RECONNECT_AFTER_SECONDS = 50 * 60
 # Tools a triggered run may never use, whatever the text says.
@@ -229,7 +233,7 @@ def clean_env():
     return env
 
 
-def invoke_claude(home, prompt, timeout):
+def invoke_claude(home, prompt, timeout, on_event=None):
     """One locked-down `claude -p` run. Returns (ok, stdout, error_text)."""
     claude = shutil.which("claude")
     if not claude:
@@ -255,9 +259,12 @@ def invoke_claude(home, prompt, timeout):
         command += ["--setting-sources", "project"]
     try:
         # cwd is the credentials folder, not a repo, so no project CLAUDE.md or settings load.
-        result = subprocess.run(
-            command, cwd=home, env=clean_env(), capture_output=True, text=True, timeout=timeout
-        )
+        if on_event:
+            result = run_streaming(command, home, clean_env(), timeout, on_event)
+        else:
+            result = subprocess.run(
+                command, cwd=home, env=clean_env(), capture_output=True, text=True, timeout=timeout
+            )
     except subprocess.TimeoutExpired:
         return False, "", f"timed out after {timeout}s"
     out = (result.stdout or "").strip()
@@ -265,6 +272,142 @@ def invoke_claude(home, prompt, timeout):
     # in either stream.
     detail = (result.stderr or "").strip() or out
     return result.returncode == 0, out, detail or f"exit code {result.returncode}"
+
+
+# What a tool call looks like to someone watching the chat. Anything not listed falls back to a
+# phrase built from the tool's own name, so a new tool still reads sensibly.
+TOOL_LABELS = {
+    "vault_summary": ("looking", "Looking over your vault"),
+    "time_report": ("looking", "Building a time report"),
+    "todo_stats": ("looking", "Counting up your todos"),
+    "export_vault": ("looking", "Reading the whole vault"),
+    "bulk_update_todos": ("changing", "Updating several todos"),
+    "bulk_move_items": ("changing", "Moving several items"),
+    "batch_create": ("changing", "Creating several things"),
+    "set_todo_state": ("changing", "Ticking a todo"),
+    "set_equipped": ("changing", "Changing what's equipped"),
+    "add_item_image": ("changing", "Adding a photo"),
+    "remove_item_image": ("changing", "Removing a photo"),
+    "set_item_profile_picture": ("changing", "Setting a photo"),
+}
+READ_VERBS = ("list", "get", "read", "search", "find")
+WRITE_VERBS = {
+    "create": "Creating", "update": "Updating", "set": "Changing", "move": "Moving", "link": "Linking",
+    "unlink": "Unlinking", "add": "Adding", "remove": "Removing", "start": "Starting", "pause": "Pausing",
+    "resume": "Resuming", "stop": "Stopping", "rename": "Renaming", "restore": "Restoring",
+    "import": "Importing", "delete": "Deleting",
+}
+
+
+def describe_tool(tool_name):
+    """(phase, label) for a tool call: 'looking' for reads, 'changing' for writes."""
+    name = tool_name.rsplit("__", 1)[-1]
+    if name in TOOL_LABELS:
+        return TOOL_LABELS[name]
+    verb, _, rest = name.partition("_")
+    noun = rest.replace("_", " ") or "things"
+    if verb in READ_VERBS:
+        return "looking", f"Looking up {noun}"
+    if verb in WRITE_VERBS:
+        return "changing", f"{WRITE_VERBS[verb]} {noun}"
+    return "looking", f"Using {name.replace('_', ' ')}"
+
+
+def describe_event(event):
+    """(phase, label-or-None) for one stream-json event from `claude -p`, or None if it says nothing
+    about what Claude is doing. Phases: thinking, looking, changing, writing."""
+    kind = event.get("type")
+    if kind == "system":
+        return ("thinking", None) if event.get("subtype") == "init" else None
+    if kind == "user":
+        # A tool has answered; Claude is reading the result and deciding what next.
+        return "thinking", None
+    if kind != "assistant":
+        return None
+    found = None
+    for block in (event.get("message") or {}).get("content") or []:
+        block_type = block.get("type")
+        if block_type == "tool_use":
+            found = describe_tool(block.get("name", ""))
+        elif found is None and block_type == "thinking":
+            found = ("thinking", None)
+        elif found is None and block_type == "text":
+            found = ("writing", None)
+    return found
+
+
+def make_progress_reporter(write_activity):
+    """Turns stream events into `activity` updates on the chat message, skipping repeats and keeping
+    a burst of tool calls from becoming a burst of writes. A change of phase always goes through; a
+    new label inside the same phase waits at least a second."""
+    state = {"last": None, "at": 0.0}
+
+    def report(event):
+        described = describe_event(event)
+        if described is None or described == state["last"]:
+            return
+        now = time.time()
+        if state["last"] and described[0] == state["last"][0] and now - state["at"] < 1.0:
+            return
+        state["last"], state["at"] = described, now
+        try:
+            write_activity(*described)
+        except Exception as error:  # progress is a courtesy; a failed write must never fail the run
+            log(f"Could not report progress: {error}")
+
+    return report
+
+
+def run_streaming(command, cwd, env, timeout, on_event):
+    """Like subprocess.run(capture_output=True) for a `claude -p` command, but reads its
+    stream-json output as it arrives and hands each event to `on_event`. The returned
+    CompletedProcess carries the final reply as stdout, so callers treat it like a plain run."""
+    process = subprocess.Popen(
+        command + ["--output-format", "stream-json", "--verbose"], cwd=cwd, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+    )
+    timed_out = threading.Event()
+
+    def kill():
+        timed_out.set()
+        process.kill()
+
+    timer = threading.Timer(timeout, kill)
+    timer.start()
+    errors = []
+    reader = threading.Thread(target=lambda: errors.append(process.stderr.read()), daemon=True)
+    reader.start()
+    final = None
+    stray = []
+    try:
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                stray.append(line)
+                continue
+            if isinstance(event, dict):
+                if event.get("type") == "result":
+                    final = event
+                try:
+                    on_event(event)
+                except Exception as error:
+                    log(f"Could not handle a Claude event: {error}")
+        process.wait()
+    finally:
+        timer.cancel()
+    reader.join(timeout=5)
+    if timed_out.is_set():
+        raise subprocess.TimeoutExpired(command, timeout)
+    returncode = process.returncode
+    reply = (final or {}).get("result") or ""
+    if final and final.get("is_error") and returncode == 0:
+        returncode = 1
+    # No result event at all (a crash, an unsupported flag): the raw output is the best explanation.
+    return subprocess.CompletedProcess(command, returncode, reply or "\n".join(stray), "".join(errors))
 
 
 def todo_prompt(todo_id, todo):
@@ -423,7 +566,10 @@ def main():
         vault.write(f"{CHAT_NODE}/{user_id}~r", {
             "role": "assistant", "text": text, "createdAt": int(time.time() * 1000), "replyTo": user_id,
         })
-        vault.write(f"{CHAT_NODE}/{user_id}", {"status": status}, method="PATCH")
+        # null deletes a key, so the progress line goes away with the wait.
+        vault.write(
+            f"{CHAT_NODE}/{user_id}", {"status": status, "activity": None, "activityText": None}, method="PATCH"
+        )
 
     def recover_stuck(mirror):
         # A message left "working" by a listener that died mid-run would spin in the app forever.
@@ -469,14 +615,23 @@ def main():
                     log(f"[dry run] would answer chat message {message_id}: {message.get('text')!r}")
                     continue
                 try:
-                    vault.write(f"{CHAT_NODE}/{message_id}", {"status": "working"}, method="PATCH")
+                    vault.write(
+                        f"{CHAT_NODE}/{message_id}", {"status": "working", "activity": "starting"}, method="PATCH"
+                    )
                 except urllib.error.HTTPError as error:
                     log(f"Could not claim chat message {message_id} (HTTP {error.code}). If this is 401, the "
                         f"{CHAT_NODE} rule from database.rules.json is not in the Firebase console yet.")
                     continue
                 log(f"Answering chat message {message_id}: {message.get('text')!r}")
                 with run_lock:
-                    ok, out, err = invoke_claude(home, chat_prompt(chat_history(chat, message_id)), args.timeout)
+                    progress = make_progress_reporter(
+                        lambda phase, label, key=message_id: vault.write(
+                            f"{CHAT_NODE}/{key}", {"activity": phase, "activityText": label}, method="PATCH"
+                        )
+                    )
+                    ok, out, err = invoke_claude(
+                        home, chat_prompt(chat_history(chat, message_id)), args.timeout, on_event=progress
+                    )
                 if ok and out:
                     text, status = out, "done"
                 else:
@@ -500,11 +655,36 @@ def main():
             target=stream_forever, args=(vault, node, snapshot, change, stop), daemon=True
         ).start()
 
+    def heartbeat():
+        """Tells the app this listener is alive, so it can tell 'nobody is there' from 'still working'."""
+        failing = False
+        while not stop.is_set():
+            try:
+                vault.write(
+                    f"{CHAT_NODE}/{LISTENER_KEY}",
+                    {"at": {".sv": "timestamp"}, "busy": bool(in_flight)},
+                    method="PATCH",
+                )
+                failing = False
+            except Exception as error:
+                if not failing:  # once per outage, not once per beat
+                    log(f"Could not send the heartbeat: {error}")
+                failing = True
+            stop.wait(HEARTBEAT_SECONDS)
+
+    if not args.dry_run:
+        threading.Thread(target=heartbeat, daemon=True).start()
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         stop.set()
+        if not args.dry_run:
+            try:  # so the app says "not connected" at once instead of after the heartbeat times out
+                vault.write(f"{CHAT_NODE}/{LISTENER_KEY}", {"at": 0, "busy": False}, method="PATCH")
+            except Exception:
+                pass
         log("Stopped")
 
 
