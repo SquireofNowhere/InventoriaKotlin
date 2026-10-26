@@ -58,6 +58,39 @@ data class ChatMessage(
 }
 
 /**
+ * One model Claude offers. Nothing about the models is known to the app itself: the agent listener
+ * asks Claude which it offers and publishes the answer, so the list, the names and the effort levels
+ * each model takes are always Claude's own. [value] is what is stored as a chat's choice (and handed to
+ * `--model`); [efforts] is empty for a model with no effort setting.
+ */
+data class ModelOption(
+    val value: String,
+    val name: String,
+    val description: String,
+    val resolved: String,
+    val efforts: List<String>
+) {
+    val isDefault: Boolean get() = value == DEFAULT_VALUE
+
+    companion object {
+        /** Claude's own entry for "whatever you would pick": a chat with no choice runs on this. */
+        const val DEFAULT_VALUE = "default"
+    }
+}
+
+/** What Claude offers, as last published by the listener. Empty until the listener has started once. */
+data class ModelCatalog(val models: List<ModelOption>, val updatedAt: Long = 0L) {
+    val isEmpty: Boolean get() = models.isEmpty()
+
+    /** The entry for [value]; null (no choice) means the default entry. */
+    fun option(value: String?): ModelOption? = models.firstOrNull { it.value == (value ?: ModelOption.DEFAULT_VALUE) }
+
+    companion object {
+        val EMPTY = ModelCatalog(emptyList())
+    }
+}
+
+/**
  * Whether the program that answers the chat is running. The agent listener on the user's PC writes a
  * heartbeat to `agent_chat/_listener` every few seconds; [lastSeen] is that beat in *server* time,
  * and 0 means none has ever been seen (no listener, or one from before it sent heartbeats).
@@ -120,7 +153,11 @@ data class ChatSummary(
     val lastActiveAt: Long = 0L,
     /** Minutes with no message after which the listener closes the session. */
     val idleMinutes: Int = 0,
-    val closedReason: String? = null
+    val closedReason: String? = null,
+    /** The model the user picked for this chat (a [ModelOption.value]); null leaves it to Claude's default. */
+    val modelChoice: String? = null,
+    /** The effort the user picked (one of that model's [ModelOption.efforts]); null leaves it to the default. */
+    val effortChoice: String? = null
 ) {
     val isLive: Boolean get() = state == STATE_LIVE
     val contextLevel: ContextLevel get() = contextLevelFor(contextPercent)
@@ -282,8 +319,46 @@ class ChatRepository @Inject constructor(
             model = snapshot.child("model").getValue(String::class.java),
             lastActiveAt = long("lastActiveAt"),
             idleMinutes = long("idleMinutes").toInt(),
-            closedReason = snapshot.child("closedReason").getValue(String::class.java)
+            closedReason = snapshot.child("closedReason").getValue(String::class.java),
+            modelChoice = snapshot.child("modelChoice").getValue(String::class.java),
+            effortChoice = snapshot.child("effortChoice").getValue(String::class.java)
         )
+    }
+
+    private fun decodeCatalog(snapshot: DataSnapshot): ModelCatalog {
+        val models = snapshot.child("models").children.mapNotNull { entry ->
+            val value = entry.child("value").getValue(String::class.java) ?: return@mapNotNull null
+            ModelOption(
+                value = value,
+                name = entry.child("name").getValue(String::class.java) ?: value,
+                description = entry.child("description").getValue(String::class.java).orEmpty(),
+                resolved = entry.child("resolved").getValue(String::class.java).orEmpty(),
+                efforts = entry.child("efforts").children.mapNotNull { it.getValue(String::class.java) }
+            )
+        }
+        return ModelCatalog(models, snapshot.child("at").getValue(Long::class.java) ?: 0L)
+    }
+
+    /**
+     * The models and effort levels Claude offers, live. Published by the listener from Claude's own
+     * answer, so it is empty until the listener has run once, and follows Claude as it changes.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun modelCatalog(): Flow<ModelCatalog> =
+        settingsRepository.manualSyncId
+            .distinctUntilChanged()
+            .map { chatRef().child(MODELS_KEY) }
+            .flatMapLatest { ref -> valueFlow(ref, ::decodeCatalog) }
+
+    /**
+     * Sets the model and effort for a chat that already exists; null for either means "Claude's
+     * default". The listener reads this before each message and, if it changed, reopens the chat's
+     * session with the new settings -- the conversation carries over.
+     */
+    suspend fun setChoice(chatId: String, model: String?, effort: String?) {
+        chatRef().child(CHATS_KEY).child(chatId)
+            .updateChildren(mapOf("modelChoice" to model, "effortChoice" to effort))
+            .await()
     }
 
     /**
@@ -302,7 +377,14 @@ class ChatRepository @Inject constructor(
      * chat's own details go in one atomic update, and the listener's fields (state, context use) are
      * separate children, so neither side overwrites the other.
      */
-    suspend fun send(chatId: String, text: String, firstMessage: Boolean) {
+    suspend fun send(
+        chatId: String,
+        text: String,
+        firstMessage: Boolean,
+        /** A model/effort picked before the chat existed: it is created with them. */
+        model: String? = null,
+        effort: String? = null
+    ) {
         val root = chatRef()
         val key = root.child(MESSAGES_KEY).child(chatId).push().key ?: return
         val now = System.currentTimeMillis()
@@ -319,6 +401,8 @@ class ChatRepository @Inject constructor(
         if (firstMessage) {
             updates["$CHATS_KEY/$chatId/title"] = titleFrom(text)
             updates["$CHATS_KEY/$chatId/createdAt"] = now
+            if (model != null) updates["$CHATS_KEY/$chatId/modelChoice"] = model
+            if (effort != null) updates["$CHATS_KEY/$chatId/effortChoice"] = effort
         }
         root.updateChildren(updates).addOnCompleteListener { task ->
             unconfirmed.update { it - key }
@@ -348,6 +432,9 @@ class ChatRepository @Inject constructor(
         /** Where each chat's details (title, state, context use) and its messages live under [NODE]. */
         const val CHATS_KEY = "chats"
         const val MESSAGES_KEY = "messages"
+
+        /** The listener's published list of models and effort levels. Like [LISTENER_KEY], not a chat. */
+        const val MODELS_KEY = "_models"
 
         /** Not a message: `decode` skips it because it has no text. Sorts after every push id. */
         const val LISTENER_KEY = "_listener"

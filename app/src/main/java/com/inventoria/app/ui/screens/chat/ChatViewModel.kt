@@ -9,16 +9,22 @@ import com.inventoria.app.data.ChatRepository
 import com.inventoria.app.data.ChatSummary
 import com.inventoria.app.data.Connection
 import com.inventoria.app.data.ListenerPresence
+import com.inventoria.app.data.ModelCatalog
+import com.inventoria.app.data.ModelOption
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** The model and effort picked for a chat; null for either leaves it to Claude's default. */
+data class ModelChoice(val model: String?, val effort: String?)
 
 /** One chat with Claude, named by the `chatId` navigation argument. */
 @HiltViewModel
@@ -53,6 +59,22 @@ class ChatViewModel @Inject constructor(
             emit(null)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The models and effort levels Claude offers, as the listener published them; empty until it has. */
+    val catalog: StateFlow<ModelCatalog> = repository.modelCatalog()
+        .catch { e ->
+            Log.w(TAG, "Model list stream failed", e)
+            emit(ModelCatalog.EMPTY)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelCatalog.EMPTY)
+
+    /** A choice made before the chat exists (it has no details to store it in until its first message). */
+    private val draftChoice = MutableStateFlow(ModelChoice(null, null))
+
+    /** The model and effort in effect: the chat's stored choice, or the draft while it has none. */
+    val choice: StateFlow<ModelChoice> = combine(chat, draftChoice) { stored, draft ->
+        if (stored != null) ModelChoice(stored.modelChoice, stored.effortChoice) else draft
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelChoice(null, null))
 
     /** The listener's heartbeat; null until the first reading, so "checking" is not mistaken for "gone". */
     val presence: StateFlow<ListenerPresence?> = repository.listenerPresence()
@@ -91,14 +113,45 @@ class ChatViewModel @Inject constructor(
         _error.value = null
         // The first message creates the chat, so it needs to know it is the first.
         val first = messages.value.isEmpty()
+        val draft = draftChoice.value
         viewModelScope.launch {
             try {
-                repository.send(chatId, text, firstMessage = first)
+                repository.send(chatId, text, firstMessage = first, model = draft.model, effort = draft.effort)
             } catch (e: Exception) {
                 Log.w(TAG, "Sending failed", e)
                 _error.value = e.message ?: "Could not send that."
                 // Hand the text back so a failed send is not lost.
                 if (_input.value.isEmpty()) _input.value = text
+            }
+        }
+    }
+
+    /**
+     * Picks a model from the catalog ([ModelOption.DEFAULT_VALUE] or null for Claude's default). An
+     * effort that the new model doesn't take is dropped. Takes effect from the next message: the
+     * listener reopens this chat's session on the new model, and the conversation carries over.
+     */
+    fun chooseModel(value: String?) {
+        val model = value?.takeIf { it != ModelOption.DEFAULT_VALUE }
+        storeChoice(model, effortFor(catalog.value, model, choice.value.effort))
+    }
+
+    /** Picks an effort level (null for the default) from the ones the chosen model takes. */
+    fun chooseEffort(level: String?) {
+        storeChoice(choice.value.model, level)
+    }
+
+    private fun storeChoice(model: String?, effort: String?) {
+        if (chat.value == null) {
+            draftChoice.value = ModelChoice(model, effort)
+            return
+        }
+        viewModelScope.launch {
+            try {
+                repository.setChoice(chatId, model, effort)
+            } catch (e: Exception) {
+                Log.w(TAG, "Changing the model failed", e)
+                _error.value = e.message ?: "Could not change the model."
             }
         }
     }

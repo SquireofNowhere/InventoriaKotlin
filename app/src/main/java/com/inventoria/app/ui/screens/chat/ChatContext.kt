@@ -2,6 +2,7 @@ package com.inventoria.app.ui.screens.chat
 
 import com.inventoria.app.data.ChatSummary
 import com.inventoria.app.data.ContextLevel
+import com.inventoria.app.data.ModelCatalog
 import java.util.Locale
 
 /** A token count the way a person reads it: 850, 84k, 1.2M. */
@@ -50,4 +51,27 @@ fun contextAdvice(level: ContextLevel): String? = when (level) {
         "This chat is getting full. For the sharpest answers, start a new chat when you move on to something else."
     ContextLevel.FULL ->
         "This chat is almost full. Start a new chat: answers here will get slower and less reliable."
+}
+
+/** The effort levels the chosen model takes, as Claude reported them; none for a model with no effort setting. */
+fun effortOptions(catalog: ModelCatalog, model: String?): List<String> = catalog.option(model)?.efforts.orEmpty()
+
+/** An effort carried over to a newly chosen model: kept if that model takes it, else back to its default. */
+fun effortFor(catalog: ModelCatalog, model: String?, effort: String?): String? =
+    effort?.takeIf { it in effortOptions(catalog, model) }
+
+/** "high" as "High". */
+fun effortLabel(effort: String): String = effort.replaceFirstChar { it.uppercase() }
+
+/**
+ * What a chat's model and effort choice reads as: "Opus 5.5 · High effort", or "Default model" when
+ * nothing was picked. Names come from [catalog]; a model it no longer lists shows as its raw value.
+ */
+fun choiceLabel(catalog: ModelCatalog, model: String?, effort: String?): String {
+    val option = catalog.option(model)
+    val name = when {
+        model == null || option?.isDefault == true -> "Default model"
+        else -> option?.name ?: model.orEmpty()
+    }
+    return if (effort == null) name else "$name · ${effortLabel(effort)} effort"
 }

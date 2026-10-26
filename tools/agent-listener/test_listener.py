@@ -47,6 +47,15 @@ class FakeVault:
                         existing[key] = self._resolve(item)
             self._echo()
 
+    def read(self, node):
+        with self.lock:
+            target = self.db
+            for part in node.split("/"):
+                if not isinstance(target, dict) or part not in target:
+                    return None
+                target = target[part]
+            return copy.deepcopy(target)
+
     @staticmethod
     def _resolve(value):
         if isinstance(value, dict) and value == {".sv": "timestamp"}:
@@ -85,7 +94,9 @@ class FakeVault:
         raise AssertionError("timed out waiting; writes so far:\n" + "\n".join(map(str, self.writes[-12:])))
 
 
-class SessionTests(unittest.TestCase):
+class SessionCase(unittest.TestCase):
+    """The shared set-up: a fake vault, a fake claude, and helpers to wait for answers."""
+
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
         self.env_backup = dict(os.environ)
@@ -118,7 +129,9 @@ class SessionTests(unittest.TestCase):
             lambda: (self.vault.message(chat_id, message_id) or {}).get("status") in ("done", "error")
             and self.vault.message(chat_id, message_id + "~r"))
 
-    # -- the tests --
+
+
+class SessionTests(SessionCase):
     def test_messages_in_one_chat_share_one_session(self):
         self.manager()
         self.vault.post("chatA", "m1", "first question")
@@ -228,6 +241,107 @@ class SessionTests(unittest.TestCase):
         manager.shutdown()
         closed = self.vault.wait_for(lambda: self.vault.meta("chatA").get("state") == "closed" and self.vault.meta("chatA"))
         self.assertEqual("the listener stopped", closed["closedReason"])
+
+
+class ModelChoiceTests(SessionCase):
+    """The model and effort a chat asks for: read from Claude's own list, applied when a session starts,
+    and re-applied (resuming the same conversation) when the choice changes."""
+
+    def choose(self, chat_id, **fields):
+        self.vault.write(f"agent_chat/chats/{chat_id}", fields, method="PATCH")
+
+    def with_catalog(self, **kwargs):
+        manager = self.manager(**kwargs)
+        models, version = listener.fetch_catalog(self.home)
+        manager.set_catalog(models)
+        return manager, models, version
+
+    def test_the_catalog_comes_from_claude_not_from_the_listener(self):
+        models, version = listener.fetch_catalog(self.home)
+        self.assertEqual("9.9.9", version)
+        self.assertEqual(["default", "opus", "haiku"], [m["value"] for m in models])
+        by_value = {m["value"]: m for m in models}
+        self.assertEqual("Fake Opus", by_value["opus"]["name"])
+        self.assertEqual("fake-opus", by_value["opus"]["resolved"])
+        self.assertEqual(["low", "medium", "high"], by_value["opus"]["efforts"])
+        self.assertEqual(["low", "medium", "high", "xhigh", "max"], by_value["default"]["efforts"])
+        self.assertEqual([], by_value["haiku"]["efforts"])  # a model with no effort setting offers none
+
+    def test_a_chat_with_no_choice_starts_on_claudes_defaults(self):
+        self.with_catalog()
+        self.vault.post("chatA", "m1", "hello")
+        self.assertIn("model=None; effort=None", self.answered("chatA", "m1")["text"])
+
+    def test_a_chosen_model_and_effort_start_the_session(self):
+        self.with_catalog()
+        self.choose("chatA", modelChoice="opus", effortChoice="high")
+        self.vault.post("chatA", "m1", "hello")
+        reply = self.answered("chatA", "m1")
+        self.assertIn("model=opus; effort=high", reply["text"])
+        meta = self.vault.wait_for(lambda: self.vault.meta("chatA").get("appliedModel") and self.vault.meta("chatA"))
+        self.assertEqual("opus", meta["appliedModel"])
+        self.assertEqual("high", meta["appliedEffort"])
+
+    def test_changing_the_choice_reopens_the_same_conversation_on_the_new_model(self):
+        self.with_catalog()
+        self.vault.post("chatA", "m1", "first")
+        first = self.answered("chatA", "m1")
+        session_id = first["text"].split(";")[0].split(" of ")[1]
+        self.assertIn("model=None", first["text"])
+        self.choose("chatA", modelChoice="opus", effortChoice="medium")
+        self.vault.post("chatA", "m2", "second")
+        second = self.answered("chatA", "m2")
+        self.assertIn(f"turn 2 of {session_id}", second["text"])  # same conversation, resumed
+        self.assertIn("primed=False", second["text"])
+        self.assertIn("model=opus; effort=medium", second["text"])
+        # and switching back to the default drops the flags again
+        self.choose("chatA", modelChoice="default", effortChoice=None)
+        self.vault.post("chatA", "m3", "third")
+        third = self.answered("chatA", "m3")
+        self.assertIn(f"turn 3 of {session_id}", third["text"])
+        self.assertIn("model=None; effort=None", third["text"])
+
+    def test_an_unchanged_choice_keeps_the_session_open(self):
+        self.with_catalog()
+        self.choose("chatA", modelChoice="opus")
+        self.vault.post("chatA", "m1", "one")
+        self.answered("chatA", "m1")
+        self.vault.post("chatA", "m2", "two")
+        second = self.answered("chatA", "m2")
+        self.assertIn("turn 2", second["text"])
+        opened = [w for w in self.vault.writes if w[1].get("state") == "closed"]
+        self.assertEqual([], opened)  # nothing was closed in between
+
+    def test_a_model_claude_does_not_offer_is_ignored(self):
+        self.with_catalog()
+        self.choose("chatA", modelChoice="nonesuch")
+        self.vault.post("chatA", "m1", "hello")
+        reply = self.answered("chatA", "m1")
+        self.assertIn("model=None", reply["text"])
+        self.assertEqual("done", self.vault.message("chatA", "m1")["status"])
+
+    def test_an_effort_the_model_does_not_take_is_dropped(self):
+        self.with_catalog()
+        self.choose("chatA", modelChoice="haiku", effortChoice="high")  # haiku has no effort setting
+        self.vault.post("chatA", "m1", "hello")
+        self.assertIn("model=haiku; effort=None", self.answered("chatA", "m1")["text"])
+        self.choose("chatB", modelChoice="opus", effortChoice="max")    # opus tops out at high
+        self.vault.post("chatB", "m1", "hello")
+        self.assertIn("model=opus; effort=None", self.answered("chatB", "m1")["text"])
+
+    def test_without_a_catalog_the_choice_is_passed_through(self):
+        manager = self.manager()  # the catalog could not be read
+        self.assertEqual(("some-model", "high"), manager.resolve_choice("some-model", "high"))
+        self.assertEqual((None, None), manager.resolve_choice("default", ""))
+        self.assertEqual((None, None), manager.resolve_choice(None, None))
+
+    def test_the_choice_made_just_before_a_message_is_not_missed(self):
+        manager, _, _ = self.with_catalog()
+        # The chat's details arrive on another stream than its messages: simulate the mirror lagging.
+        self.vault.db.setdefault("agent_chat", {}).setdefault("chats", {})["chatA"] = {"modelChoice": "opus"}
+        self.assertNotIn("chatA", manager.chats)
+        self.vault.post("chatA", "m1", "hello")
+        self.assertIn("model=opus", self.answered("chatA", "m1")["text"])
 
 
 class ContextMeterTests(unittest.TestCase):

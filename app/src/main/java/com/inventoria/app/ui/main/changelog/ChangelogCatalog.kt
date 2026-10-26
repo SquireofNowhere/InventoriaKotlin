@@ -20,6 +20,14 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 127,
+                versionName = "2.46",
+                changes = listOf(
+                    "You can choose the model and the effort level for each chat. Tap the tune icon in a chat to pick from the models Claude offers, and how much effort it should put in. Both lists come from Claude itself, so new models show up on their own, and each model only offers the effort levels it supports.",
+                    "Changing the model or effort partway through a chat keeps the conversation: your next message is answered on the new settings, and Claude still remembers everything said so far."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 126,
                 versionName = "2.45",
                 changes = listOf(

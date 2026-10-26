@@ -54,6 +54,11 @@ CHAT_NODE = "agent_chat"
 # Where the chats' own details (title, state, context use) and their messages live under CHAT_NODE.
 CHATS_KEY = "chats"
 MESSAGES_KEY = "messages"
+# The models and effort levels this Claude offers, as it reports them, for the app's pickers.
+MODELS_KEY = "_models"
+# How often the list is read again (it changes when Claude is updated, not often).
+CATALOG_REFRESH_SECONDS = 6 * 60 * 60
+CATALOG_RETRY_SECONDS = 5 * 60
 # How much of an earlier conversation is replayed to a session that could not be resumed.
 CHAT_CONTEXT_MESSAGES = 20
 # A chat's session closes after this long with no message in it, and a message restarts it.
@@ -129,6 +134,11 @@ class Vault:
 
     def url(self, node, token):
         return f"{self.db_url}/users/{self.owner}/{node}.json?auth={urllib.parse.quote(token)}"
+
+    def read(self, node):
+        """The node's current value, straight from the database."""
+        with urllib.request.urlopen(self.url(node, self.id_token()), timeout=30) as response:
+            return json.load(response)
 
     def write(self, node, value, method="PUT"):
         """PUT replaces the node, PATCH merges into it. Raises HTTPError (401 = a rule refused it)."""
@@ -589,6 +599,65 @@ def run_turn(session, text, on_event, timeout, stop=None):
             return event, None
 
 
+def normalize_models(raw):
+    """The `models` list from Claude's initialize reply, as the app wants it: what to pass to --model
+    (`value`), what to show, and the effort levels that model takes (none if it has no effort setting)."""
+    models = []
+    for entry in raw or []:
+        if not isinstance(entry, dict) or not entry.get("value"):
+            continue
+        efforts = entry.get("supportedEffortLevels") if entry.get("supportsEffort") else []
+        models.append({
+            "value": str(entry["value"]),
+            "name": str(entry.get("displayName") or entry["value"]),
+            "description": str(entry.get("description") or ""),
+            "resolved": str(entry.get("resolvedModel") or ""),
+            "efforts": [str(level) for level in (efforts or [])],
+        })
+    return models
+
+
+def fetch_catalog(home, timeout=60):
+    """Asks a throwaway Claude session which models (and effort levels) it offers, so nothing here
+    has to be kept in step with what Claude supports. Returns (models, claude_version). The session
+    loads no MCP server and takes no message: the answer comes with its start-up handshake."""
+    claude = claude_command()
+    if not claude:
+        raise RuntimeError("`claude` is not on PATH")
+    command = claude + [
+        "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--strict-mcp-config",
+    ]
+    if not USE_API_KEY:
+        command += ["--setting-sources", "project"]
+    session = ClaudeSession(command, home, clean_env())
+    try:
+        session.process.stdin.write(json.dumps({
+            "type": "control_request", "request_id": "inventoria-models", "request": {"subtype": "initialize"},
+        }) + "\n")
+        session.process.stdin.flush()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                event = session.events.get(timeout=1)
+            except Empty:
+                continue
+            if event is EOF:
+                raise RuntimeError(session.failure_text())
+            if event.get("type") != "control_response":
+                continue
+            response = event.get("response") or {}
+            if response.get("subtype") == "error":
+                raise RuntimeError(str(response.get("error") or "Claude refused the request"))
+            body = response.get("response") or {}
+            models = normalize_models(body.get("models"))
+            if not models:
+                raise RuntimeError("Claude's reply listed no models")
+            return models, body.get("claude_code_version")
+        raise RuntimeError(f"no answer within {timeout}s")
+    finally:
+        session.close()
+
+
 def default_window(model):
     """The context window to assume when Claude has not said: the 1M variants say so in their name."""
     return 1_000_000 if model and re.search(r"1m\b", str(model).lower()) else 200_000
@@ -652,6 +721,7 @@ class ChatWorker(threading.Thread):
         self._resumed = False   # this session was started with --resume
         self._spoke = False     # ... and has produced at least one event
         self._primed = True     # false: the next message needs the earlier conversation attached
+        self._applied = (None, None)  # (model, effort) the open session was started with
 
     # -- the thread --
     def run(self):
@@ -737,6 +807,19 @@ class ChatWorker(threading.Thread):
             return
         log(f"Answering chat {cid} message {message_id}: {text!r}")
 
+        wanted = self._wanted()
+        if self.session is not None and wanted != self._applied:
+            # The user picked another model or effort. Both are fixed when a session starts, so the
+            # session is closed and reopened with --resume: the conversation carries over.
+            log(f"Chat {cid}: switching from {self._applied} to {wanted}")
+            try:
+                manager.write_message(cid, message_id, {"activity": "starting", "activityText": "Switching model"})
+            except Exception:
+                pass
+            self._close_session("model or effort changed")
+            self.meter.window = 0  # the new model may have a different context window
+            self.meter.model = None
+
         progress = make_progress_reporter(
             lambda phase, label: manager.write_message(cid, message_id, {"activity": phase, "activityText": label})
         )
@@ -790,6 +873,13 @@ class ChatWorker(threading.Thread):
         progress(event)
 
     # -- the session --
+    def _wanted(self):
+        """The (model, effort) this chat's choice comes to, checked against what Claude offers."""
+        # Read from the database, not the mirror: the chat's details and its messages come in on separate
+        # streams, so a choice made just before a message may not have reached the mirror yet.
+        meta = self.manager.fresh_meta(self.chat_id)
+        return self.manager.resolve_choice(meta.get("modelChoice"), meta.get("effortChoice"))
+
     def _open_session(self):
         """Starts this chat's `claude` process. Returns why it could not, or None."""
         manager = self.manager
@@ -806,19 +896,27 @@ class ChatWorker(threading.Thread):
             # One line: a newline inside an argument does not survive every launcher on Windows.
             "--append-system-prompt", " ".join(CHAT_SYSTEM_PROMPT.split()),
         ]
+        model, effort = self._wanted()
+        if model:
+            command += ["--model", model]
+        if effort:
+            command += ["--effort", effort]
         if self.resume_id:
             command += ["--resume", self.resume_id]
         try:
             self.session = ClaudeSession(command, manager.home, clean_env())
         except OSError as error:
             return f"could not start Claude: {error}"
+        self._applied = (model, effort)
         self._resumed = bool(self.resume_id)
         self._spoke = False
         self._primed = bool(self.resume_id)  # a resumed session remembers; a fresh one is told
-        log(f"Chat {self.chat_id}: opened a session" + (f" (resuming {self.resume_id})" if self.resume_id else ""))
+        log(f"Chat {self.chat_id}: opened a session"
+            + (f" (resuming {self.resume_id})" if self.resume_id else "")
+            + (f", model {model}" if model else "") + (f", effort {effort}" if effort else ""))
         manager.write_meta(self.chat_id, {
             "state": "live", "closedReason": None, "idleMinutes": manager.idle_minutes,
-            "lastActiveAt": SERVER_TIME,
+            "lastActiveAt": SERVER_TIME, "appliedModel": model, "appliedEffort": effort,
         })
         return None
 
@@ -875,10 +973,42 @@ class ChatManager:
         self.messages = {}    # chat id -> {message id -> message}
         self.chats = {}       # chat id -> details
         self.chats_ready = threading.Event()
+        self.catalog = {}     # model value -> {value, name, description, resolved, efforts}
+
+    # -- what Claude offers --
+    def set_catalog(self, models):
+        self.catalog = {model["value"]: model for model in models}
+
+    def resolve_choice(self, model_choice, effort_choice):
+        """(model, effort) to start a session with, from what the user picked. None means "leave it to
+        Claude's default". A pick is checked against the catalog read from Claude itself: an unknown
+        model, or an effort the model does not take, is dropped rather than passed on to fail. With no
+        catalog yet (it could not be read) the pick is passed through as it is."""
+        model = model_choice if isinstance(model_choice, str) and model_choice not in ("", "default") else None
+        if model and self.catalog and model not in self.catalog:
+            log(f"Ignoring unknown model choice {model!r}")
+            model = None
+        effort = effort_choice if isinstance(effort_choice, str) and effort_choice else None
+        if effort and self.catalog:
+            option = self.catalog.get(model or "default") or {}
+            if effort not in option.get("efforts", []):
+                log(f"Ignoring effort {effort!r}: not offered for {model or 'the default model'}")
+                effort = None
+        return model, effort
 
     # -- reading what the database says --
     def chat_meta(self, chat_id):
         return dict(self.chats.get(chat_id) or {})
+
+    def fresh_meta(self, chat_id):
+        """A chat's details as the database has them right now, or the mirror's if it can't be reached."""
+        try:
+            meta = self.vault.read(f"{CHAT_NODE}/{CHATS_KEY}/{chat_id}")
+            if isinstance(meta, dict):
+                return meta
+        except Exception as error:
+            log(f"Could not read chat {chat_id}'s details ({error}); using the last known")
+        return self.chat_meta(chat_id)
 
     def message(self, chat_id, message_id):
         return (self.messages.get(chat_id) or {}).get(message_id)
@@ -1085,6 +1215,16 @@ def selftest(home, timeout):
         "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
         *locked_down_flags(mcp_config), "--append-system-prompt", " ".join(CHAT_SYSTEM_PROMPT.split()),
     ]
+    models = []
+    try:
+        models, version = fetch_catalog(home)
+        print(f"Claude {version} offers {len(models)} models:")
+        for model in models:
+            efforts = ", ".join(model["efforts"]) or "no effort setting"
+            print(f"  {model['value']:<8} {model['name']} ({model['resolved']}) - efforts: {efforts}")
+        print()
+    except Exception as error:
+        print(f"Could not read the model list: {error}\n")
     session = ClaudeSession(command, home, clean_env())
     meter = ContextMeter()
     code = 0
@@ -1124,6 +1264,33 @@ def selftest(home, timeout):
     finally:
         resumed.close()
     print("OK: a closed session came back with its conversation.")
+
+    # What a chat's model and effort choice does: the same conversation, reopened on other settings,
+    # taken from the catalog Claude itself reported above.
+    alternatives = [m for m in models if m["value"] != "default" and m["efforts"]]
+    if not alternatives:
+        print("\nNo second model with an effort setting was listed, so the model switch was not tried.")
+        return 0
+    alt = alternatives[0]
+    effort = alt["efforts"][0]
+    print(f"\nReopening it again on {alt['name']} with {effort} effort (--model {alt['value']} --effort {effort})...",
+          flush=True)
+    switched_meter = ContextMeter()
+    switched = ClaudeSession(command + ["--model", alt["value"], "--effort", effort, "--resume", session_id],
+                             home, clean_env())
+    try:
+        question = "Which single word did I first ask you to reply with? Answer with that word only."
+        print(f"You:    {question}", flush=True)
+        result, failure = run_turn(switched, question, switched_meter.observe, timeout)
+        if result is None or result.get("is_error"):
+            print(f"FAILED to switch: {(result or {}).get('result') or failure}")
+            return 1
+        print(f"Claude: {result.get('result')}")
+        used = ", ".join((result.get("modelUsage") or {}).keys())
+        print(f"        session {result.get('session_id')}, ran on: {used or switched_meter.model}", flush=True)
+    finally:
+        switched.close()
+    print(f"OK: the conversation carried over to {alt['name']} (expected {alt['resolved']}).")
     return 0
 
 
@@ -1227,6 +1394,25 @@ def main():
             target=stream_forever, args=(vault, node, snapshot, change, stop), daemon=True
         ).start()
 
+    def publish_catalog():
+        """Reads which models and effort levels Claude offers, and keeps the app's pickers in step."""
+        while not stop.is_set():
+            wait = CATALOG_REFRESH_SECONDS
+            try:
+                models, version = fetch_catalog(home)
+                manager.set_catalog(models)
+                vault.write(
+                    f"{CHAT_NODE}/{MODELS_KEY}",
+                    {"at": SERVER_TIME, "claudeVersion": version, "models": models},
+                    method="PUT",
+                )
+                log(f"Published {len(models)} models: " + ", ".join(model["value"] for model in models))
+            except Exception as error:
+                log(f"Could not read or publish the model list ({error}); trying again in "
+                    f"{CATALOG_RETRY_SECONDS // 60} minutes")
+                wait = CATALOG_RETRY_SECONDS
+            stop.wait(wait)
+
     def heartbeat():
         """Tells the app this listener is alive, so it can tell 'nobody is there' from 'still working'."""
         failing = False
@@ -1246,6 +1432,7 @@ def main():
 
     if not args.dry_run:
         threading.Thread(target=heartbeat, daemon=True).start()
+        threading.Thread(target=publish_catalog, daemon=True).start()
 
     try:
         while True:

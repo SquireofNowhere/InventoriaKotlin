@@ -8,8 +8,10 @@ Behaviour the tests lean on:
     by FAKE_CLAUDE_STATE (a real Claude keeps sessions on disk the same way);
   * with FAKE_CLAUDE_FAIL_RESUME set, resuming an id it does not know exits with an error, as Claude does;
   * a message containing CRASH kills the process, one containing SLOW takes three seconds;
-  * every reply says which turn of the session it is, which session and whether the message arrived
-    with the earlier conversation attached, so a test can tell a kept session from a fresh one.
+  * every reply says which turn of the session it is, which session, whether the message arrived with
+    the earlier conversation attached, and the --model / --effort it was started with, so a test can
+    tell a kept session from a fresh one and see what was asked of it;
+  * a `control_request` (the start-up handshake) is answered with a model list, as the real one does.
 """
 import json
 import os
@@ -21,9 +23,21 @@ def emit(event):
     print(json.dumps(event), flush=True)
 
 
+MODELS = [
+    {"value": "default", "resolvedModel": "fake-sonnet", "displayName": "Default (recommended)",
+     "description": "Fake Sonnet", "supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]},
+    {"value": "opus", "resolvedModel": "fake-opus", "displayName": "Fake Opus",
+     "description": "For complex work", "supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high"]},
+    {"value": "haiku", "resolvedModel": "fake-haiku", "displayName": "Fake Haiku",
+     "description": "Fastest", "supportsEffort": False},
+]
+
+
 def main():
     argv = sys.argv[1:]
     resume = argv[argv.index("--resume") + 1] if "--resume" in argv else None
+    model = argv[argv.index("--model") + 1] if "--model" in argv else None
+    effort = argv[argv.index("--effort") + 1] if "--effort" in argv else None
     state_path = os.environ.get("FAKE_CLAUDE_STATE")
     state = {}
     if state_path and os.path.exists(state_path):
@@ -46,6 +60,12 @@ def main():
         if not line:
             continue
         message = json.loads(line)
+        if message.get("type") == "control_request":
+            # Like the real one, the start-up handshake answers with what it offers.
+            emit({"type": "control_response", "response": {
+                "subtype": "success", "request_id": message["request_id"],
+                "response": {"models": MODELS, "claude_code_version": "9.9.9"}}})
+            continue
         text = message["message"]["content"]
         if "CRASH" in text:
             return 3
@@ -59,7 +79,7 @@ def main():
         primed = text.startswith("This chat already has history")
         # What the prompt would weigh: grows with the conversation, so the meter has something to read.
         prompt_tokens = 10_000 * turn
-        reply = f"turn {turn} of {session_id}; primed={primed}; heard={text[:40]!r}"
+        reply = f"turn {turn} of {session_id}; primed={primed}; model={model}; effort={effort}; heard={text[:40]!r}"
         emit({"type": "assistant", "session_id": session_id, "message": {
             "content": [{"type": "text", "text": reply}],
             "usage": {"input_tokens": 100, "cache_creation_input_tokens": 400,

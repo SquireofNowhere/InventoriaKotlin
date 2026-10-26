@@ -12,7 +12,7 @@ vault in Firebase. Two things send it a request:
 ```bash
 python tools/agent-listener/listener.py              # run it for real
 python tools/agent-listener/listener.py --dry-run    # only say what it would do
-python tools/agent-listener/listener.py --selftest   # talk to a real session once; checks login and resume
+python tools/agent-listener/listener.py --selftest   # a real session: login, the model list, resume, switching model
 python -m unittest tools/agent-listener/test_listener.py   # the session logic, against a fake claude
 ```
 
@@ -64,6 +64,26 @@ keeps its conversation and its loaded MCP server between messages instead of sta
   another closes the least recently used idle one, which resumes on its next message.
 - **Ctrl+C** closes every session cleanly and marks them closed for the app.
 
+### Model and effort, per chat
+
+Each chat can run on its own model and effort level, picked in the app (the tune icon on a chat).
+**Nothing is hard-coded**: at start-up, and every six hours, the listener opens a throwaway session with
+no tools and asks Claude's start-up handshake (`initialize`) what it offers, then publishes the answer
+to `agent_chat/_models`: each model's `value` (what `--model` takes), `name`, `description`, `resolved`
+id and the `efforts` that model supports (empty for a model with no effort setting). The app's pickers
+are drawn from that list, and the effort choices follow the model picked. Right now that is 13 models,
+and the older ones take fewer effort levels than the newer.
+
+The pick is stored on the chat as `modelChoice` / `effortChoice` (absent = Claude's default). Both are
+fixed when a session starts, so before every message the listener reads the chat's current choice
+straight from the database (the chat's details and its messages arrive on separate streams, so the
+mirror can lag a choice made just before sending). If it differs from what the open session was
+started with, the session is closed and reopened with `--resume --model X --effort Y`: the
+conversation carries over (`--selftest` proves this on a real Claude). The choice is checked against the
+catalog first: a model Claude no longer lists, or an effort that model doesn't take, is dropped rather
+than passed on to fail. The chat's details get `appliedModel` / `appliedEffort` once it is in force.
+A choice made before a chat's first message is held by the app and stored with that message.
+
 ### What the app is told
 
 Each chat has details at `agent_chat/chats/<chat id>`, its messages at `agent_chat/messages/<chat id>`:
@@ -74,7 +94,9 @@ Each chat has details at `agent_chat/chats/<chat id>`, its messages at `agent_ch
 | `state` | listener | `live` (session open) or `closed` |
 | `contextTokens`, `contextWindow`, `contextPercent` | listener | how full the context is, after every message |
 | `lastActiveAt`, `idleMinutes` | listener | server time of the last activity, and the idle limit, so the app can show when it closes |
-| `sessionId`, `model`, `closedReason` | listener | what to resume; why it closed (`idle`, `to make room…`, `the listener stopped`) |
+| `sessionId`, `model`, `closedReason` | listener | what to resume; the model Claude reports it is on; why it closed (`idle`, `to make room…`, `the listener stopped`) |
+| `modelChoice`, `effortChoice` | app | the model and effort picked for this chat |
+| `appliedModel`, `appliedEffort` | listener | the choice the open session was started with |
 
 The context figure is the size of the last prompt Claude was sent plus the reply it just wrote (not the
 sum over a turn's calls, which counts the same text more than once), against the window Claude

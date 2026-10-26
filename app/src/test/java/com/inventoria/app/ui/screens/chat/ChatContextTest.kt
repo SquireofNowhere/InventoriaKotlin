@@ -3,6 +3,8 @@ package com.inventoria.app.ui.screens.chat
 import com.inventoria.app.data.ChatRepository
 import com.inventoria.app.data.ChatSummary
 import com.inventoria.app.data.ContextLevel
+import com.inventoria.app.data.ModelCatalog
+import com.inventoria.app.data.ModelOption
 import com.inventoria.app.data.contextLevelFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -87,5 +89,48 @@ class ChatContextTest {
         val long = ChatRepository.titleFrom("a".repeat(100))
         assertEquals(41, long.length)
         assertTrue(long.endsWith("…"))
+    }
+
+    private val catalog = ModelCatalog(listOf(
+        ModelOption("default", "Default (recommended)", "Sonnet", "claude-sonnet-5-5", listOf("low", "medium", "high", "xhigh", "max")),
+        ModelOption("opus", "Opus 5.5", "Complex work", "claude-opus-5-5", listOf("low", "medium", "high")),
+        ModelOption("haiku", "Haiku 5.5", "Fastest", "claude-haiku-5-5", emptyList())
+    ))
+
+    @Test
+    fun `the effort levels offered come from the chosen model's own list`() {
+        assertEquals(listOf("low", "medium", "high", "xhigh", "max"), effortOptions(catalog, null))
+        assertEquals(listOf("low", "medium", "high"), effortOptions(catalog, "opus"))
+        assertEquals(emptyList<String>(), effortOptions(catalog, "haiku"))
+        assertEquals(emptyList<String>(), effortOptions(catalog, "a-model-claude-dropped"))
+        assertEquals(emptyList<String>(), effortOptions(ModelCatalog.EMPTY, null))
+    }
+
+    @Test
+    fun `an effort survives a model change only if the new model takes it`() {
+        assertEquals("high", effortFor(catalog, "opus", "high"))
+        assertNull(effortFor(catalog, "opus", "max"))
+        assertNull(effortFor(catalog, "haiku", "low"))
+        assertEquals("max", effortFor(catalog, null, "max"))
+        assertNull(effortFor(catalog, "opus", null))
+    }
+
+    @Test
+    fun `a chat's model and effort read the way the picker names them`() {
+        assertEquals("Default model", choiceLabel(catalog, null, null))
+        assertEquals("Default model", choiceLabel(catalog, "default", null))
+        assertEquals("Opus 5.5", choiceLabel(catalog, "opus", null))
+        assertEquals("Opus 5.5 · High effort", choiceLabel(catalog, "opus", "high"))
+        assertEquals("Default model · Max effort", choiceLabel(catalog, null, "max"))
+        assertEquals("retired-model", choiceLabel(catalog, "retired-model", null))
+        assertEquals("opus", choiceLabel(ModelCatalog.EMPTY, "opus", null))
+    }
+
+    @Test
+    fun `the catalog finds the default entry when no model was chosen`() {
+        assertEquals("default", catalog.option(null)?.value)
+        assertEquals("claude-opus-5-5", catalog.option("opus")?.resolved)
+        assertNull(catalog.option("nonesuch"))
+        assertTrue(ModelCatalog.EMPTY.isEmpty)
     }
 }

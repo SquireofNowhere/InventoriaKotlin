@@ -1,6 +1,8 @@
 package com.inventoria.app.ui.screens.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,15 +29,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +64,8 @@ import com.inventoria.app.data.ChatMessage
 import com.inventoria.app.data.ChatRole
 import com.inventoria.app.data.ChatSummary
 import com.inventoria.app.data.ContextLevel
+import com.inventoria.app.data.ModelCatalog
+import com.inventoria.app.data.ModelOption
 import kotlinx.coroutines.delay
 
 /**
@@ -81,7 +90,10 @@ fun ChatScreen(
     val presence by viewModel.presence.collectAsState()
     val connection by viewModel.connection.collectAsState()
     val chat by viewModel.chat.collectAsState()
+    val catalog by viewModel.catalog.collectAsState()
+    val choice by viewModel.choice.collectAsState()
     var confirmClear by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
 
     val waitingOn = messages.lastOrNull()?.takeIf { it.isAwaitingReply }
 
@@ -123,6 +135,9 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showPicker = true }) {
+                        Icon(Icons.Default.Tune, contentDescription = "Model and effort")
+                    }
                     if (messages.isNotEmpty()) {
                         IconButton(onClick = { confirmClear = true }) {
                             Icon(Icons.Default.DeleteSweep, contentDescription = "Delete chat")
@@ -138,7 +153,11 @@ fun ChatScreen(
                 .padding(padding)
                 .imePadding()
         ) {
-            ContextStrip(chat, serverNow = now + connection.serverOffset)
+            ContextStrip(
+                chat,
+                serverNow = now + connection.serverOffset,
+                modelLine = choiceLabel(catalog, choice.model, choice.effort)
+            )
             contextAdvice(chat?.contextLevel ?: ContextLevel.FINE)?.let { advice ->
                 ContextAdvice(
                     text = advice,
@@ -199,6 +218,16 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (showPicker) {
+        ModelPicker(
+            catalog = catalog,
+            choice = choice,
+            onModel = viewModel::chooseModel,
+            onEffort = viewModel::chooseEffort,
+            onDismiss = { showPicker = false }
+        )
     }
 
     if (confirmClear) {
@@ -290,11 +319,104 @@ internal fun LinkLine(link: LinkState) {
 }
 
 /**
+ * Pick the model and effort for this chat. Both lists are Claude's own, published by the agent
+ * listener -- nothing here knows what exists -- and the effort choices are those the picked model
+ * takes. A change applies from the next message: the listener reopens the chat's session with the new
+ * settings and the conversation carries over.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPicker(
+    catalog: ModelCatalog,
+    choice: ModelChoice,
+    onModel: (String?) -> Unit,
+    onEffort: (String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Model and effort") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (catalog.isEmpty) {
+                    Text(
+                        "The list of models appears once the agent listener has started on your PC.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    return@Column
+                }
+                Text("Model", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                val selected = choice.model ?: ModelOption.DEFAULT_VALUE
+                catalog.models.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onModel(option.value) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = option.value == selected, onClick = { onModel(option.value) })
+                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                            Text(option.name, style = MaterialTheme.typography.bodyMedium)
+                            if (option.description.isNotBlank()) {
+                                Text(
+                                    option.description,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+                val efforts = effortOptions(catalog, choice.model)
+                Spacer(Modifier.size(12.dp))
+                Text("Effort", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                if (efforts.isEmpty()) {
+                    Text(
+                        "This model has no effort setting.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = choice.effort == null,
+                            onClick = { onEffort(null) },
+                            label = { Text("Default") }
+                        )
+                        efforts.forEach { level ->
+                            FilterChip(
+                                selected = choice.effort == level,
+                                onClick = { onEffort(level) },
+                                label = { Text(effortLabel(level)) }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.size(12.dp))
+                Text(
+                    "Applies from your next message. Claude reopens this chat on the new settings and " +
+                        "remembers the conversation.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+/**
  * How full this chat's context is, and whether its session on the PC is open: the two things the
  * user needs to decide whether to carry on here or start over.
  */
 @Composable
-private fun ContextStrip(chat: ChatSummary?, serverNow: Long) {
+private fun ContextStrip(chat: ChatSummary?, serverNow: Long, modelLine: String) {
     val level = chat?.contextLevel ?: ContextLevel.FINE
     val color = when (level) {
         ContextLevel.FINE -> MaterialTheme.colorScheme.primary
@@ -310,6 +432,13 @@ private fun ContextStrip(chat: ChatSummary?, serverNow: Long) {
                     fontWeight = FontWeight.Medium,
                     color = color,
                     modifier = Modifier.weight(1f)
+                )
+                Text(
+                    modelLine,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             LinearProgressIndicator(
