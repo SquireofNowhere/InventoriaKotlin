@@ -100,7 +100,8 @@ private fun working(message: ChatMessage, waited: Long, everSeen: Boolean, alive
         )
     }
     val headline = when (message.activity) {
-        "starting" -> "Claude is getting started…"
+        // The listener says what the start is: a brand new chat, or an asleep one being reopened.
+        "starting" -> message.activityText?.let { "$it…" } ?: "Claude is getting started…"
         "thinking" -> "Claude is thinking…"
         "looking" -> message.activityText?.let { "$it…" } ?: "Claude is looking things up…"
         "changing" -> message.activityText?.let { "$it…" } ?: "Claude is making changes…"

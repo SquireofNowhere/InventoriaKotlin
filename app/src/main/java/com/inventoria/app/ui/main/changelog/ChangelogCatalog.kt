@@ -20,6 +20,15 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 126,
+                versionName = "2.45",
+                changes = listOf(
+                    "Every chat with Claude is now its own conversation. The chat icon opens a list of your chats, a New chat button starts another, and each one is titled from its first message and can be deleted on its own.",
+                    "Each chat keeps its own Claude running on your PC, so it remembers what was said and answers faster after the first message. A chat's session closes after an hour with no message in it, and your next message in that chat wakes it up right where you left off.",
+                    "Every chat shows how full its context is, and whether its session is open or asleep (and when it will close). As a chat fills up, it suggests starting a new one, so answers stay sharp."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 125,
                 versionName = "2.44",
                 changes = listOf(

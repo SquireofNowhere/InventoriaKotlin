@@ -1,10 +1,12 @@
 package com.inventoria.app.ui.screens.chat
 
 import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventoria.app.data.ChatMessage
 import com.inventoria.app.data.ChatRepository
+import com.inventoria.app.data.ChatSummary
 import com.inventoria.app.data.Connection
 import com.inventoria.app.data.ListenerPresence
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,10 +20,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** One chat with Claude, named by the `chatId` navigation argument. */
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val repository: ChatRepository
+    private val repository: ChatRepository,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    val chatId: String = checkNotNull(savedStateHandle["chatId"]) { "ChatScreen needs a chatId" }
 
     private val _error = MutableStateFlow<String?>(null)
     /** A listener or write failure worth telling the user about; cleared by the next send. */
@@ -30,13 +36,23 @@ class ChatViewModel @Inject constructor(
     private val _input = MutableStateFlow("")
     val input: StateFlow<String> = _input.asStateFlow()
 
-    val messages: StateFlow<List<ChatMessage>> = repository.messages()
+    val messages: StateFlow<List<ChatMessage>> = repository.messages(chatId)
         .catch { e ->
             Log.w(TAG, "Chat stream failed", e)
             _error.value = e.message ?: "Could not read the chat."
             emit(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** This chat's details from the listener (is its session open, how full is its context). Null
+     * until the chat has been sent a message, and before the first reading. */
+    val chat: StateFlow<ChatSummary?> = repository.chats()
+        .map { chats -> chats.firstOrNull { it.id == chatId } }
+        .catch { e ->
+            Log.w(TAG, "Chat details stream failed", e)
+            emit(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The listener's heartbeat; null until the first reading, so "checking" is not mistaken for "gone". */
     val presence: StateFlow<ListenerPresence?> = repository.listenerPresence()
@@ -73,9 +89,11 @@ class ChatViewModel @Inject constructor(
         if (text.isEmpty()) return
         _input.value = ""
         _error.value = null
+        // The first message creates the chat, so it needs to know it is the first.
+        val first = messages.value.isEmpty()
         viewModelScope.launch {
             try {
-                repository.send(text)
+                repository.send(chatId, text, firstMessage = first)
             } catch (e: Exception) {
                 Log.w(TAG, "Sending failed", e)
                 _error.value = e.message ?: "Could not send that."
@@ -85,13 +103,27 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun clear() {
+    /** Deletes this chat; [onDone] runs once it is gone, so the screen can leave it. */
+    fun delete(onDone: () -> Unit) {
         viewModelScope.launch {
             try {
-                repository.clear()
+                repository.deleteChat(chatId)
+                onDone()
             } catch (e: Exception) {
-                Log.w(TAG, "Clearing failed", e)
-                _error.value = e.message ?: "Could not clear the chat."
+                Log.w(TAG, "Deleting failed", e)
+                _error.value = e.message ?: "Could not delete the chat."
+            }
+        }
+    }
+
+    /** Makes the id of a new chat to move on to, for when this one is getting full. */
+    fun startNewChat(onReady: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                onReady(repository.newChatId())
+            } catch (e: Exception) {
+                Log.w(TAG, "Starting a new chat failed", e)
+                _error.value = e.message ?: "Could not start a new chat."
             }
         }
     }

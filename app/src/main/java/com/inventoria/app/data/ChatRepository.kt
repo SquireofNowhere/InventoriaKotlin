@@ -85,6 +85,57 @@ data class Connection(val connected: Boolean, val serverOffset: Long) {
 /** A message the database refused or never accepted: its text, so it can be given back to the user. */
 data class SendFailure(val text: String, val reason: String)
 
+/** How full a chat's context is, in the terms the user acts on. */
+enum class ContextLevel { FINE, GETTING_FULL, FULL }
+
+/** From here a chat is worth replacing: Claude keeps all of it in mind, and answers get slower, dearer
+ * and less sharp as it fills, well before the hard limit. */
+const val CONTEXT_GETTING_FULL_PERCENT = 60
+const val CONTEXT_FULL_PERCENT = 85
+
+fun contextLevelFor(percent: Int): ContextLevel = when {
+    percent >= CONTEXT_FULL_PERCENT -> ContextLevel.FULL
+    percent >= CONTEXT_GETTING_FULL_PERCENT -> ContextLevel.GETTING_FULL
+    else -> ContextLevel.FINE
+}
+
+/**
+ * One chat with Claude, as the app lists it. The user's side ([title], [createdAt], [updatedAt]) is
+ * written by the app; the rest is written by the agent listener, which runs one Claude session per
+ * chat on the user's PC: whether that session is open ([state]: "live" or "closed"), how full its
+ * context is, and when it last did anything, so the app can say when it will close and when a new chat
+ * is due. A chat the listener has never answered has none of that (state null, context 0).
+ */
+data class ChatSummary(
+    val id: String,
+    val title: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val state: String? = null,
+    val contextTokens: Long = 0L,
+    val contextWindow: Long = 0L,
+    val contextPercent: Int = 0,
+    val model: String? = null,
+    /** Server time of the session's last activity. */
+    val lastActiveAt: Long = 0L,
+    /** Minutes with no message after which the listener closes the session. */
+    val idleMinutes: Int = 0,
+    val closedReason: String? = null
+) {
+    val isLive: Boolean get() = state == STATE_LIVE
+    val contextLevel: ContextLevel get() = contextLevelFor(contextPercent)
+
+    /** Milliseconds until the listener closes this chat's idle session, or null when none is open. */
+    fun closesInMillis(serverNow: Long): Long? =
+        if (isLive && lastActiveAt > 0 && idleMinutes > 0) lastActiveAt + idleMinutes * 60_000L - serverNow else null
+
+    companion object {
+        const val STATE_LIVE = "live"
+        const val STATE_CLOSED = "closed"
+        const val DEFAULT_TITLE = "New chat"
+    }
+}
+
 /**
  * The chat with Claude, kept in the vault's own database node (`users/<uid>/agent_chat`) rather than
  * in Room: it is a conversation, not data to merge between devices, and the thing that answers it
@@ -114,19 +165,31 @@ class ChatRepository @Inject constructor(
         firebaseDatabase.getReference("users").child(authRepository.getOrCreateUserId()).child(NODE)
 
     /**
-     * The newest [HISTORY_LIMIT] messages, oldest first, live. Re-attaches if the synced vault
-     * changes. A listener failure (permission denied, say) closes the flow with the exception, so
-     * the collector must catch it -- see ErrorLog #19 for what an uncaught one does.
+     * The newest [HISTORY_LIMIT] messages of one chat, oldest first, live. Re-attaches if the synced
+     * vault changes. A listener failure (permission denied, say) closes the flow with the exception,
+     * so the collector must catch it -- see ErrorLog #19 for what an uncaught one does.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun messages(): Flow<List<ChatMessage>> =
+    fun messages(chatId: String): Flow<List<ChatMessage>> =
         settingsRepository.manualSyncId
             .distinctUntilChanged()
-            .map { chatRef() }
+            .map { chatRef().child(MESSAGES_KEY).child(chatId) }
             .flatMapLatest { ref -> observe(ref) }
             .let { stored ->
                 combine(stored, unconfirmed) { list, pending ->
                     if (pending.isEmpty()) list else list.map { if (it.id in pending) it.copy(sending = true) else it }
+                }
+            }
+
+    /** Every chat, most recently active first, live. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun chats(): Flow<List<ChatSummary>> =
+        settingsRepository.manualSyncId
+            .distinctUntilChanged()
+            .map { chatRef().child(CHATS_KEY) }
+            .flatMapLatest { ref ->
+                valueFlow(ref) { snapshot ->
+                    snapshot.children.mapNotNull(::decodeChat).sortedByDescending { it.updatedAt }
                 }
             }
 
@@ -202,24 +265,62 @@ class ChatRepository @Inject constructor(
         )
     }
 
+    private fun decodeChat(snapshot: DataSnapshot): ChatSummary? {
+        val id = snapshot.key ?: return null
+        fun long(name: String) = snapshot.child(name).getValue(Long::class.java) ?: 0L
+        val createdAt = long("createdAt")
+        return ChatSummary(
+            id = id,
+            title = snapshot.child("title").getValue(String::class.java)?.takeIf { it.isNotBlank() }
+                ?: ChatSummary.DEFAULT_TITLE,
+            createdAt = createdAt,
+            updatedAt = long("updatedAt").takeIf { it > 0 } ?: createdAt,
+            state = snapshot.child("state").getValue(String::class.java),
+            contextTokens = long("contextTokens"),
+            contextWindow = long("contextWindow"),
+            contextPercent = long("contextPercent").toInt().coerceIn(0, 100),
+            model = snapshot.child("model").getValue(String::class.java),
+            lastActiveAt = long("lastActiveAt"),
+            idleMinutes = long("idleMinutes").toInt(),
+            closedReason = snapshot.child("closedReason").getValue(String::class.java)
+        )
+    }
+
     /**
-     * Posts a user message. Returns once the write is queued locally, not acknowledged by the
-     * server, so the message shows at once (as "sending") and goes out when the phone is next
+     * A fresh chat's id. Nothing is written: a chat exists once its first message is sent, so backing
+     * out of an empty one leaves nothing behind in the list.
+     */
+    suspend fun newChatId(): String = chatRef().child(CHATS_KEY).push().key ?: error("No chat id")
+
+    /**
+     * Posts a user message to [chatId]. Returns once the write is queued locally, not acknowledged
+     * by the server, so the message shows at once (as "sending") and goes out when the phone is next
      * online. The server's answer arrives later: success clears "sending", and a refusal is
      * reported on [sendFailures] with the text so it can be given back.
+     *
+     * The first message of a chat also creates it, titled from that message. The message and the
+     * chat's own details go in one atomic update, and the listener's fields (state, context use) are
+     * separate children, so neither side overwrites the other.
      */
-    suspend fun send(text: String) {
-        val ref = chatRef()
-        val key = ref.push().key ?: return
+    suspend fun send(chatId: String, text: String, firstMessage: Boolean) {
+        val root = chatRef()
+        val key = root.child(MESSAGES_KEY).child(chatId).push().key ?: return
+        val now = System.currentTimeMillis()
         unconfirmed.update { it + key }
-        ref.child(key).setValue(
-            mapOf(
+        val updates = mutableMapOf<String, Any?>(
+            "$MESSAGES_KEY/$chatId/$key" to mapOf(
                 "role" to "user",
                 "text" to text,
-                "createdAt" to System.currentTimeMillis(),
+                "createdAt" to now,
                 "status" to ChatMessage.STATUS_PENDING
-            )
-        ).addOnCompleteListener { task ->
+            ),
+            "$CHATS_KEY/$chatId/updatedAt" to now
+        )
+        if (firstMessage) {
+            updates["$CHATS_KEY/$chatId/title"] = titleFrom(text)
+            updates["$CHATS_KEY/$chatId/createdAt"] = now
+        }
+        root.updateChildren(updates).addOnCompleteListener { task ->
             unconfirmed.update { it - key }
             if (!task.isSuccessful) {
                 val reason = task.exception?.message ?: "The server refused it."
@@ -229,20 +330,38 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    /** Wipes the whole conversation, answers included -- but not the listener's heartbeat, which is
-     * not part of it and would otherwise read as "PC offline" until its next beat. */
-    suspend fun clear() {
-        val ref = chatRef()
-        val keys = ref.get().await().children.mapNotNull { it.key }.filter { it != LISTENER_KEY }
-        if (keys.isNotEmpty()) ref.updateChildren(keys.associateWith { null }).await()
+    /**
+     * Removes a chat: its messages and its details together. The listener is not told, so a session
+     * it still has open for the chat simply idles out; nothing can reopen it, as its messages are gone.
+     * The listener's own heartbeat is a sibling of both and is left alone.
+     */
+    suspend fun deleteChat(chatId: String) {
+        chatRef().updateChildren(
+            mapOf("$CHATS_KEY/$chatId" to null, "$MESSAGES_KEY/$chatId" to null)
+        ).await()
     }
 
     companion object {
         private const val TAG = "ChatRepository"
         const val NODE = "agent_chat"
 
+        /** Where each chat's details (title, state, context use) and its messages live under [NODE]. */
+        const val CHATS_KEY = "chats"
+        const val MESSAGES_KEY = "messages"
+
         /** Not a message: `decode` skips it because it has no text. Sorts after every push id. */
         const val LISTENER_KEY = "_listener"
         const val HISTORY_LIMIT = 200
+        private const val TITLE_LENGTH = 40
+
+        /** A chat's title from its first message: the first line, cut short. */
+        fun titleFrom(text: String): String {
+            val line = text.trim().lineSequence().firstOrNull()?.trim().orEmpty()
+            return when {
+                line.isEmpty() -> ChatSummary.DEFAULT_TITLE
+                line.length <= TITLE_LENGTH -> line
+                else -> line.take(TITLE_LENGTH).trimEnd() + "…"
+            }
+        }
     }
 }

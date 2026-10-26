@@ -2,33 +2,41 @@
 """Answers Claude requests from Inventoria, using your own Claude login.
 
 Two things start a run:
-  * The in-app chat. The app writes a message to `agent_chat`; this answers it and writes the
-    reply back, which the app shows as Claude's bubble.
-  * A todo titled "@claude ...". The reply goes into the todo's description and it is ticked off.
+  * The in-app chat. Every chat in the app is its own conversation, and gets its own long-lived
+    Claude session here (a `claude -p` process in streaming-input mode: that chat's "terminal").
+    Messages are fed to it as they arrive, so it keeps its context and its loaded tools between
+    messages. After an hour with no message in that chat the session closes; the next message
+    restarts it where it left off (`--resume`). How full each chat's context is gets written back
+    so the app can say when a new chat is due.
+  * A todo titled "@claude ...". A one-off run: the reply goes into the todo's description and the
+    todo is ticked off.
 
 How it works
   * Signs in with the credentials the Inventoria MCP server already keeps in ~/.inventoria-mcp/
     (config.json, session.json, vault.json) -- the same anonymous, invite-joined Firebase user.
-  * Streams the vault's `todos` and `agent_chat` nodes over Firebase's server-sent-events REST API.
-    No polling.
-  * Each trigger starts one `claude -p` run, one at a time, locked down to the Inventoria MCP tools
-    (the delete tools and import_vault are denied; no shell, no file access).
+  * Streams the vault's `todos` and the chat's `agent_chat/chats` and `agent_chat/messages` nodes
+    over Firebase's server-sent-events REST API. No polling.
+  * Every run is locked down to the Inventoria MCP tools (the delete tools and import_vault are
+    denied; no shell, no file access).
 
 The chat's `agent_chat` node needs the rule in database.rules.json pasted into the Firebase console
 (rules are not deployed from the repo), or the replies are refused.
 
 A todo is handled once, remembered in agent-listener-state.json next to the credentials; the first
 ever start marks existing "@claude" todos as handled. A chat message's own `status` field records
-where it is (pending -> working -> done/error), so nothing is remembered for chat.
+where it is (pending -> working -> done/error), so nothing is remembered for chat messages.
 
-Usage:  python listener.py [--dry-run] [--settle SECONDS] [--timeout SECONDS]
+Usage:  python listener.py [--dry-run] [--idle-minutes N] [--max-sessions N] [--timeout SECONDS]
+        python listener.py --selftest     (talk to a real Claude session once and print what it says)
   --dry-run   print what would run, never start Claude or change anything
 Stdlib only. Stop with Ctrl+C.
 """
 import argparse
+import copy
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -43,8 +51,16 @@ from queue import Empty, Queue
 
 TRIGGER = "@claude"
 CHAT_NODE = "agent_chat"
-# How much of the conversation a chat run is shown.
+# Where the chats' own details (title, state, context use) and their messages live under CHAT_NODE.
+CHATS_KEY = "chats"
+MESSAGES_KEY = "messages"
+# How much of an earlier conversation is replayed to a session that could not be resumed.
 CHAT_CONTEXT_MESSAGES = 20
+# A chat's session closes after this long with no message in it, and a message restarts it.
+DEFAULT_IDLE_MINUTES = 60
+# Each live session is a `claude` process plus its own MCP server, so only so many stay open at once;
+# the least recently used idle one is closed to make room (its chat resumes on its next message).
+DEFAULT_MAX_SESSIONS = 3
 # The listener's heartbeat lives beside the messages (it has no `text`, so the app skips it as one).
 # '_' sorts after every push id, so it never lands inside a conversation's history.
 LISTENER_KEY = "_listener"
@@ -296,12 +312,18 @@ def find_java():
     return None, reason  # not cached: installing Java should not need a restart
 
 
-def invoke_claude(home, prompt, timeout, on_event=None):
-    """One locked-down `claude -p` run. Returns (ok, stdout, error_text)."""
+def claude_command():
+    """The `claude` executable as an argv prefix. INVENTORIA_CLAUDE_CMD overrides it (for tests)."""
+    override = os.environ.get("INVENTORIA_CLAUDE_CMD")
+    if override:
+        return shlex.split(override)
     claude = shutil.which("claude")
-    if not claude:
-        return False, "", "`claude` is not on PATH"
-    # Only the Inventoria server, so a run cannot reach Mixar, Flow, REA or anything else.
+    return [claude] if claude else None
+
+
+def write_mcp_config(home):
+    """Writes the MCP config that loads only the Inventoria server and returns (path, None), or
+    (None, why-not). Only that server, so a run cannot reach Mixar, Flow, REA or anything else."""
     jar = os.environ.get("INVENTORIA_MCP_JAR") or str(
         Path(__file__).resolve().parents[2] / "mcpServer" / "build" / "libs" / "inventoria-mcp-all.jar"
     )
@@ -309,30 +331,41 @@ def invoke_claude(home, prompt, timeout, on_event=None):
     if not java:
         # Without this the server dies at startup, Claude runs with no tools, and the user's chat
         # gets a puzzling "I couldn't check" instead of the actual reason.
-        return False, "", java_problem
-    mcp_config = home / "agent-listener-mcp.json"
-    mcp_config.write_text(json.dumps({
+        return None, java_problem
+    path = home / "agent-listener-mcp.json"
+    path.write_text(json.dumps({
         "mcpServers": {"inventoria": {"command": java, "args": ["-jar", jar]}}
     }), encoding="utf-8")
-    command = [
-        claude, "-p", prompt,
+    return path, None
+
+
+def locked_down_flags(mcp_config):
+    flags = [
         "--strict-mcp-config", "--mcp-config", str(mcp_config),
         "--allowedTools", "mcp__inventoria",
         "--disallowedTools", *DENIED_TOOLS,
-        "--no-session-persistence",
     ]
     if not USE_API_KEY:
         # Skip ~/.claude/settings.json: it can carry an apiKeyHelper or a proxy URL that would send
         # the run to an API key instead of the subscription login.
-        command += ["--setting-sources", "project"]
+        flags += ["--setting-sources", "project"]
+    return flags
+
+
+def invoke_claude(home, prompt, timeout):
+    """One locked-down, one-off `claude -p` run. Returns (ok, stdout, error_text)."""
+    claude = claude_command()
+    if not claude:
+        return False, "", "`claude` is not on PATH"
+    mcp_config, problem = write_mcp_config(home)
+    if not mcp_config:
+        return False, "", problem
+    command = claude + ["-p", prompt, *locked_down_flags(mcp_config), "--no-session-persistence"]
     try:
         # cwd is the credentials folder, not a repo, so no project CLAUDE.md or settings load.
-        if on_event:
-            result = run_streaming(command, home, clean_env(), timeout, on_event)
-        else:
-            result = subprocess.run(
-                command, cwd=home, env=clean_env(), capture_output=True, text=True, timeout=timeout
-            )
+        result = subprocess.run(
+            command, cwd=home, env=clean_env(), capture_output=True, text=True, timeout=timeout
+        )
     except subprocess.TimeoutExpired:
         return False, "", f"timed out after {timeout}s"
     out = (result.stdout or "").strip()
@@ -437,56 +470,542 @@ def make_progress_reporter(write_activity):
     return report
 
 
-def run_streaming(command, cwd, env, timeout, on_event):
-    """Like subprocess.run(capture_output=True) for a `claude -p` command, but reads its
-    stream-json output as it arrives and hands each event to `on_event`. The returned
-    CompletedProcess carries the final reply as stdout, so callers treat it like a plain run."""
-    process = subprocess.Popen(
-        command + ["--output-format", "stream-json", "--verbose"], cwd=cwd, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-    )
-    timed_out = threading.Event()
+# --- per-chat sessions --------------------------------------------------------------------------
 
-    def kill():
-        timed_out.set()
+EOF = object()  # put on a session's event queue when its output ends
+
+
+def kill_tree(process):
+    """Stops a `claude` process and what it started (its MCP server): on Windows a plain kill()
+    leaves the children running."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
+    else:
         process.kill()
 
-    timer = threading.Timer(timeout, kill)
-    timer.start()
-    errors = []
-    reader = threading.Thread(target=lambda: errors.append(process.stderr.read()), daemon=True)
-    reader.start()
-    final = None
-    stray = []
-    try:
-        for line in process.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except ValueError:
-                stray.append(line)
-                continue
-            if isinstance(event, dict):
-                if event.get("type") == "result":
-                    final = event
+
+class ClaudeSession:
+    """One long-lived `claude -p` process in streaming-input mode: a single chat's own "terminal".
+    Messages go in as JSON lines on stdin and events come back as JSON lines on stdout, so the
+    process keeps its context (and its loaded MCP server) from one message to the next."""
+
+    def __init__(self, command, cwd, env):
+        self.process = subprocess.Popen(
+            command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
+        self.events = Queue()
+        self.stray = []   # stdout lines that were not JSON: often the real error text
+        self.errors = []  # stderr lines
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+        threading.Thread(target=self._read_stderr, daemon=True).start()
+
+    def _read_stdout(self):
+        try:
+            for line in self.process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
                 try:
-                    on_event(event)
-                except Exception as error:
-                    log(f"Could not handle a Claude event: {error}")
-        process.wait()
-    finally:
-        timer.cancel()
-    reader.join(timeout=5)
-    if timed_out.is_set():
-        raise subprocess.TimeoutExpired(command, timeout)
-    returncode = process.returncode
-    reply = (final or {}).get("result") or ""
-    if final and final.get("is_error") and returncode == 0:
-        returncode = 1
-    # No result event at all (a crash, an unsupported flag): the raw output is the best explanation.
-    return subprocess.CompletedProcess(command, returncode, reply or "\n".join(stray), "".join(errors))
+                    event = json.loads(line)
+                except ValueError:
+                    self.stray.append(line)
+                    continue
+                if isinstance(event, dict):
+                    self.events.put(event)
+        except (ValueError, OSError):
+            pass  # close() shut the pipe under us
+        self.events.put(EOF)
+
+    def _read_stderr(self):
+        try:
+            self.errors.extend(self.process.stderr)
+        except (ValueError, OSError):
+            pass
+
+    def send(self, text):
+        line = json.dumps({"type": "user", "message": {"role": "user", "content": text}})
+        self.process.stdin.write(line + "\n")
+        self.process.stdin.flush()
+
+    def alive(self):
+        return self.process.poll() is None
+
+    def failure_text(self):
+        """Why the process ended, as best it can be told: stderr, else stray stdout, else its exit code."""
+        text = "".join(self.errors).strip() or "\n".join(self.stray).strip()
+        if text:
+            return text[-400:]
+        code = self.process.poll()
+        return f"exit code {code}" if code is not None else "no reason given"
+
+    def close(self):
+        """Ends the session: closing stdin is how a streaming `claude -p` is told it is done."""
+        try:
+            self.process.stdin.close()
+        except Exception:
+            pass
+        try:
+            self.process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            pass
+        kill_tree(self.process)
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        for pipe in (self.process.stdout, self.process.stderr):
+            try:
+                pipe.close()
+            except Exception:
+                pass
+
+
+def run_turn(session, text, on_event, timeout, stop=None):
+    """Feeds one user message to `session` and waits for that turn's result event. Every event on the
+    way goes to `on_event`. Returns (result_event, None), or (None, why-it-failed) when the session
+    ended, hung past `timeout`, or the listener was stopped."""
+    try:
+        session.send(text)
+    except (OSError, ValueError) as error:
+        return None, session.failure_text() if not session.alive() else f"could not reach the session ({error})"
+    deadline = time.time() + timeout
+    while True:
+        if stop is not None and stop.is_set():
+            return None, "the listener was stopped"
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return None, f"timed out after {timeout}s"
+        try:
+            event = session.events.get(timeout=min(remaining, 1))
+        except Empty:
+            continue
+        if event is EOF:
+            return None, session.failure_text()
+        on_event(event)
+        if event.get("type") == "result":
+            return event, None
+
+
+def default_window(model):
+    """The context window to assume when Claude has not said: the 1M variants say so in their name."""
+    return 1_000_000 if model and re.search(r"1m\b", str(model).lower()) else 200_000
+
+
+class ContextMeter:
+    """Tracks how full a session's context is, from the usage Claude reports. The size of the context
+    is the size of the last prompt it was sent plus the reply it just wrote (that reply is part of the
+    next prompt) -- not the sum over a turn's calls, which counts the same text several times."""
+
+    def __init__(self, previous=None):
+        previous = previous or {}
+        self.tokens = int(previous.get("contextTokens") or 0)
+        self.window = int(previous.get("contextWindow") or 0)
+        self.model = previous.get("model")
+
+    def observe(self, event):
+        kind = event.get("type")
+        if kind == "system" and event.get("subtype") == "init":
+            self.model = event.get("model") or self.model
+        elif kind == "assistant" and not event.get("parent_tool_use_id"):
+            usage = (event.get("message") or {}).get("usage") or {}
+            used = sum(int(usage.get(key) or 0) for key in (
+                "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))
+            if used:
+                self.tokens = used
+        elif kind == "result":
+            for info in (event.get("modelUsage") or {}).values():
+                window = int((info or {}).get("contextWindow") or 0)
+                if window:
+                    self.window = max(self.window, window)
+
+    def snapshot(self):
+        window = self.window or default_window(self.model)
+        percent = min(100, round(100 * self.tokens / window)) if window and self.tokens else 0
+        fields = {"contextTokens": self.tokens, "contextWindow": window, "contextPercent": percent}
+        if self.model:
+            fields["model"] = self.model
+        return fields
+
+
+SERVER_TIME = {".sv": "timestamp"}  # Firebase fills this in with its own clock
+
+
+class ChatWorker(threading.Thread):
+    """Everything for one chat: its message queue, its session, and its idle timer. Messages in a
+    chat are answered strictly in order; different chats run side by side."""
+
+    def __init__(self, manager, chat_id):
+        super().__init__(daemon=True, name=f"chat-{chat_id}")
+        self.manager = manager
+        self.chat_id = chat_id
+        self.queue = Queue()
+        self.lock = threading.Lock()  # held for a whole turn, and while the session opens or closes
+        self.session = None
+        self.last_active = time.time()
+        self.busy = False
+        self.resume_id = None   # the Claude session id to pick this chat back up with
+        self.meter = ContextMeter()
+        self._hydrated = False
+        self._resumed = False   # this session was started with --resume
+        self._spoke = False     # ... and has produced at least one event
+        self._primed = True     # false: the next message needs the earlier conversation attached
+
+    # -- the thread --
+    def run(self):
+        manager = self.manager
+        while not manager.stop.is_set():
+            try:
+                message_id = self.queue.get(timeout=1)
+            except Empty:
+                self._close_if_idle()
+                if self.session is None and manager.retire(self):
+                    return
+                continue
+            self._handle(message_id)
+        with self.lock:
+            self._close_session("the listener stopped")
+
+    def _close_if_idle(self):
+        if self.session is None or time.time() - self.last_active < self.manager.idle_seconds:
+            return
+        if self.lock.acquire(blocking=False):
+            try:
+                self._close_session("idle")
+            finally:
+                self.lock.release()
+
+    def try_close_for_room(self):
+        """Called by another chat that needs a slot. Only an idle session is given up."""
+        if not self.lock.acquire(blocking=False):
+            return False
+        try:
+            if self.session is None or self.busy:
+                return False
+            self._close_session("to make room for another chat")
+            return True
+        finally:
+            self.lock.release()
+
+    # -- one message --
+    def _handle(self, message_id):
+        manager = self.manager
+        message = manager.message(self.chat_id, message_id)
+        if not is_chat_trigger(message):
+            manager.done(self.chat_id, message_id)
+            return
+        with self.lock:
+            self.busy = True
+            try:
+                self._answer(message_id, message)
+            except Exception as error:  # one bad message must not kill the chat's thread
+                log(f"Chat {self.chat_id}: unexpected error on {message_id}: {error!r}")
+            finally:
+                self.busy = False
+                self.last_active = time.time()
+                manager.done(self.chat_id, message_id)
+
+    def _hydrate(self):
+        """Learns what the database remembers of this chat. Waits for the chats' first snapshot, or a
+        restarted listener would not know which session to resume."""
+        if self._hydrated:
+            return
+        self.manager.chats_ready.wait(15)
+        meta = self.manager.chat_meta(self.chat_id)
+        self.resume_id = meta.get("sessionId")
+        self.meter = ContextMeter(meta)
+        self._hydrated = True
+
+    def _answer(self, message_id, message):
+        manager = self.manager
+        cid = self.chat_id
+        self._hydrate()
+        text = str(message.get("text", ""))
+        if manager.dry_run:
+            log(f"[dry run] would answer chat {cid} message {message_id}: {text!r}")
+            return
+        claim = {"status": "working", "activity": "starting"}
+        if self.session is None:
+            claim["activityText"] = "Reopening this chat" if self.resume_id else "Starting this chat"
+        try:
+            manager.write_message(cid, message_id, claim)
+        except urllib.error.HTTPError as error:
+            log(f"Could not claim chat message {message_id} (HTTP {error.code}). If this is 401, the "
+                f"{CHAT_NODE} rule from database.rules.json is not in the Firebase console yet.")
+            return
+        log(f"Answering chat {cid} message {message_id}: {text!r}")
+
+        progress = make_progress_reporter(
+            lambda phase, label: manager.write_message(cid, message_id, {"activity": phase, "activityText": label})
+        )
+        result, failure = None, None
+        for attempt in (1, 2):
+            if self.session is None:
+                failure = self._open_session()
+                if failure:
+                    break
+            prompt = text
+            if not self._primed:
+                prompt = priming_text(manager.history(cid, message_id)[:-1], text)
+                self._primed = True
+            result, failure = run_turn(
+                self.session, prompt, lambda event: self._on_event(event, progress), manager.timeout, manager.stop
+            )
+            if result is not None:
+                break
+            resume_failed = self._resumed and not self._spoke
+            self._discard_session(failure)
+            if resume_failed and attempt == 1:
+                # The saved session is gone or unreadable: start over, handing the transcript back.
+                log(f"Chat {cid}: could not resume session {self.resume_id}; starting fresh with the transcript")
+                self.resume_id = None
+                continue
+            break
+
+        status = "error"
+        if result is not None and not result.get("is_error"):
+            reply_text = str(result.get("result") or "").strip()
+            if reply_text:
+                status = "done"
+            else:
+                reply_text = "Sorry, I had no answer for that."
+        else:
+            reason = str((result or {}).get("result") or failure or "no reply")
+            log(f"Chat {cid}: run failed: {reason[:400]!r}")
+            reply_text = f"Sorry, I couldn't answer that: {reason[:200]}"
+        try:
+            manager.reply(cid, message_id, reply_text, status)
+        except urllib.error.URLError as error:
+            log(f"Could not write the reply to {message_id}: {error}")
+        self._publish_state()
+
+    def _on_event(self, event, progress):
+        self._spoke = True
+        self.meter.observe(event)
+        session_id = event.get("session_id")
+        if session_id:
+            self.resume_id = session_id
+        progress(event)
+
+    # -- the session --
+    def _open_session(self):
+        """Starts this chat's `claude` process. Returns why it could not, or None."""
+        manager = self.manager
+        claude = claude_command()
+        if not claude:
+            return "`claude` is not on PATH"
+        mcp_config, problem = write_mcp_config(manager.home)
+        if not mcp_config:
+            return problem
+        manager.make_room(self)
+        command = claude + [
+            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            *locked_down_flags(mcp_config),
+            # One line: a newline inside an argument does not survive every launcher on Windows.
+            "--append-system-prompt", " ".join(CHAT_SYSTEM_PROMPT.split()),
+        ]
+        if self.resume_id:
+            command += ["--resume", self.resume_id]
+        try:
+            self.session = ClaudeSession(command, manager.home, clean_env())
+        except OSError as error:
+            return f"could not start Claude: {error}"
+        self._resumed = bool(self.resume_id)
+        self._spoke = False
+        self._primed = bool(self.resume_id)  # a resumed session remembers; a fresh one is told
+        log(f"Chat {self.chat_id}: opened a session" + (f" (resuming {self.resume_id})" if self.resume_id else ""))
+        manager.write_meta(self.chat_id, {
+            "state": "live", "closedReason": None, "idleMinutes": manager.idle_minutes,
+            "lastActiveAt": SERVER_TIME,
+        })
+        return None
+
+    def _discard_session(self, why):
+        session, self.session = self.session, None
+        if session is not None:
+            session.close()
+        log(f"Chat {self.chat_id}: the session ended ({str(why)[:200]})")
+        self._publish_state()
+
+    def _close_session(self, reason):
+        session, self.session = self.session, None
+        if session is None:
+            return
+        session.close()
+        log(f"Chat {self.chat_id}: closed its session ({reason})")
+        self.manager.write_meta(self.chat_id, {
+            "state": "closed", "closedReason": reason, **self._context_fields(),
+        })
+
+    def _context_fields(self):
+        fields = self.meter.snapshot()
+        if self.resume_id:
+            fields["sessionId"] = self.resume_id
+        return fields
+
+    def _publish_state(self):
+        """What the app shows about this chat after a turn: is it live, and how full is its context."""
+        self.manager.write_meta(self.chat_id, {
+            "state": "live" if self.session is not None else "closed",
+            "idleMinutes": self.manager.idle_minutes,
+            "lastActiveAt": SERVER_TIME,
+            **self._context_fields(),
+        })
+
+
+class ChatManager:
+    """Owns the chats' workers and mirrors of `agent_chat/chats` (each chat's details) and
+    `agent_chat/messages` (what was said, per chat). A chat gets a worker the first time one of its
+    messages needs answering, and loses it once its session has closed and nothing is waiting."""
+
+    def __init__(self, vault, home, args, stop):
+        self.vault = vault
+        self.home = home
+        self.stop = stop
+        self.dry_run = args.dry_run
+        self.timeout = args.timeout
+        self.idle_minutes = args.idle_minutes
+        self.idle_seconds = args.idle_minutes * 60
+        self.max_sessions = max(1, args.max_sessions)
+        self.lock = threading.Lock()
+        self.workers = {}
+        self.pending = set()  # (chat, message) queued or being answered
+        self.messages = {}    # chat id -> {message id -> message}
+        self.chats = {}       # chat id -> details
+        self.chats_ready = threading.Event()
+
+    # -- reading what the database says --
+    def chat_meta(self, chat_id):
+        return dict(self.chats.get(chat_id) or {})
+
+    def message(self, chat_id, message_id):
+        return (self.messages.get(chat_id) or {}).get(message_id)
+
+    def history(self, chat_id, upto_id):
+        return chat_history(self.messages.get(chat_id) or {}, upto_id)
+
+    # -- writing to it --
+    def _write(self, node, fields, method="PATCH"):
+        self.vault.write(node, fields, method=method)
+
+    def write_meta(self, chat_id, fields):
+        """Details are a courtesy to the app: a failed write is logged, never fatal."""
+        if self.dry_run:
+            return
+        try:
+            self._write(f"{CHAT_NODE}/{CHATS_KEY}/{chat_id}", fields)
+        except Exception as error:
+            log(f"Could not update chat {chat_id}'s details: {error}")
+
+    def write_message(self, chat_id, message_id, fields):
+        self._write(f"{CHAT_NODE}/{MESSAGES_KEY}/{chat_id}/{message_id}", fields)
+
+    def reply(self, chat_id, message_id, text, status):
+        """Writes Claude's bubble, then closes the user's message. The reply's key sorts straight
+        after its question and before any later one ('~' is not in the push-id alphabet)."""
+        base = f"{CHAT_NODE}/{MESSAGES_KEY}/{chat_id}"
+        self._write(f"{base}/{message_id}~r", {
+            "role": "assistant", "text": text, "createdAt": int(time.time() * 1000), "replyTo": message_id,
+        }, method="PUT")
+        # null deletes a key, so the progress line goes away with the wait.
+        self._write(f"{base}/{message_id}", {"status": status, "activity": None, "activityText": None})
+
+    # -- what the streams report --
+    def on_chats(self, mirror):
+        self.chats = copy.deepcopy(mirror)
+        first = not self.chats_ready.is_set()
+        self.chats_ready.set()
+        if first and not self.dry_run:
+            # Whatever was "live" belonged to a listener that is gone: its processes died with it.
+            for chat_id, meta in self.chats.items():
+                if isinstance(meta, dict) and meta.get("state") in ("live", "starting"):
+                    self.write_meta(chat_id, {"state": "closed", "closedReason": "the listener restarted"})
+
+    def on_messages(self, mirror, first=False):
+        self.messages = copy.deepcopy(mirror)
+        if first:
+            self._recover_stuck()
+        self._consider()
+
+    def _consider(self):
+        for chat_id, messages in list(self.messages.items()):
+            if not isinstance(messages, dict):
+                continue
+            for message_id in sorted(messages):
+                if is_chat_trigger(messages[message_id]):
+                    self.submit(chat_id, message_id)
+
+    def _recover_stuck(self):
+        # A message left "working" by a listener that died mid-run would spin in the app forever.
+        for chat_id, messages in list(self.messages.items()):
+            if not isinstance(messages, dict):
+                continue
+            for message_id, message in list(messages.items()):
+                stuck = (isinstance(message, dict) and message.get("role") == "user"
+                         and message.get("status") == "working")
+                with self.lock:
+                    if not stuck or (chat_id, message_id) in self.pending:
+                        continue
+                if self.dry_run:
+                    log(f"[dry run] would mark stuck message {message_id} as failed")
+                    continue
+                try:
+                    self.reply(chat_id, message_id, "The listener stopped while working on this. Please ask again.", "error")
+                    log(f"Marked stuck chat message {message_id} as failed")
+                except urllib.error.URLError as error:
+                    log(f"Could not recover chat message {message_id}: {error}")
+
+    # -- workers --
+    def submit(self, chat_id, message_id):
+        with self.lock:
+            key = (chat_id, message_id)
+            if key in self.pending:
+                return
+            self.pending.add(key)
+            worker = self.workers.get(chat_id)
+            if worker is None:
+                worker = ChatWorker(self, chat_id)
+                self.workers[chat_id] = worker
+                worker.start()
+            worker.queue.put(message_id)
+
+    def done(self, chat_id, message_id):
+        with self.lock:
+            self.pending.discard((chat_id, message_id))
+
+    def retire(self, worker):
+        """A worker with no session and nothing queued goes away. Checked under the same lock as
+        submit(), so a message can never be queued to a worker that is leaving."""
+        with self.lock:
+            if worker.queue.empty() and self.workers.get(worker.chat_id) is worker:
+                del self.workers[worker.chat_id]
+                return True
+            return False
+
+    def make_room(self, requester):
+        """Before opening a session: if too many are open, close the least recently used idle ones."""
+        with self.lock:
+            live = [w for w in self.workers.values() if w is not requester and w.session is not None]
+        excess = len(live) + 1 - self.max_sessions
+        for worker in sorted(live, key=lambda w: w.last_active):
+            if excess <= 0:
+                break
+            if worker.try_close_for_room():
+                excess -= 1
+
+    def any_busy(self):
+        with self.lock:
+            return any(w.busy for w in self.workers.values())
+
+    def shutdown(self):
+        """Closes every session, so no `claude` process (or its MCP server) is left behind."""
+        self.stop.set()
+        with self.lock:
+            workers = list(self.workers.values())
+        for worker in workers:
+            worker.join(timeout=20)
 
 
 def todo_prompt(todo_id, todo):
@@ -505,24 +1024,30 @@ and do nothing beyond them. Deleting and importing are not available to you. If 
 request, say why in the description and still mark the todo COMPLETE so it does not run again."""
 
 
-def chat_prompt(history):
-    lines = []
-    for message in history:
-        who = "User" if message.get("role") == "user" else "Claude"
-        lines.append(f"{who}: {message.get('text', '')}")
-    transcript = "\n".join(lines)
-    return f"""You are Claude, chatting with the user inside their Inventoria app, on their phone.
+CHAT_SYSTEM_PROMPT = """You are Claude, chatting with the user inside their Inventoria app, on their phone.
 You can read and edit their vault (todos, items, collections, timers, the schedule) with the
 Inventoria tools. When a question is about their data, look it up with the tools rather than
 guessing, and when they ask for a change, make it and say what you did. Deleting and importing are
 not available to you.
 
-Write for a small chat bubble: short, plain text, no markdown headings or tables.
+Write for a small chat bubble: short, plain text, no markdown headings or tables."""
 
-The conversation so far, oldest first:
-{transcript}
 
-Reply to the last User message only."""
+def priming_text(history, text):
+    """The first message to a session that has no memory of this chat -- a new one, or one that could
+    not be resumed -- so it carries the earlier conversation along."""
+    if not history:
+        return text
+    lines = []
+    for message in history:
+        who = "User" if message.get("role") == "user" else "Claude"
+        lines.append(f"{who}: {message.get('text', '')}")
+    transcript = "\n".join(lines)
+    return (
+        "This chat already has history; your own memory of it was lost, so here it is, oldest first:\n"
+        f"{transcript}\n\n"
+        f"The user's new message (reply to this one only):\n{text}"
+    )
 
 
 # --- the two triggers ---------------------------------------------------------------------------
@@ -545,6 +1070,63 @@ def chat_history(mirror, upto_id):
     return ordered[-CHAT_CONTEXT_MESSAGES:]
 
 
+def selftest(home, timeout):
+    """Talks to one real Claude session, twice, with no database involved. Shows whether the login
+    works, whether a session keeps its memory between messages, and what the context meter reads."""
+    claude = claude_command()
+    if not claude:
+        print("`claude` is not on PATH")
+        return 1
+    mcp_config, problem = write_mcp_config(home)
+    if not mcp_config:
+        print(problem)
+        return 1
+    command = claude + [
+        "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+        *locked_down_flags(mcp_config), "--append-system-prompt", " ".join(CHAT_SYSTEM_PROMPT.split()),
+    ]
+    session = ClaudeSession(command, home, clean_env())
+    meter = ContextMeter()
+    code = 0
+    try:
+        for question in (
+            "Reply with the single word: pineapple. Do not use any tools.",
+            "Which single word did I just ask you to reply with? Answer with that word only.",
+        ):
+            print(f"You:    {question}", flush=True)
+            result, failure = run_turn(session, question, meter.observe, timeout)
+            if result is None or result.get("is_error"):
+                print(f"FAILED: {(result or {}).get('result') or failure}")
+                code = 1
+                break
+            print(f"Claude: {result.get('result')}")
+            print(f"        session {result.get('session_id')}, context {meter.snapshot()}", flush=True)
+            session_id = result.get("session_id")
+    finally:
+        session.close()
+    if code != 0:
+        return code
+    print("OK: the session answered twice and kept its memory between messages.")
+
+    # The session has been closed, as the idle timer does. A later message reopens it with --resume.
+    print("\nClosed that session. Reopening it with --resume, as the next message in an idle chat would...",
+          flush=True)
+    resumed = ClaudeSession(command + ["--resume", session_id], home, clean_env())
+    try:
+        question = "Which single word did I first ask you to reply with? Answer with that word only."
+        print(f"You:    {question}", flush=True)
+        result, failure = run_turn(resumed, question, meter.observe, timeout)
+        if result is None or result.get("is_error"):
+            print(f"FAILED to resume: {(result or {}).get('result') or failure}")
+            return 1
+        print(f"Claude: {result.get('result')}")
+        print(f"        session {result.get('session_id')}, context {meter.snapshot()}", flush=True)
+    finally:
+        resumed.close()
+    print("OK: a closed session came back with its conversation.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true")
@@ -552,9 +1134,17 @@ def main():
     parser.add_argument("--timeout", type=int, default=600, help="seconds one Claude run may take")
     parser.add_argument("--use-api-key", action="store_true",
                         help="use the environment's ANTHROPIC_API_KEY / user settings instead of the subscription login")
+    parser.add_argument("--idle-minutes", type=int, default=DEFAULT_IDLE_MINUTES,
+                        help="minutes with no message before a chat's session closes (a new message reopens it)")
+    parser.add_argument("--max-sessions", type=int, default=DEFAULT_MAX_SESSIONS,
+                        help="most chat sessions open at once; the least recently used idle one is closed to make room")
+    parser.add_argument("--selftest", action="store_true",
+                        help="talk to one real Claude session twice and print what it says, then exit")
     args = parser.parse_args()
     global USE_API_KEY
     USE_API_KEY = args.use_api_key
+    if args.selftest:
+        return selftest(home_dir(), args.timeout)
 
     home = home_dir()
     vault = Vault(home)
@@ -623,112 +1213,15 @@ def main():
                 ok, out, err = invoke_claude(home, todo_prompt(todo_id, todo), args.timeout)
             log(f"Todo {todo_id}: {'ok' if ok else 'FAILED'} - {(out if ok else err)[:400]!r}")
 
-    # ---- chat ----
-    chat_queue = Queue()
-    chat_queued = set()
-    in_flight = set()
-    chat_lock = threading.Lock()
-    chat = {}
+    # ---- chat: one Claude session per chat (see ChatManager) ----
+    manager = ChatManager(vault, home, args, stop)
 
-    def consider_chat(mirror):
-        for message_id, message in list(mirror.items()):
-            if is_chat_trigger(message):
-                with chat_lock:
-                    if message_id in chat_queued or message_id in in_flight:
-                        continue
-                    chat_queued.add(message_id)
-                chat_queue.put(message_id)
-
-    def reply(user_id, text, status):
-        """Write Claude's bubble, then close the user's message. The reply's key sorts straight
-        after its question and before any later one ('~' is not in the push-id alphabet)."""
-        vault.write(f"{CHAT_NODE}/{user_id}~r", {
-            "role": "assistant", "text": text, "createdAt": int(time.time() * 1000), "replyTo": user_id,
-        })
-        # null deletes a key, so the progress line goes away with the wait.
-        vault.write(
-            f"{CHAT_NODE}/{user_id}", {"status": status, "activity": None, "activityText": None}, method="PATCH"
-        )
-
-    def recover_stuck(mirror):
-        # A message left "working" by a listener that died mid-run would spin in the app forever.
-        for message_id, message in list(mirror.items()):
-            if isinstance(message, dict) and message.get("role") == "user" and message.get("status") == "working":
-                with chat_lock:
-                    if message_id in in_flight:
-                        continue
-                if args.dry_run:
-                    log(f"[dry run] would mark stuck message {message_id} as failed")
-                    continue
-                try:
-                    reply(message_id, "The listener stopped while working on this. Please ask again.", "error")
-                    log(f"Marked stuck chat message {message_id} as failed")
-                except urllib.error.URLError as error:
-                    log(f"Could not recover chat message {message_id}: {error}")
-
-    def on_chat_snapshot(mirror):
-        chat.clear()
-        chat.update(mirror)
-        recover_stuck(mirror)
-        consider_chat(mirror)
-
-    def on_chat_change(mirror):
-        chat.clear()
-        chat.update(mirror)
-        consider_chat(mirror)
-
-    def chat_worker():
-        while not stop.is_set():
-            try:
-                message_id = chat_queue.get(timeout=1)
-            except Empty:
-                continue
-            with chat_lock:
-                chat_queued.discard(message_id)
-                message = chat.get(message_id)
-                if not is_chat_trigger(message):
-                    continue
-                in_flight.add(message_id)
-            try:
-                if args.dry_run:
-                    log(f"[dry run] would answer chat message {message_id}: {message.get('text')!r}")
-                    continue
-                try:
-                    vault.write(
-                        f"{CHAT_NODE}/{message_id}", {"status": "working", "activity": "starting"}, method="PATCH"
-                    )
-                except urllib.error.HTTPError as error:
-                    log(f"Could not claim chat message {message_id} (HTTP {error.code}). If this is 401, the "
-                        f"{CHAT_NODE} rule from database.rules.json is not in the Firebase console yet.")
-                    continue
-                log(f"Answering chat message {message_id}: {message.get('text')!r}")
-                with run_lock:
-                    progress = make_progress_reporter(
-                        lambda phase, label, key=message_id: vault.write(
-                            f"{CHAT_NODE}/{key}", {"activity": phase, "activityText": label}, method="PATCH"
-                        )
-                    )
-                    ok, out, err = invoke_claude(
-                        home, chat_prompt(chat_history(chat, message_id)), args.timeout, on_event=progress
-                    )
-                if ok and out:
-                    text, status = out, "done"
-                else:
-                    log(f"Chat run failed: {err[:400]!r}")
-                    text, status = f"Sorry, I couldn't answer that: {(err or 'no reply')[:200]}", "error"
-                try:
-                    reply(message_id, text, status)
-                except urllib.error.URLError as error:
-                    log(f"Could not write the reply to {message_id}: {error}")
-            finally:
-                with chat_lock:
-                    in_flight.discard(message_id)
-
-    for target in (todo_worker, chat_worker):
+    for target in (todo_worker,):
         threading.Thread(target=target, daemon=True).start()
     for node, snapshot, change in (
         ("todos", on_todos_snapshot, on_todos_change),
-        (CHAT_NODE, on_chat_snapshot, on_chat_change),
+        (f"{CHAT_NODE}/{CHATS_KEY}", manager.on_chats, manager.on_chats),
+        (f"{CHAT_NODE}/{MESSAGES_KEY}", lambda mirror: manager.on_messages(mirror, first=True), manager.on_messages),
     ):
         threading.Thread(
             target=stream_forever, args=(vault, node, snapshot, change, stop), daemon=True
@@ -741,7 +1234,7 @@ def main():
             try:
                 vault.write(
                     f"{CHAT_NODE}/{LISTENER_KEY}",
-                    {"at": {".sv": "timestamp"}, "busy": bool(in_flight)},
+                    {"at": {".sv": "timestamp"}, "busy": manager.any_busy()},
                     method="PATCH",
                 )
                 failing = False
@@ -758,7 +1251,8 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        stop.set()
+        log("Stopping: closing every chat's session")
+        manager.shutdown()  # sets `stop` and waits for each session to close
         if not args.dry_run:
             try:  # so the app says "not connected" at once instead of after the heartbeat times out
                 vault.write(f"{CHAT_NODE}/{LISTENER_KEY}", {"at": 0, "busy": False}, method="PATCH")

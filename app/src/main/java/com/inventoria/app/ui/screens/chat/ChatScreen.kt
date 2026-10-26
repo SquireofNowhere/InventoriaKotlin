@@ -31,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -49,28 +50,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import com.inventoria.app.data.ChatMessage
 import com.inventoria.app.data.ChatRole
+import com.inventoria.app.data.ChatSummary
+import com.inventoria.app.data.ContextLevel
 import kotlinx.coroutines.delay
 
 /**
- * A chat with Claude. Messages are posted to the vault's database and answered by the agent
- * listener on the user's PC (tools/agent-listener), which runs Claude on their own login -- so this
- * screen only ever shows a conversation; it never talks to a model itself.
+ * One chat with Claude. Messages are posted to the vault's database and answered by the agent
+ * listener on the user's PC (tools/agent-listener), which keeps a Claude session per chat on their own
+ * login -- so this screen only ever shows a conversation; it never talks to a model itself. It also
+ * shows what the listener reports about this chat's session: whether it is open, when it will close,
+ * and how full its context is, with a nudge to start a new chat as it fills.
+ *
+ * [onNewChat] is given the id of a fresh chat to move on to.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNewChat: (String) -> Unit
 ) {
     val messages by viewModel.messages.collectAsState()
     val input by viewModel.input.collectAsState()
     val error by viewModel.error.collectAsState()
     val presence by viewModel.presence.collectAsState()
     val connection by viewModel.connection.collectAsState()
+    val chat by viewModel.chat.collectAsState()
     var confirmClear by remember { mutableStateOf(false) }
 
     val waitingOn = messages.lastOrNull()?.takeIf { it.isAwaitingReply }
@@ -98,7 +108,12 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Claude", fontWeight = FontWeight.Bold)
+                        Text(
+                            chat?.title ?: ChatSummary.DEFAULT_TITLE,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         LinkLine(link)
                     }
                 },
@@ -110,7 +125,7 @@ fun ChatScreen(
                 actions = {
                     if (messages.isNotEmpty()) {
                         IconButton(onClick = { confirmClear = true }) {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = "Clear chat")
+                            Icon(Icons.Default.DeleteSweep, contentDescription = "Delete chat")
                         }
                     }
                 }
@@ -123,6 +138,14 @@ fun ChatScreen(
                 .padding(padding)
                 .imePadding()
         ) {
+            ContextStrip(chat, serverNow = now + connection.serverOffset)
+            contextAdvice(chat?.contextLevel ?: ContextLevel.FINE)?.let { advice ->
+                ContextAdvice(
+                    text = advice,
+                    full = chat?.contextLevel == ContextLevel.FULL,
+                    onNewChat = { viewModel.startNewChat(onNewChat) }
+                )
+            }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
                     EmptyChat()
@@ -181,10 +204,10 @@ fun ChatScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear this chat?") },
-            text = { Text("Every message and answer is removed. It can't be undone.") },
+            title = { Text("Delete this chat?") },
+            text = { Text("Every message and answer in it is removed. It can't be undone.") },
             confirmButton = {
-                TextButton(onClick = { viewModel.clear(); confirmClear = false }) { Text("Clear") }
+                TextButton(onClick = { confirmClear = false; viewModel.delete(onNavigateBack) }) { Text("Delete") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text("Cancel") }
@@ -247,7 +270,7 @@ private fun Bubble(message: ChatMessage) {
 
 /** The line under the title: is Claude's PC there to answer at all. */
 @Composable
-private fun LinkLine(link: LinkState) {
+internal fun LinkLine(link: LinkState) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -263,6 +286,67 @@ private fun LinkLine(link: LinkState) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/**
+ * How full this chat's context is, and whether its session on the PC is open: the two things the
+ * user needs to decide whether to carry on here or start over.
+ */
+@Composable
+private fun ContextStrip(chat: ChatSummary?, serverNow: Long) {
+    val level = chat?.contextLevel ?: ContextLevel.FINE
+    val color = when (level) {
+        ContextLevel.FINE -> MaterialTheme.colorScheme.primary
+        ContextLevel.GETTING_FULL -> MaterialTheme.colorScheme.tertiary
+        ContextLevel.FULL -> MaterialTheme.colorScheme.error
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    contextLine(chat),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = color,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            LinearProgressIndicator(
+                progress = { (chat?.contextPercent ?: 0) / 100f },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                color = color,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Text(
+                sessionLine(chat, serverNow),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** The nudge to move to a new chat as this one fills. */
+@Composable
+private fun ContextAdvice(text: String, full: Boolean, onNewChat: () -> Unit) {
+    Surface(
+        color = if (full) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (full) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onTertiaryContainer
+            )
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onNewChat) { Text("New chat") }
+        }
     }
 }
 
