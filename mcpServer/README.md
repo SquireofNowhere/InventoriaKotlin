@@ -66,7 +66,8 @@ from your phone's.
 | Collections | `list_collections`, `get_collection`, `create_collection`, `update_collection`, `delete_collection`, `set_collection_item`, `remove_collection_item` |
 | Todos | `list_todos`, `get_todo`, `create_todo`, `update_todo` (incl. stacked reminders, calendar reminders and auto start), `set_todo_state`, `delete_todo` |
 | Planning | `list_schedule_blocks`, `create_schedule_block`, `update_schedule_block` (incl. `auto_start` / `auto_stop`), `delete_schedule_block`, `list_task_types`, `create_task_type`, `rename_task_type`, `delete_task_type` |
-| Tracked time | `list_tasks`, `update_task` (name, Task Type, **start / end / duration**), `delete_task`, `create_task` (back-fill a finished segment) |
+| Tracked time | `list_tasks`, `update_task` (name, Task Type, Kind, **start / end / duration**), `delete_task`, `create_task` (back-fill a finished segment) |
+| Claude chat | `chat_status`, `list_chats`, `read_chat`, `send_chat_message`, `set_chat_model` |
 | Timers | `list_active_timers`, `start_timer` (optionally with a time plan), `pause_timer`, `resume_timer`, `stop_timer`, `set_session_time_plan` |
 | Reports | `time_report` (by day, Task Type, Kind or name), `todo_stats` |
 | Bulk | `bulk_update_todos`, `bulk_move_items`, `batch_create` |
@@ -112,6 +113,27 @@ length using the current same-Kind streak, which is what the app does when you e
 Overlaps with other segments are reported, not refused. A segment that is running, or is the paused
 latest segment of a session still open, is live on a device and is left alone; older segments of a
 session that was once paused are history and can be edited.
+
+**Recolouring.** `kind` changes one segment's Kind (the app's per-segment edit, marked as a custom
+Kind) and re-freezes its score; with `apply_to_session` it recolours every segment of a *finished*
+session, as the app's session picker does. A session that is still open is refused.
+
+## The Claude chat
+
+The app's chat with Claude lives in `users/<uid>/agent_chat` and is answered by the agent listener
+(`tools/agent-listener`) on your PC. The server can read it and talk into it:
+
+- `chat_status` says whether the listener's heartbeat is fresh and lists the models and effort levels
+  Claude offers; `list_chats` and `read_chat` show the chats and their messages (a user message is
+  `pending`, `working`, `done` or `error`; Claude's reply follows it).
+- `send_chat_message` posts a user message exactly as the app does, with a push-style key so it
+  sorts into the conversation (leave out `chat_id` to start a new chat, optionally on a chosen model
+  and effort). It **makes the listener run Claude on your login**, so it spends your usage; it is
+  refused while the chat is still waiting on an earlier message, and the listener's own Claude runs
+  are not allowed to call it (they would be answering themselves).
+- `set_chat_model` changes a chat's model and effort, checked against the catalog the listener
+  published, since the listener silently drops a choice it does not list.
+- There is deliberately no `delete_chat`: chats have no tombstone, and this server never hard-deletes.
 
 ## Timers, photos and backups
 

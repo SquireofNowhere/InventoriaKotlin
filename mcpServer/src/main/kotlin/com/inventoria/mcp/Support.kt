@@ -21,6 +21,11 @@ import java.time.ZoneId
 /** A problem the caller can fix: shown to the model as the tool's error text, not a crash. */
 class ToolError(message: String) : Exception(message)
 
+private val AUTH_PARAMETER = Regex("([?&]auth=)[^&\\s,\\])]+")
+
+/** [text] with any `auth=<ID token>` query value blanked, so a failed request's URL can be shown safely. */
+fun redactSecrets(text: String): String = AUTH_PARAMETER.replace(text, "$1REDACTED")
+
 /**
  * The zone "a day" means. A todo's deadline is the start of a day on the device that made it, so
  * this has to match the phone; set INVENTORIA_TZ (e.g. Europe/Berlin) if the machine running the

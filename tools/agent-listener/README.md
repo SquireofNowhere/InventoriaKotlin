@@ -42,8 +42,10 @@ Rules) and publish. Until you do, the chat sends but never gets an answer, and t
 
 - Only the Inventoria MCP tools are loaded (`--strict-mcp-config`), so no shell, files, Mixar or
   anything else.
-- The delete tools and `import_vault` are denied. Edits are otherwise unrestricted: a request can
-  create, change and move things, and start or stop timers.
+- The delete tools and `import_vault` are denied, and so are `send_chat_message` and
+  `set_chat_model` (a run that could post into a chat would be asking Claude to answer itself).
+  Edits are otherwise unrestricted: a request can create, change and move things, and start or stop
+  timers. It can read the chats (`list_chats`, `read_chat`, `chat_status`).
 - Anyone who can write to your vault (the app, the web app, anyone you invited) can start a run.
 
 ## Chats: one Claude session each

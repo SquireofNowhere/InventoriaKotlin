@@ -129,6 +129,15 @@ class Vault(private val db: RealtimeDatabaseRest, val ownerUid: String) {
         true
     }
 
+    /**
+     * Writes several children of [path] in one atomic update; a key may itself be a path
+     * ("messages/<chat>/<id>"), a null value removes that child. This is how the app writes a chat
+     * message together with its chat's details, so a half-written chat is never seen.
+     */
+    suspend fun patchNode(path: String, children: JsonObject) = writeLock.withLock {
+        db.patch("$root/$path", children)
+    }
+
     /** Sets one key of the settings node. The only synced one today is `custom_username`. */
     suspend fun putSetting(key: String, value: JsonElement) = writeLock.withLock {
         db.put("$root/settings/$key", value)

@@ -465,16 +465,20 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
 
     Tool(
         name = "update_task",
-        description = "Rename a tracked task segment, change its Task Type, or change when it ran: send start and/or " +
+        description = "Rename a tracked task segment, change its Task Type or Kind, or change when it ran: send start and/or " +
             "end, or start/nothing plus duration_minutes (what you leave out stays). New times must already be over. " +
-            "Changing the times re-freezes the segment's score from its new length, using the current same-Kind " +
-            "streak, as the app does when you edit a time there. Kind is not editable here. A segment that is " +
-            "running, or the paused latest segment of an active session, is live on a device and cannot be edited: " +
-            "stop it first. To plan a live session's rings and stop, use set_session_time_plan.",
+            "Changing the times or the Kind re-freezes the segment's score from its new length and Kind, using the " +
+            "current same-Kind streak, as the app does when you edit them there. kind recolours just this segment " +
+            "(the app's per-segment edit); with apply_to_session it recolours every segment of the session, which " +
+            "must be finished. A segment that is running, or the paused latest segment of an active session, is " +
+            "live on a device and cannot be edited: stop it first. To plan a live session's rings and stop, use " +
+            "set_session_time_plan.",
         inputSchema = schema(
             "id" to strP("Task id"),
             "name" to strP("New name"),
             "task_type_id" to strP("Task Type id", nullable = true),
+            "kind" to strP("New Kind: $KIND_LEGEND", enum = KIND_NAMES),
+            "apply_to_session" to boolP("With kind: recolour every segment of this segment's session, not just this one"),
             "start" to strP("When it began, 2026-10-03T14:05 (local time in the vault's zone) or epoch milliseconds"),
             "end" to strP("When it ended, same format. Send this or duration_minutes."),
             "duration_minutes" to intP("How long it lasted, counted from the start; instead of end"),
@@ -492,8 +496,26 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
         val times = if (retime) {
             resolveSegmentTimes(task, args.str("start"), args.str("end"), args.int("duration_minutes"), nowMillis())
         } else null
-        // Read before the edit, as the phone does: the streak is whatever the finished sessions say right now.
-        val score = times?.let { (start, end) -> scoreOf(vault, task.kind, end - start) }
+
+        val newKind = args.enum<TaskKind>("kind")
+        val wholeSession = args.bool("apply_to_session") == true
+        if (wholeSession && newKind == null) throw ToolError("'apply_to_session' needs a 'kind'")
+        val kindChanged = newKind != null && newKind != task.kind
+        val others = if (wholeSession && kindChanged) {
+            vault.tasks().filter { it.groupId == task.groupId && it.id != task.id }
+        } else emptyList()
+        if (wholeSession && kindChanged && (task.isSessionActive || others.any { it.isSessionActive })) {
+            throw ToolError("That session is still open; stop it before recolouring all of it")
+        }
+
+        // Every score is read before any write, as the phone does: the streak is whatever the finished
+        // sessions say right now, and writing one segment would otherwise shift the next one's.
+        val kind = newKind ?: task.kind
+        val score = if (times != null || kindChanged) {
+            val length = times?.let { (start, end) -> end - start } ?: task.duration
+            scoreOf(vault, kind, length)
+        } else null
+        val otherScores = others.associate { it.id to scoreOf(vault, kind, it.duration) }
         val overlaps = times?.let { (start, end) -> overlappingSegments(vault.tasks(), task, start, end) }.orEmpty()
 
         val updated = vault.edit("tasks", id, Task.serializer()) { t ->
@@ -501,14 +523,21 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
                 name = if (args.has("name")) args.reqStr("name").trim() else t.name,
                 isNameCustom = if (args.has("name")) true else t.isNameCustom,
                 taskTypeId = args.pickStr("task_type_id", t.taskTypeId),
+                kind = kind,
+                // The app marks a one-segment recolour as custom and a whole-session one as not.
+                isKindCustom = if (kindChanged) !wholeSession else t.isKindCustom,
                 startTime = times?.first ?: t.startTime,
                 endTime = times?.second ?: t.endTime,
                 duration = times?.let { (start, end) -> end - start } ?: t.duration,
                 score = score ?: t.score
             )
         }
+        for (other in others) {
+            vault.edit("tasks", other.id, Task.serializer()) { it.copy(kind = kind, isKindCustom = false, score = otherScores.getValue(other.id)) }
+        }
         obj(
             "task" to taskView(updated),
+            "segmentsRecoloured" to if (wholeSession && kindChanged) others.size + 1 else null,
             "overlapsWith" to JsonArray(overlaps.take(5).map { obj("id" to it.id, "name" to it.name, "startIso" to isoString(it.startTime)) })
         )
     },

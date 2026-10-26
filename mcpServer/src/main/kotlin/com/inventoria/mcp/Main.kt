@@ -216,7 +216,8 @@ private suspend fun serve() {
         val storage = FirebaseStorageRest(connection.http, config.storageBucket) { force -> connection.auth.idToken(force) }
         uploader = { bytes, image -> storage.uploadItemImage(uid, bytes, image.contentType, image.extension) }
     }
-    val base = readTools(vault) + inventoryTools(vault) + plannerTools(vault) + timerTools(vault) + imageTools(vault, uploader)
+    val base = readTools(vault) + inventoryTools(vault) + plannerTools(vault) + timerTools(vault) + chatTools(vault) +
+        imageTools(vault, uploader)
     val tools = base + analyticsTools(vault, base)
     val server = McpServer(tools, "inventoria", VERSION, INSTRUCTIONS.trim())
 

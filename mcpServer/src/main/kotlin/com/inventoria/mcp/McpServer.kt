@@ -126,8 +126,9 @@ class McpServer(
         } catch (e: Exception) {
             // Network and database failures: report them to the model so it can tell the user,
             // rather than as a protocol error the client may swallow.
-            log("Tool ${tool.name} failed: $e")
-            result(id, toolResult("${tool.name} failed: ${e.message ?: e::class.simpleName}", isError = true))
+            // The HTTP client puts the whole request URL, ID token included, in its messages.
+            log("Tool ${tool.name} failed: ${redactSecrets(e.toString())}")
+            result(id, toolResult(redactSecrets("${tool.name} failed: ${e.message ?: e::class.simpleName}"), isError = true))
         }
     }
 

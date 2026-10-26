@@ -84,6 +84,10 @@ DENIED_TOOLS = [
     "mcp__inventoria__delete_task_type",
     "mcp__inventoria__delete_schedule_block",
     "mcp__inventoria__import_vault",
+    # A run that could post into a chat would be asking Claude to answer itself, and every post
+    # spends the user's Claude usage; reconfiguring a chat's model from inside it makes no sense either.
+    "mcp__inventoria__send_chat_message",
+    "mcp__inventoria__set_chat_model",
 ]
 
 # One Claude run at a time, whichever trigger started it.

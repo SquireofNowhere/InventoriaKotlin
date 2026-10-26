@@ -180,7 +180,8 @@ fun readTools(vault: Vault): List<Tool> = listOf(
             "tasks" to obj(
                 "total" to tasks.size,
                 "running" to tasks.count { it.isRunning },
-                "paused" to tasks.count { it.isPaused && !it.isRunning }
+                // Sessions, not segments: a segment keeps isPaused for good once its session resumes.
+                "paused" to tasks.filter { it.isSessionActive }.groupBy { it.groupId }.count { (_, segments) -> segments.none { it.isRunning } }
             ),
             "taskTypes" to vault.taskTypes().size,
             "scheduleBlocks" to vault.scheduleBlocks().size
