@@ -20,6 +20,14 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 128,
+                versionName = "2.47",
+                changes = listOf(
+                    "The chat with Claude has a new look, modelled on the Claude app: replies sit on the page as plain text with a sparkle under them, your messages are in a soft rounded bubble, and a new chat opens with a greeting and a few prompts to start from.",
+                    "The message box is now a rounded card with the model on a chip beside a round send button. Tap the chip, or the chat title, to pick the model and effort and see how full the chat is. New chat and Delete are in the top bar."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 127,
                 versionName = "2.46",
                 changes = listOf(
