@@ -60,6 +60,10 @@ DENIED_TOOLS = [
 # One Claude run at a time, whichever trigger started it.
 run_lock = threading.Lock()
 
+# Set by --use-api-key: run on whatever `claude` is configured with (an API key, a router) instead of
+# forcing the subscription login.
+USE_API_KEY = False
+
 
 def log(message):
     print(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {message}", flush=True)
@@ -211,7 +215,18 @@ def clean_env():
     directory) tells `claude` where to go. Run the listener from a normal terminal and this is a
     no-op."""
     drop = ("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_AGENT_", "CLAUDE_EFFORT", "CLAUDE_PID", "CLAUDE_PREVIEW_")
-    return {key: value for key, value in os.environ.items() if not key.startswith(drop)}
+    # CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) is how a subscription is passed to a
+    # headless run, so it is the one CLAUDE_CODE_ variable that stays.
+    env = {
+        key: value for key, value in os.environ.items()
+        if key == "CLAUDE_CODE_OAUTH_TOKEN" or not key.startswith(drop)
+    }
+    if not USE_API_KEY:
+        # An API key in the environment takes priority over a subscription login and bills the
+        # key's own credit, which is not what this is for.
+        env.pop("ANTHROPIC_API_KEY", None)
+        env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    return env
 
 
 def invoke_claude(home, prompt, timeout):
@@ -234,6 +249,10 @@ def invoke_claude(home, prompt, timeout):
         "--disallowedTools", *DENIED_TOOLS,
         "--no-session-persistence",
     ]
+    if not USE_API_KEY:
+        # Skip ~/.claude/settings.json: it can carry an apiKeyHelper or a proxy URL that would send
+        # the run to an API key instead of the subscription login.
+        command += ["--setting-sources", "project"]
     try:
         # cwd is the credentials folder, not a repo, so no project CLAUDE.md or settings load.
         result = subprocess.run(
@@ -241,8 +260,11 @@ def invoke_claude(home, prompt, timeout):
         )
     except subprocess.TimeoutExpired:
         return False, "", f"timed out after {timeout}s"
-    detail = (result.stderr or "").strip()
-    return result.returncode == 0, (result.stdout or "").strip(), detail or f"exit code {result.returncode}"
+    out = (result.stdout or "").strip()
+    # `claude -p` prints many failures (auth, limits) on stdout, so a failed run's reason can be
+    # in either stream.
+    detail = (result.stderr or "").strip() or out
+    return result.returncode == 0, out, detail or f"exit code {result.returncode}"
 
 
 def todo_prompt(todo_id, todo):
@@ -306,7 +328,11 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--settle", type=float, default=5.0, help="seconds to wait after a todo appears")
     parser.add_argument("--timeout", type=int, default=600, help="seconds one Claude run may take")
+    parser.add_argument("--use-api-key", action="store_true",
+                        help="use the environment's ANTHROPIC_API_KEY / user settings instead of the subscription login")
     args = parser.parse_args()
+    global USE_API_KEY
+    USE_API_KEY = args.use_api_key
 
     home = home_dir()
     vault = Vault(home)

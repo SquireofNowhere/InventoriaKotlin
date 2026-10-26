@@ -54,15 +54,19 @@ for a minute: the listener is probably not running.
   triggers.
 - Both streams reconnect on their own, and every 50 minutes to renew the Firebase token.
 
-## Known limit
+## Which Claude account it runs on
 
-`claude -p` has to be able to sign in from a detached process. It was **not** confirmed to work from
-the machine this was written on, where `~/.claude/settings.json` routes `claude` through a local
-claude-code-router (`apiKeyHelper` plus `ANTHROPIC_BASE_URL`): started from inside a Claude Code
-session it failed with "Invalid API key", and started with that session's variables removed it
-hung. Run `claude -p "say ok"` in a normal terminal first; if that works, so will the listener when
-started from the same terminal.
+By default every run uses your **subscription login**, not an API key. A shell that has
+`ANTHROPIC_API_KEY` set makes `claude -p` bill that key instead (an exhausted key answers "Credit
+balance is too low"), and `~/.claude/settings.json` can carry an `apiKeyHelper` or proxy that does the
+same. So the listener drops `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` from the run's environment and
+passes `--setting-sources project` to skip your user settings.
 
-Also untested end to end: the chat round trip (it needs the rule above, and a build of the app).
-The stream handling, message ordering and prompt building were checked with a dry run and a small
-script.
+That needs a subscription login on this machine, once: run `claude auth login` in a terminal, or
+`claude setup-token` and set the token it prints as `CLAUDE_CODE_OAUTH_TOKEN` before starting the
+listener. Pass `--use-api-key` to turn all of this off and run on whatever `claude` is set up with.
+
+A failed run's reason is shown in the chat bubble and the listener log.
+
+The chat round trip's last step (a finished answer reaching the app) has not been confirmed on a
+subscription login yet: runs so far failed on credit before that point.
