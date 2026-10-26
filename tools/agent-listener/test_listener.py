@@ -374,6 +374,41 @@ class ModelChoiceTests(SessionCase):
         self.assertIn("model=opus", self.answered("chatA", "m1")["text"])
 
 
+class StreamEventTests(unittest.TestCase):
+    """How the listener folds Firebase's put/patch events into its picture of a node."""
+
+    def test_a_multi_location_update_arrives_as_a_patch_with_path_keys(self):
+        # Exactly what Firebase sent a listener at agent_chat/messages when one write set a message
+        # and touched its chat: ONE patch at the root whose key is a path, not a nested object.
+        mirror = {}
+        listener.apply_event(mirror, "/", {"chatA": {"m1": {"role": "user", "status": "done"}}}, merge=False)
+        listener.apply_event(mirror, "/", {"chatA/m2": {"role": "user", "text": "hi", "status": "pending"}}, merge=True)
+        self.assertEqual({"m1", "m2"}, set(mirror["chatA"]))
+        self.assertTrue(listener.is_chat_trigger(mirror["chatA"]["m2"]))
+        self.assertNotIn("chatA/m2", mirror)  # not filed under a literal "chat/message" key
+
+    def test_a_chat_with_no_messages_yet_gets_its_first_from_a_path_keyed_patch(self):
+        mirror = {}
+        listener.apply_event(mirror, "/", {"newChat/m1": {"role": "user", "status": "pending"}}, merge=True)
+        self.assertEqual("pending", mirror["newChat"]["m1"]["status"])
+
+    def test_path_keys_work_below_the_root_too_and_a_null_deletes(self):
+        mirror = {"chatA": {"m1": {"status": "pending", "activity": "starting"}, "m2": {"status": "done"}}}
+        listener.apply_event(mirror, "/chatA", {"m1/status": "working", "m1/activity": None, "m2": None}, merge=True)
+        self.assertEqual({"m1": {"status": "working"}}, mirror["chatA"])
+
+    def test_plain_events_still_work(self):
+        mirror = {}
+        listener.apply_event(mirror, "/", {"a": {"x": 1}}, merge=False)
+        listener.apply_event(mirror, "/a/y", 2, merge=False)
+        listener.apply_event(mirror, "/a", {"x": None, "z": 3}, merge=True)
+        self.assertEqual({"a": {"y": 2, "z": 3}}, mirror)
+        listener.apply_event(mirror, "/a", None, merge=False)
+        self.assertEqual({}, mirror)
+        listener.apply_event(mirror, "/nothing/here", None, merge=False)  # deleting what was never there
+        self.assertEqual({}, mirror)
+
+
 class ContextMeterTests(unittest.TestCase):
     def test_reads_the_last_prompt_not_the_sum_of_calls(self):
         meter = listener.ContextMeter()

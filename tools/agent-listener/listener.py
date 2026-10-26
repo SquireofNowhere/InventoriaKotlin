@@ -154,13 +154,26 @@ class Vault:
             response.read()
 
 
+def merge_into(target, data):
+    """Applies a patch's `data` to the dict `target`. A key can be a path ("chat/message/status"):
+    that is how Firebase delivers a multi-location update, such as the app sending a message and
+    touching its chat in one write. Taking such a key literally files the change under a name no
+    reader looks for, so a message the app sent while the listener was running was never seen."""
+    for key, value in (data or {}).items():
+        if "/" in key:
+            apply_event(target, key, value, merge=False)
+        elif value is None:
+            target.pop(key, None)
+        else:
+            target[key] = value
+
+
 def apply_event(mirror, path, data, merge):
     """Apply a put/patch event to the local copy of a node. `path` is relative to that node."""
     parts = [p for p in path.split("/") if p]
     if not parts:
         if merge:
-            for key, value in (data or {}).items():
-                mirror[key] = value
+            merge_into(mirror, data)
         else:
             mirror.clear()
             mirror.update(data or {})
@@ -169,6 +182,8 @@ def apply_event(mirror, path, data, merge):
     for part in parts[:-1]:
         child = node.get(part)
         if not isinstance(child, dict):
+            if data is None and not merge:
+                return  # deleting something that was never there
             child = {}
             node[part] = child
         node = child
@@ -177,11 +192,7 @@ def apply_event(mirror, path, data, merge):
         existing = node.get(last)
         if not isinstance(existing, dict):
             existing = {}
-        for key, value in (data or {}).items():
-            if value is None:
-                existing.pop(key, None)
-            else:
-                existing[key] = value
+        merge_into(existing, data)
         node[last] = existing
     elif data is None:
         node.pop(last, None)
