@@ -19,6 +19,9 @@ data class ScheduleBlock(
     val endMinuteOfDay: Int = 60,
     val repeatWeekly: Boolean = false,
     val repeatDaily: Boolean = false,
+    // The weekdays a weekly block falls on, as a Weekdays bit set; zero is just the weekday of
+    // dayStart. Only read together with repeatWeekly, which stays set whenever this is.
+    val repeatWeekdays: Int = 0,
     // Last day (start-of-day, inclusive) the block shows on; null is no end. Removing a repeating
     // block going forward sets this rather than deleting it, so past days keep it.
     val endDay: Long? = null,
@@ -33,6 +36,11 @@ data class ScheduleBlock(
     /** Whether this block shows on [day]: its own day, or a later (same-weekday) day when repeating. */
     fun occursOn(day: Long, zone: TimeZone = TimeZone.currentSystemDefault()): Boolean {
         if (endDay != null && day > endDay) return false
+        val chosen = Weekdays.clean(repeatWeekdays)
+        if (repeatWeekly && !repeatDaily && chosen != 0) {
+            // Chosen weekdays replace "the weekday of dayStart", so the first day only counts when it is one of them.
+            return day >= dayStart && Weekdays.contains(chosen, Weekdays.isoDayOf(day, zone))
+        }
         if (day == dayStart) return true
         if (day < dayStart) return false
         if (repeatDaily) return true

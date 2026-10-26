@@ -2,6 +2,7 @@ package com.inventoria.app.ui.screens.todo
 
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.isAsap
 import com.inventoria.app.util.getStartOfDay
 
 /** One flattened row in a todo hierarchy display -- [depth] and [parentName] mirror
@@ -86,7 +87,10 @@ object TodoSections {
 
         val sectionDayById = all.associate { it.id to effectiveSectionDay(it, byId, todayStart) }
         val rendered = if (hideCompleted) withoutCompleted(all, byId) else all
-        val bySectionDay = rendered.filter { sectionDayById[it.id] != null }.groupBy { sectionDayById[it.id]!! }
+        // An ASAP todo is not due on a day, whatever a stray deadline on it says: it has its own section.
+        val asapIds = asapIds(all, byId)
+        val bySectionDay = rendered.filter { sectionDayById[it.id] != null && it.id !in asapIds }
+            .groupBy { sectionDayById[it.id]!! }
 
         fun sectionFor(day: Long): TodoDaySection {
             val ownForDay = ownDueByDeadline[day] ?: emptyList()
@@ -123,10 +127,51 @@ object TodoSections {
         nowMillis: Long = System.currentTimeMillis()
     ): List<TodoTreeEntry> {
         val todayStart = getStartOfDay(nowMillis)
-        return build(all, hideCompleted, nowMillis = nowMillis)
+        // Whatever is ASAP is what is most pressing today, so it leads.
+        return asap(all, hideCompleted) + build(all, hideCompleted, nowMillis = nowMillis)
             .firstOrNull { it.dayStart == todayStart }
             ?.visibleTodos
             .orEmpty()
+    }
+
+    /**
+     * The ASAP section: every open todo tagged ASAP, and the sub-todos that hang off one without a
+     * date of their own (they follow it, as they follow a dated parent), longest-waiting first.
+     * A completed ASAP todo is not in it -- it has been dealt with, and sits in the plain list
+     * showing how long that took.
+     */
+    fun asap(
+        all: List<Todo>,
+        hideCompleted: Boolean = false,
+        collapsedIds: Set<String> = emptySet()
+    ): List<TodoTreeEntry> {
+        val byId = all.associateBy { it.id }
+        val ids = asapIds(all, byId)
+        if (ids.isEmpty()) return emptyList()
+        val scoped = (if (hideCompleted) withoutCompleted(all, byId) else all)
+            .filter { it.id in ids }
+            .sortedWith(compareBy<Todo> { it.asapSince ?: Long.MAX_VALUE }.thenBy { it.createdAt })
+        return buildTodoTree(scoped, byId, computeChildCounts(all), collapsedIds)
+    }
+
+    /** Ids of the todos that belong in the ASAP section. */
+    internal fun asapIds(all: List<Todo>, byId: Map<String, Todo> = all.associateBy { it.id }): Set<String> =
+        all.filter { inAsapSection(it, byId) }.mapTo(mutableSetOf()) { it.id }
+
+    /** Whether [todo] is an open ASAP todo, or hangs off one with no date between them. The walk is
+     * the one [effectiveSectionDay] makes: a dated todo stands on its own date, a completed one
+     * defers to its parent. */
+    private fun inAsapSection(todo: Todo, byId: Map<String, Todo>): Boolean {
+        var current: Todo? = todo
+        val seen = mutableSetOf<String>()
+        while (current != null && seen.add(current.id)) {
+            if (current.isAsap) return true
+            val parent = current.parentTodoId?.let { byId[it] }
+            val defersToParent = current.state == TodoState.COMPLETE && parent != null
+            if (current.deadline != null && !defersToParent) return false
+            current = parent
+        }
+        return false
     }
 
     /** The "No Deadline" list: todos whose whole ancestor chain carries no deadline. */
@@ -140,8 +185,9 @@ object TodoSections {
         val byId = all.associateBy { it.id }
         val childCounts = computeChildCounts(all)
         val todayStart = getStartOfDay(nowMillis)
+        val asapIds = asapIds(all, byId)
         val undated = (if (hideCompleted) withoutCompleted(all, byId) else all)
-            .filter { effectiveSectionDay(it, byId, todayStart) == null }
+            .filter { effectiveSectionDay(it, byId, todayStart) == null && it.id !in asapIds }
             .sortedWith(sort.comparator(withinDay = true, sinkCompleted = false))
         return buildTodoTree(undated, byId, childCounts, collapsedIds)
     }

@@ -88,6 +88,7 @@ fun TodayScreen(
     val nudge by todayViewModel.nudge.collectAsState()
     val focusArea by todayViewModel.focusArea.collectAsState()
     val todoSections by todoViewModel.todoSections.collectAsState()
+    val asapEntries by todoViewModel.asapEntries.collectAsState()
     val taskTypeNames by todoViewModel.taskTypeNamesById.collectAsState()
     val todoIdsWithActiveSession by todoViewModel.todoIdsWithActiveSession.collectAsState()
 
@@ -131,9 +132,44 @@ fun TodayScreen(
         // The two existing sections plus the inventory card, as reorderable blocks. Keys are the
         // same in every arrangement ("inventory_summary", "today_header", todo ids, "timeline"),
         // so changing focus is a reorder to LazyColumn, not a teardown.
+        fun LazyListScope.todoRows(entries: List<com.inventoria.app.ui.screens.todo.TodoTreeEntry>) {
+            items(entries, key = { it.todo.id }) { entry ->
+                TodoRow(
+                    entry = entry,
+                    todayStart = todayStart,
+                    nowMinuteOfDay = nowMinuteOfDay,
+                    taskTypeNames = taskTypeNames,
+                    hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
+                    onToggleCompleted = { todoViewModel.toggleComplete(entry.todo) },
+                    // Editing lives on the Todos screen -- see the class KDoc.
+                    onClick = onNavigateToTodos,
+                    onStart = { todoViewModel.startTaskFromTodo(entry.todo) },
+                    onViewTask = onNavigateToTasks,
+                    showDragHandle = false,
+                    showDelete = false,
+                    // Folding is Todos-screen view state and this screen reads the unfolded
+                    // sections, so a chevron here would be a control with nothing behind it.
+                    showCollapseToggle = false
+                )
+            }
+        }
+
         fun LazyListScope.todoListItems() {
+            // Whatever is due as soon as possible leads, ahead of the day's own list.
+            if (asapEntries.isNotEmpty()) {
+                item(key = "asap_header") {
+                    Text(
+                        text = "ASAP",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                    )
+                }
+                todoRows(asapEntries)
+            }
             if (todaySection == null) {
-                item { NothingDueToday(onNavigateToTodos) }
+                if (asapEntries.isEmpty()) item { NothingDueToday(onNavigateToTodos) }
             } else {
                 item(key = "today_header") {
                     TodoDayHeader(
@@ -142,25 +178,7 @@ fun TodayScreen(
                         todaySection.completedDueCount
                     )
                 }
-                items(todaySection.visibleTodos, key = { it.todo.id }) { entry ->
-                    TodoRow(
-                        entry = entry,
-                        todayStart = todayStart,
-                        nowMinuteOfDay = nowMinuteOfDay,
-                        taskTypeNames = taskTypeNames,
-                        hasActiveSession = entry.todo.id in todoIdsWithActiveSession,
-                        onToggleCompleted = { todoViewModel.toggleComplete(entry.todo) },
-                        // Editing lives on the Todos screen -- see the class KDoc.
-                        onClick = onNavigateToTodos,
-                        onStart = { todoViewModel.startTaskFromTodo(entry.todo) },
-                        onViewTask = onNavigateToTasks,
-                        showDragHandle = false,
-                        showDelete = false,
-                        // Folding is Todos-screen view state and this screen reads the unfolded
-                        // sections, so a chevron here would be a control with nothing behind it.
-                        showCollapseToggle = false
-                    )
-                }
+                todoRows(todaySection.visibleTodos)
             }
         }
 

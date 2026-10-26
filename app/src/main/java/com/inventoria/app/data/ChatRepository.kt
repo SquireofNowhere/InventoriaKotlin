@@ -362,6 +362,19 @@ class ChatRepository @Inject constructor(
     }
 
     /**
+     * Gives a chat the name [title]. Marked `titleSource: "user"` so the listener, which names a chat
+     * from what it is about after its first answer, never writes over a name somebody chose. Leaves
+     * `updatedAt` alone: renaming is not activity, and the list is ordered by it.
+     */
+    suspend fun renameChat(chatId: String, title: String) {
+        val clean = title.trim().take(MAX_TITLE_LENGTH)
+        if (clean.isEmpty()) return
+        chatRef().child(CHATS_KEY).child(chatId)
+            .updateChildren(mapOf("title" to clean, "titleSource" to "user"))
+            .await()
+    }
+
+    /**
      * A fresh chat's id. Nothing is written: a chat exists once its first message is sent, so backing
      * out of an empty one leaves nothing behind in the list.
      */
@@ -440,6 +453,9 @@ class ChatRepository @Inject constructor(
         const val LISTENER_KEY = "_listener"
         const val HISTORY_LIMIT = 200
         private const val TITLE_LENGTH = 40
+
+        /** The longest name a chat can be given by hand. */
+        const val MAX_TITLE_LENGTH = 80
 
         /** A chat's title from its first message: the first line, cut short. */
         fun titleFrom(text: String): String {

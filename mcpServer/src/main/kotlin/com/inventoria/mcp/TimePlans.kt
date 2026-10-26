@@ -6,6 +6,7 @@ import com.inventoria.shared.model.ReminderSchedule
 import com.inventoria.shared.model.Task
 import com.inventoria.shared.model.TaskTimePlan
 import com.inventoria.shared.model.Todo
+import com.inventoria.shared.model.Weekdays
 import com.inventoria.shared.model.autoStartPlan
 import com.inventoria.shared.model.withAutoStart
 import kotlinx.datetime.TimeZone
@@ -201,4 +202,48 @@ fun applyAutoStartArgs(args: Args, todo: Todo): Todo {
         run = null
     }
     return todo.withAutoStart(AutoStartPlan.of(before, schedules, run))
+}
+
+// --- Repeating on chosen weekdays ---------------------------------------------------------------
+
+private val WEEKDAY_WORDS = mapOf(
+    "mon" to 1, "monday" to 1, "tue" to 2, "tues" to 2, "tuesday" to 2, "wed" to 3, "wednesday" to 3,
+    "thu" to 4, "thur" to 4, "thurs" to 4, "thursday" to 4, "fri" to 5, "friday" to 5,
+    "sat" to 6, "saturday" to 6, "sun" to 7, "sunday" to 7
+)
+
+private val WEEKDAY_GROUPS = mapOf(
+    "weekdays" to Weekdays.WORKDAYS, "workdays" to Weekdays.WORKDAYS,
+    "weekends" to Weekdays.WEEKEND, "weekend" to Weekdays.WEEKEND,
+    "everyday" to Weekdays.ALL, "daily" to Weekdays.ALL, "all" to Weekdays.ALL
+)
+
+internal const val WEEKDAYS_HELP = "days like mon, tue, wed, thu, fri, sat, sun (or 1 = Monday to 7 = Sunday), or the " +
+    "groups weekdays, weekends and everyday"
+
+/** The Weekdays bit set for a list of day names, numbers (1 = Monday ... 7 = Sunday) or groups. */
+fun parseWeekdays(values: List<String>): Int {
+    var mask = 0
+    for (raw in values) {
+        val token = raw.trim().lowercase()
+        mask = mask or (
+            WEEKDAY_GROUPS[token]
+                ?: WEEKDAY_WORDS[token]?.let(Weekdays::bit)
+                ?: token.toIntOrNull()?.takeIf { it in 1..7 }?.let(Weekdays::bit)
+                ?: throw ToolError("'$raw' is not a weekday; use $WEEKDAYS_HELP")
+            )
+    }
+    return mask
+}
+
+/**
+ * The set to store for a block or todo that repeats weekly on [mask], given the day it starts on:
+ * just the start's own weekday is plain weekly, stored as 0 (so it keeps following its date), and
+ * anything else is the chosen set.
+ */
+fun storedWeekdays(mask: Int, startDay: Long?): Int {
+    val clean = Weekdays.clean(mask)
+    if (clean == 0) return 0
+    if (startDay != null && clean == Weekdays.bit(Weekdays.isoDayOf(startDay, TimeZone.of(zone.id)))) return 0
+    return clean
 }

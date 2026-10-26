@@ -33,6 +33,9 @@ private const val CHAT = "agent_chat"
 private const val CHAT_TITLE_LENGTH = 40
 private const val DEFAULT_CHAT_TITLE = "New chat"
 
+/** The longest name a chat can be given by hand, as in the app. */
+private const val MAX_CHAT_TITLE_LENGTH = 80
+
 /** The listener beats every 20 s; this tolerates two missed beats plus a slow network, as the app does. */
 internal const val LISTENER_ALIVE_WINDOW_MILLIS = 75_000L
 
@@ -110,6 +113,7 @@ internal fun chatSummaryView(id: String, node: JsonElement): JsonObject? {
     return obj(
         "id" to id,
         "title" to (chat.jstr("title")?.takeIf { it.isNotBlank() } ?: DEFAULT_CHAT_TITLE),
+        "titleSource" to chat.jstr("titleSource"),
         "createdAtIso" to createdAt.takeIf { it > 0 }?.let(::isoString),
         "updatedAtIso" to updatedAt.takeIf { it > 0 }?.let(::isoString),
         "updatedAt" to updatedAt,
@@ -312,5 +316,27 @@ fun chatTools(vault: Vault): List<Tool> = listOf(
             put("chats/$chatId/effortChoice", effort?.let { JsonPrimitive(it) } ?: JsonNull)
         })
         obj("chatId" to chatId, "modelChoice" to model, "effortChoice" to effort)
+    },
+
+    Tool(
+        name = "rename_chat",
+        description = "Give one of the app's chats a name. A name set this way is kept: the listener, which names a chat " +
+            "from what it is about after its first answer, never replaces one a person has chosen. Does not move the " +
+            "chat in the list.",
+        inputSchema = schema(
+            "chat_id" to strP("Chat id from list_chats"),
+            "title" to strP("The new name, up to $MAX_CHAT_TITLE_LENGTH characters"),
+            required = listOf("chat_id", "title")
+        ),
+        readOnly = false
+    ) { args ->
+        val chatId = args.reqStr("chat_id")
+        if (vault.chatNode("chats/$chatId") !is JsonObject) throw ToolError("No chat '$chatId'; see list_chats")
+        val title = args.reqStr("title").trim().take(MAX_CHAT_TITLE_LENGTH)
+        vault.patchNode(CHAT, buildJsonObject {
+            put("chats/$chatId/title", title)
+            put("chats/$chatId/titleSource", "user")
+        })
+        obj("chatId" to chatId, "title" to title)
     }
 )

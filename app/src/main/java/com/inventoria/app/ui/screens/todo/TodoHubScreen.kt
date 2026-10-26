@@ -47,7 +47,13 @@ fun TodoHubScreen(
     scheduleViewModel: ScheduleViewModel,
     onNavigateToHelp: () -> Unit,
     onNavigateToTasks: () -> Unit,
-    onOpenTaskDetail: (String) -> Unit
+    onOpenTaskDetail: (String) -> Unit,
+    /** A todo or schedule block a chat reply linked to: this tab switches to the right segment and
+     * opens it, then tells its owner the request is done. */
+    openTodoId: String? = null,
+    onOpenTodoIdConsumed: () -> Unit = {},
+    openBlockId: String? = null,
+    onOpenBlockIdConsumed: () -> Unit = {}
 ) {
     // The pager is the source of truth for which segment is showing, so a swipe and a tap on the
     // segmented buttons can never disagree. rememberPagerState saves and restores the page itself.
@@ -57,6 +63,21 @@ fun TodoHubScreen(
 
     BackHandler(enabled = segment != TodoSegment.TODOS) {
         scope.launch { pagerState.animateScrollToPage(TodoSegment.TODOS.ordinal) }
+    }
+
+    // Following a link from the chat. The segment goes first so the page that shows the dialog (or
+    // collects the scroll to the block's day) is on screen when the request is made.
+    LaunchedEffect(openTodoId) {
+        val id = openTodoId ?: return@LaunchedEffect
+        pagerState.animateScrollToPage(TodoSegment.TODOS.ordinal)
+        todoViewModel.openTodoById(id)
+        onOpenTodoIdConsumed()
+    }
+    LaunchedEffect(openBlockId) {
+        val id = openBlockId ?: return@LaunchedEffect
+        pagerState.animateScrollToPage(TodoSegment.SCHEDULE.ordinal)
+        scheduleViewModel.openBlockById(id)
+        onOpenBlockIdConsumed()
     }
 
     val hideCompleted by todoViewModel.hideCompleted.collectAsState()

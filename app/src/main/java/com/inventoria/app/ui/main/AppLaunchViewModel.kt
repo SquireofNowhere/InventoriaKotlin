@@ -68,6 +68,30 @@ class AppLaunchViewModel @Inject constructor(
         _pendingTaskDetail.value = null
     }
 
+    /** The same hand-off for a todo or a schedule block a chat reply linked to: the chat can't reach
+     * into the Todos tab's own view models, so the request waits here until that tab picks it up. */
+    private val _pendingTodoOpen = MutableStateFlow<String?>(null)
+    val pendingTodoOpen: StateFlow<String?> = _pendingTodoOpen.asStateFlow()
+
+    fun requestTodoOpen(todoId: String) {
+        _pendingTodoOpen.value = todoId
+    }
+
+    fun consumeTodoOpenRequest() {
+        _pendingTodoOpen.value = null
+    }
+
+    private val _pendingBlockOpen = MutableStateFlow<String?>(null)
+    val pendingBlockOpen: StateFlow<String?> = _pendingBlockOpen.asStateFlow()
+
+    fun requestBlockOpen(blockId: String) {
+        _pendingBlockOpen.value = blockId
+    }
+
+    fun consumeBlockOpenRequest() {
+        _pendingBlockOpen.value = null
+    }
+
     init {
         viewModelScope.launch {
             if (!settingsRepository.hasSeenFocusPrompt().first()) {

@@ -18,7 +18,8 @@ import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
-import com.inventoria.app.data.model.nextDeadline
+import com.inventoria.app.data.model.Weekdays
+import com.inventoria.app.data.model.nextCycleDeadline
 import com.inventoria.app.data.model.AutoStartPlan
 import com.inventoria.app.data.model.withAutoStart
 import com.inventoria.app.data.model.withReminders
@@ -123,6 +124,20 @@ class TodoViewModel @Inject constructor(
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** The open ASAP todos as the Todos screen shows them, above the days: with this screen's hide and
+     * fold preferences applied. Empty unless grouped by date -- any other grouping lists them in its
+     * own groups, sorted first. */
+    val plannerAsap: StateFlow<List<TodoTreeEntry>> =
+        combine(todos, hideCompleted, collapsedTodoIds, groupOption) { list, hide, collapsed, group ->
+            if (group == TodoGroupOption.DATE) TodoSections.asap(list, hide, collapsed) else emptyList()
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The same section as the Today screen reads it: unfiltered and unfolded, like [todoSections]. */
+    val asapEntries: StateFlow<List<TodoTreeEntry>> = todos
+        .map { list -> TodoSections.asap(list) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /** The Todos screen's list when it is not grouped by date: one plain list, or groups by priority
      * or kind. Empty when grouped by date, which is [plannerSections]. */
     val plannerGroups: StateFlow<List<TodoGroup>> =
@@ -212,6 +227,14 @@ class TodoViewModel @Inject constructor(
         _pendingEditTodo.value = todo
     }
 
+    /** Opens [id] for editing, as following a link from the chat does. Does nothing if it has
+     * gone since the link was written. */
+    fun openTodoById(id: String) {
+        viewModelScope.launch {
+            todoRepository.getTodoById(id)?.takeIf { !it.isDeleted }?.let { startEditingTodo(it) }
+        }
+    }
+
     fun dismissDialog() {
         _isAddingNew.value = false
         _pendingEditTodo.value = null
@@ -237,13 +260,18 @@ class TodoViewModel @Inject constructor(
         repeatInterval: TodoRepeat,
         parentTodoId: String?,
         priority: TodoPriority?,
-        autoStart: AutoStartPlan = AutoStartPlan.NONE
+        autoStart: AutoStartPlan = AutoStartPlan.NONE,
+        repeatWeekdays: Int = 0,
+        asap: Boolean = false
     ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
-        val time = deadlineMinuteOfDay.takeIf { deadline != null }
+        // ASAP is the alternative to a date: a todo is due as soon as possible or on a day, not both.
+        val due = deadline.takeIf { !asap }
+        val time = deadlineMinuteOfDay.takeIf { due != null }
         // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
-        val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE
+        val repeat = repeatInterval.takeIf { due != null } ?: TodoRepeat.NONE
+        val weekdays = repeatWeekdays.takeIf { repeat == TodoRepeat.WEEKLY }?.let(Weekdays::clean) ?: 0
         viewModelScope.launch {
             todoRepository.insertTodo(
                 Todo(
@@ -252,9 +280,11 @@ class TodoViewModel @Inject constructor(
                     description = description.trim(),
                     kind = kind,
                     taskTypeId = taskTypeId,
-                    deadline = liveDeadline(deadline, repeat),
+                    deadline = liveDeadline(due, repeat, weekdays),
                     deadlineMinuteOfDay = time,
                     repeatInterval = repeat,
+                    repeatWeekdays = weekdays,
+                    asapSince = if (asap) System.currentTimeMillis() else null,
                     parentTodoId = parentTodoId,
                     priority = priority
                     // withReminders also drops the deadline-based reminders when there is no
@@ -269,11 +299,11 @@ class TodoViewModel @Inject constructor(
     /** A repeating todo picked for a date already behind us starts on the next cycle that is not,
      * rather than being settled as a run of missed cycles the moment it is saved -- nothing was
      * missed before it existed. A one-off keeps the date it was given (it is simply overdue). */
-    private fun liveDeadline(deadline: Long?, repeat: TodoRepeat): Long? {
+    private fun liveDeadline(deadline: Long?, repeat: TodoRepeat, weekdays: Int): Long? {
         if (deadline == null || repeat == TodoRepeat.NONE) return deadline
         val today = getStartOfDay(System.currentTimeMillis())
         var next: Long = deadline
-        while (next < today) next = repeat.nextDeadline(next)
+        while (next < today) next = nextCycleDeadline(repeat, weekdays, next)
         return next
     }
 
@@ -289,18 +319,23 @@ class TodoViewModel @Inject constructor(
         repeatInterval: TodoRepeat,
         parentTodoId: String?,
         priority: TodoPriority?,
-        autoStart: AutoStartPlan = AutoStartPlan.NONE
+        autoStart: AutoStartPlan = AutoStartPlan.NONE,
+        repeatWeekdays: Int = 0,
+        asap: Boolean = false
     ) {
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
+        // ASAP is the alternative to a date: a todo is due as soon as possible or on a day, not both.
+        val due = deadline.takeIf { !asap }
         // A time without a date would be unreachable in the UI and would sort/display as a due
         // time nothing is actually due at, so the "null deadline clears the time" invariant is
         // enforced here rather than trusted from the dialog. The alarm follows the same rule
         // (withReminders below): a reminder with nothing to count from is cleared, not carried
         // around waiting for a date. Calendar schedules count from the clock and survive.
-        val time = deadlineMinuteOfDay.takeIf { deadline != null }
+        val time = deadlineMinuteOfDay.takeIf { due != null }
         // Same rule again: a cycle needs a deadline to anchor to, so no date means no repeat.
-        val repeat = repeatInterval.takeIf { deadline != null } ?: TodoRepeat.NONE
+        val repeat = repeatInterval.takeIf { due != null } ?: TodoRepeat.NONE
+        val weekdays = repeatWeekdays.takeIf { repeat == TodoRepeat.WEEKLY }?.let(Weekdays::clean) ?: 0
         viewModelScope.launch {
             todoRepository.updateTodo(
                 todo.copy(
@@ -311,11 +346,15 @@ class TodoViewModel @Inject constructor(
                     // Only re-anchored when the user changed the date or just switched repeating on:
                     // an untouched deadline that has slipped into the past is a cycle that really
                     // ended, and is the roller's to count.
-                    deadline = if (deadline != todo.deadline || todo.repeatInterval == TodoRepeat.NONE) {
-                        liveDeadline(deadline, repeat)
-                    } else deadline,
+                    deadline = if (due != todo.deadline || todo.repeatInterval == TodoRepeat.NONE) {
+                        liveDeadline(due, repeat, weekdays)
+                    } else due,
                     deadlineMinuteOfDay = time,
                     repeatInterval = repeat,
+                    repeatWeekdays = weekdays,
+                    // Tagged now if it just became ASAP; keeps its original start if it already was
+                    // (the timer must not restart on every edit); cleared when the tag is removed.
+                    asapSince = if (asap) todo.asapSince ?: System.currentTimeMillis() else null,
                     parentTodoId = parentTodoId,
                     priority = priority
                 ).withReminders(reminders).withAutoStart(autoStart)

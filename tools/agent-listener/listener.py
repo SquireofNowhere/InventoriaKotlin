@@ -745,6 +745,7 @@ class ChatWorker(threading.Thread):
         self._spoke = False     # ... and has produced at least one event
         self._primed = True     # false: the next message needs the earlier conversation attached
         self._applied = (None, None)  # (model, effort) the open session was started with
+        self._title_tries = 0   # times this worker has tried to name the chat
 
     # -- the thread --
     def run(self):
@@ -895,6 +896,33 @@ class ChatWorker(threading.Thread):
         except urllib.error.URLError as error:
             log(f"Could not write the reply to {message_id}: {error}")
         self._publish_state()
+        if status == "done":
+            self._maybe_title(text, reply_text)
+
+    def _maybe_title(self, question, answer):
+        """Names the chat from what it is about, once, unless it already has a name it was given
+        (`titleSource` is "auto" once the listener named it, "user" once the user did). The app starts
+        a chat off with its first line cut short; this replaces that with something like claude.ai
+        would write. It runs beside the chat, not in it, so the next message is not kept waiting."""
+        manager = self.manager
+        if manager.dry_run or self._title_tries >= 2:
+            return
+        if manager.fresh_meta(self.chat_id).get("titleSource"):
+            return
+        self._title_tries += 1
+        threading.Thread(target=self._write_title, args=(question, answer), daemon=True,
+                         name=f"title-{self.chat_id}").start()
+
+    def _write_title(self, question, answer):
+        manager = self.manager
+        title = generate_title(manager.home, question, answer)
+        if not title:
+            return
+        # The user may have renamed the chat while this was being written; theirs wins.
+        if manager.fresh_meta(self.chat_id).get("titleSource"):
+            return
+        log(f"Chat {self.chat_id}: titled {title!r}")
+        manager.write_meta(self.chat_id, {"title": title, "titleSource": "auto"})
 
     def _on_event(self, event, progress):
         self._spoke = True
@@ -1212,7 +1240,61 @@ Inventoria tools. When a question is about their data, look it up with the tools
 guessing, and when they ask for a change, make it and say what you did. Deleting and importing are
 not available to you.
 
-Write for a small chat bubble: short, plain text, no markdown headings or tables."""
+Write for a phone screen: short and plain. The app draws markdown, so bold, short lists and inline
+code are fine; keep headings and tables to a minimum. Whenever you name a todo, item, collection,
+tracked task or schedule block that the tools returned, make its name a markdown link to the `link`
+field the tool gave it, like [Buy milk](inventoria://todo/ID): the app shows it as a button that
+opens it. Use only links the tools returned, never ones you made up."""
+
+# The name a chat gets, the way claude.ai titles a conversation. Asked of a throwaway Claude with no
+# tools, on a small model: it is a few words, and must not hold up the next message.
+TITLE_MODEL = "haiku"
+TITLE_PROMPT = """Give this chat a short title of two to six words, the way claude.ai names a conversation: what it is about, in plain words. No quotes, no trailing punctuation. Reply with the title only.
+
+The user wrote:
+{question}
+
+Claude answered:
+{answer}"""
+
+
+def clean_title(raw):
+    """A model's answer as a chat title: its first line, without labels, quotes or markdown, kept short."""
+    line = ""
+    for candidate in str(raw or "").splitlines():
+        if candidate.strip():
+            line = candidate.strip()
+            break
+    line = re.sub(r"^(title|name)\s*:\s*", "", line, flags=re.IGNORECASE)
+    line = line.strip("\"'`*#_ \t“”‘’").rstrip(".:;,!? ")
+    line = " ".join(line.split())
+    return line if len(line) <= 60 else line[:60].rstrip() + "…"
+
+
+def generate_title(home, question, answer, timeout=60):
+    """Asks a throwaway Claude (no tools, no MCP server) for a title for a chat that has just had its
+    first answer. Returns the cleaned title, or "" if it could not get one."""
+    claude = claude_command()
+    if not claude:
+        return ""
+    prompt = TITLE_PROMPT.format(question=str(question)[:1500], answer=str(answer)[:1500])
+    command = claude + [
+        "-p", prompt, "--model", TITLE_MODEL, "--no-session-persistence", "--strict-mcp-config", "--tools", "",
+    ]
+    if not USE_API_KEY:
+        command += ["--setting-sources", "project"]
+    try:
+        result = subprocess.run(
+            command, cwd=home, env=clean_env(), capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
+        )
+    except (subprocess.TimeoutExpired, OSError) as error:
+        log(f"Could not title a chat: {error}")
+        return ""
+    if result.returncode != 0:
+        log(f"Could not title a chat: {(result.stderr or result.stdout or '').strip()[:200]!r}")
+        return ""
+    return clean_title(result.stdout)
 
 
 def priming_text(history, text):

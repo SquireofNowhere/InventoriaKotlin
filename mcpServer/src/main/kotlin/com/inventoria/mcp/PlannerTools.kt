@@ -11,6 +11,7 @@ import com.inventoria.shared.model.Todo
 import com.inventoria.shared.model.TodoPriority
 import com.inventoria.shared.model.TodoRepeat
 import com.inventoria.shared.model.TodoState
+import com.inventoria.shared.model.Weekdays
 import com.inventoria.shared.model.autoStartPlan
 import com.inventoria.shared.model.nowMillis
 import com.inventoria.shared.model.reminders
@@ -23,6 +24,24 @@ import java.time.LocalDate
 import java.util.UUID
 
 private val KIND_NAMES = TaskKind.entries.map { it.name }
+
+/**
+ * The weekday set a block should store: the `weekdays` argument when sent (an empty list clears it),
+ * else [current]. Chosen days only mean something for a weekly block, so sending some for any other
+ * repeat is an error and a block that stops being weekly drops them.
+ */
+internal fun weekdaysFor(args: Args, weekly: Boolean, startDay: Long, current: Int): Int {
+    val mask = when {
+        !args.has("weekdays") -> Weekdays.clean(current)
+        args.isNull("weekdays") -> 0
+        else -> parseWeekdays(args.strList("weekdays") ?: emptyList())
+    }
+    if (!weekly) {
+        if (args.has("weekdays") && mask != 0) throw ToolError("'weekdays' needs repeat WEEKLY")
+        return 0
+    }
+    return if (args.has("weekdays")) storedWeekdays(mask, startDay) else mask
+}
 
 private fun todayStart(): Long = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
 
@@ -41,6 +60,24 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
         val typeId = args.str("task_type_id")
         if (typeId != null) vault.requireTaskType(typeId)
         t = t.copy(taskTypeId = typeId)
+    }
+
+    // ASAP is the alternative to a date: due as soon as possible, with a timer counting up from the
+    // moment it is tagged. A todo is one or the other, so a date and ASAP in one call is refused, and
+    // so is giving an ASAP todo a date without saying it should stop being ASAP.
+    val datesSent = (args.has("due_date") && !args.isNull("due_date")) || (args.has("due_time") && !args.isNull("due_time"))
+    if (args.has("asap")) {
+        if (args.bool("asap") == true) {
+            if (datesSent) throw ToolError("A todo is ASAP or due on a date, not both")
+            t = t.copy(
+                asapSince = t.asapSince ?: nowMillis(),
+                deadline = null, deadlineMinuteOfDay = null, repeatInterval = TodoRepeat.NONE, repeatWeekdays = 0
+            )
+        } else {
+            t = t.copy(asapSince = null)
+        }
+    } else if (datesSent && t.asapSince != null && t.state != TodoState.COMPLETE) {
+        throw ToolError("This todo is ASAP; send asap=false as well to give it a date instead")
     }
 
     if (args.has("due_date")) {
@@ -114,6 +151,15 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
         t = t.copy(priority = if (args.isNull("priority")) null else args.enum<TodoPriority>("priority"))
     }
     args.enum<TodoRepeat>("repeat")?.let { t = t.copy(repeatInterval = it) }
+    if (args.has("repeat_days")) {
+        val mask = if (args.isNull("repeat_days")) 0 else parseWeekdays(args.strList("repeat_days") ?: emptyList())
+        if (mask != 0 && t.repeatInterval != TodoRepeat.WEEKLY) {
+            throw ToolError("'repeat_days' needs repeat WEEKLY")
+        }
+        t = t.copy(repeatWeekdays = storedWeekdays(mask, t.deadline))
+    }
+    // Chosen days only mean something for a weekly repeat.
+    if (t.repeatInterval != TodoRepeat.WEEKLY) t = t.copy(repeatWeekdays = 0)
 
     if (args.has("parent_id")) {
         val parentId = args.str("parent_id")
@@ -211,7 +257,16 @@ internal val TODO_FIELDS = arrayOf(
     ),
     "priority" to strP("Priority, A1 (highest) to C3 (lowest)", nullable = true, enum = TodoPriority.entries.map { it.name }),
     "parent_id" to strP("Make this a sub-todo of the todo with this id", nullable = true),
-    "repeat" to strP("Repeat interval once a due_date is set", enum = TodoRepeat.entries.map { it.name })
+    "repeat" to strP("Repeat interval once a due_date is set", enum = TodoRepeat.entries.map { it.name }),
+    "repeat_days" to arrP(
+        "string",
+        "With repeat WEEKLY: the days of the week it falls on instead of only the due date's weekday, as " +
+            "$WEEKDAYS_HELP, e.g. [\"mon\",\"wed\",\"fri\"]. [] goes back to plain weekly."
+    ),
+    "asap" to boolP(
+        "Due as soon as possible instead of on a date: true clears the date, time and repeat and starts a timer that " +
+            "counts up from now until the todo is completed; false removes the tag. Not combinable with a due_date."
+    )
 ) + AUTO_START_FIELDS
 
 fun plannerTools(vault: Vault): List<Tool> = listOf(
@@ -341,6 +396,11 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
             "kind" to strP("Kind: $KIND_LEGEND", enum = KIND_NAMES),
             "task_type_id" to strP("Task Type id", nullable = true),
             "repeat" to strP("Repeat after the first day", enum = listOf("NONE", "DAILY", "WEEKLY")),
+            "weekdays" to arrP(
+                "string",
+                "With repeat WEEKLY: the days of the week it falls on instead of only the weekday of date, as " +
+                    "$WEEKDAYS_HELP, e.g. [\"mon\",\"tue\",\"wed\",\"thu\",\"fri\"] or [\"weekdays\"]."
+            ),
             "auto_start" to boolP("Start tracking a session by itself when the block begins (default false)"),
             "auto_stop" to boolP("Stop that session by itself when the block ends. Needs auto_start (default false)"),
             "notes" to strP("Notes"),
@@ -360,6 +420,7 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
             endMinuteOfDay = parseMinuteOfDay(args.reqStr("end")),
             repeatDaily = repeat == "DAILY",
             repeatWeekly = repeat == "WEEKLY",
+            repeatWeekdays = weekdaysFor(args, repeat == "WEEKLY", parseDay(args.reqStr("date")), 0),
             autoStart = args.bool("auto_start") ?: false,
             autoStop = args.bool("auto_stop") ?: false,
             notes = args.str("notes") ?: "",
@@ -383,6 +444,11 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
             "kind" to strP("Kind: $KIND_LEGEND", enum = KIND_NAMES),
             "task_type_id" to strP("Task Type id", nullable = true),
             "repeat" to strP("Repeat", enum = listOf("NONE", "DAILY", "WEEKLY")),
+            "weekdays" to arrP(
+                "string",
+                "With repeat WEEKLY: the days of the week it falls on, as $WEEKDAYS_HELP. [] goes back to the " +
+                    "weekday of date."
+            ),
             "end_date" to strP(
                 "The last day a repeating block shows on, YYYY-MM-DD; earlier days keep it. null removes the end.",
                 nullable = true
@@ -417,6 +483,12 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
                 endMinuteOfDay = args.str("end")?.let(::parseMinuteOfDay) ?: b.endMinuteOfDay,
                 repeatDaily = if (repeat != null) repeat == "DAILY" else b.repeatDaily,
                 repeatWeekly = if (repeat != null) repeat == "WEEKLY" else b.repeatWeekly,
+                repeatWeekdays = weekdaysFor(
+                    args,
+                    weekly = if (repeat != null) repeat == "WEEKLY" else b.repeatWeekly && !b.repeatDaily,
+                    startDay = args.str("date")?.let(::parseDay) ?: b.dayStart,
+                    current = b.repeatWeekdays
+                ),
                 endDay = if (args.has("end_date")) args.str("end_date")?.let(::parseDay) else b.endDay,
                 notes = if (args.has("notes")) args.str("notes") ?: "" else b.notes
             )

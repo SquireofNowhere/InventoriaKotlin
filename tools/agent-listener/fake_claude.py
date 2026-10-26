@@ -11,7 +11,8 @@ Behaviour the tests lean on:
   * every reply says which turn of the session it is, which session, whether the message arrived with
     the earlier conversation attached, and the --model / --effort it was started with, so a test can
     tell a kept session from a fresh one and see what was asked of it;
-  * a `control_request` (the start-up handshake) is answered with a model list, as the real one does.
+  * a `control_request` (the start-up handshake) is answered with a model list, as the real one does;
+  * a call with `--tools` is the listener naming a chat: it prints FAKE_CLAUDE_TITLE and exits.
 """
 import json
 import os
@@ -35,7 +36,11 @@ MODELS = [
 
 def main():
     argv = sys.argv[1:]
-    resume = argv[argv.index("--resume") + 1] if "--resume" in argv else None
+    if "--tools" in argv:
+        # The one-shot, no-tools call the listener makes to name a chat: the answer is just printed.
+        print(os.environ.get("FAKE_CLAUDE_TITLE", "Fake chat title"), flush=True)
+        return 0
+    resume =argv[argv.index("--resume") + 1] if "--resume" in argv else None
     model = argv[argv.index("--model") + 1] if "--model" in argv else None
     effort = argv[argv.index("--effort") + 1] if "--effort" in argv else None
     state_path = os.environ.get("FAKE_CLAUDE_STATE")

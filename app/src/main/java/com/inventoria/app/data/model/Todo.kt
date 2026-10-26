@@ -84,6 +84,16 @@ data class Todo(
     // anchor, so this is meaningless (and always cleared) when deadline is null, same as the time
     // and alarm above. Firebase reads an absent field as the default, so an older todo is NONE.
     @get:PropertyName("repeatInterval") @set:PropertyName("repeatInterval") var repeatInterval: TodoRepeat = TodoRepeat.NONE,
+    // Which weekdays a WEEKLY repeat falls on, as a [Weekdays] bit set (bit 0 Monday ... bit 6
+    // Sunday): "Mon, Wed, Fri" rather than "the weekday it is due on". Zero -- what every existing
+    // todo has -- is plain weekly, one week after the last deadline. Only read while
+    // repeatInterval is WEEKLY; see [nextCycleDeadline].
+    @get:PropertyName("repeatWeekdays") @set:PropertyName("repeatWeekdays") var repeatWeekdays: Int = 0,
+    // When this todo was tagged ASAP, in millis, or null when it is not. An ASAP todo is due as soon
+    // as possible instead of on a calendar day (so it has no deadline), and the time since this is
+    // shown counting up for as long as it stays open -- how long it is actually taking to get done.
+    // It stops when the todo is completed and goes when the tag is removed. See [isAsap].
+    @get:PropertyName("asapSince") @set:PropertyName("asapSince") var asapSince: Long? = null,
     // Running tally of finished cycles: how many ended with the todo COMPLETE, and how many ended
     // with it not. Kept on the row (not derived) because each cycle overwrites the state that
     // would otherwise be the only record of it. Left alone when repeating is switched off, so
@@ -120,6 +130,35 @@ fun TodoRepeat.nextDeadline(day: Long): Long {
     return cal.timeInMillis
 }
 
+/** The deadline one cycle after [day] for a todo repeating by [repeat] on [weekdays]. A WEEKLY repeat
+ * with weekdays chosen goes to the next of those days (strictly after [day]); everything else is the
+ * plain interval, which is also what weekdays of zero mean. */
+fun nextCycleDeadline(repeat: TodoRepeat, weekdays: Int, day: Long): Long {
+    val chosen = Weekdays.clean(weekdays)
+    if (repeat != TodoRepeat.WEEKLY || chosen == 0) return repeat.nextDeadline(day)
+    val cal = Calendar.getInstance().apply { timeInMillis = day }
+    // At most seven steps: [chosen] is not empty, so some day within a week is in it.
+    do {
+        cal.add(Calendar.DAY_OF_YEAR, 1)
+    } while (!Weekdays.contains(chosen, Weekdays.isoDayOf(cal.timeInMillis)))
+    return cal.timeInMillis
+}
+
+/** The deadline of this todo's next cycle after [day]. */
+fun Todo.nextCycleDeadline(day: Long): Long = nextCycleDeadline(repeatInterval, repeatWeekdays, day)
+
+/** Due as soon as possible, and still open: the state in which the ASAP timer counts up. A completed
+ * todo keeps its [Todo.asapSince], so it can still say how long it took, but is no longer ASAP. */
+val Todo.isAsap: Boolean get() = asapSince != null && state != TodoState.COMPLETE
+
+/** How long this todo has been ASAP: up to now while it is open, up to when it was completed once
+ * it is -- so the figure freezes at the moment the work was done. Null when it never was ASAP. */
+fun Todo.asapElapsedMillis(now: Long): Long? {
+    val since = asapSince ?: return null
+    val until = if (state == TodoState.COMPLETE) completedAt ?: now else now
+    return (until - since).coerceAtLeast(0L)
+}
+
 /**
  * This todo after its finished cycles have been settled, or null when nothing is due to happen.
  *
@@ -144,7 +183,7 @@ fun Todo.settleCycles(todayStart: Long): Todo? {
     while (next < todayStart) {
         if (!judged && state == TodoState.COMPLETE) completed++ else missed++
         judged = true
-        next = repeatInterval.nextDeadline(next)
+        next = nextCycleDeadline(next)
     }
     return copy(
         deadline = next,

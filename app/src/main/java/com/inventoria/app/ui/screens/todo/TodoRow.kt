@@ -35,9 +35,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoRepeat
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.Weekdays
+import com.inventoria.app.data.model.asapElapsedMillis
+import com.inventoria.app.data.model.formatAsapElapsed
 import com.inventoria.app.data.model.hasReminder
+import kotlinx.coroutines.delay
+import androidx.compose.material.icons.filled.Timer
 import com.inventoria.app.ui.screens.task.TaskKindChip
 import com.inventoria.app.ui.screens.task.TaskTypeLabel
 import com.inventoria.app.ui.screens.task.TodoPriorityChip
@@ -59,6 +65,32 @@ import com.inventoria.app.util.getDayLabel
  * effectiveState, and the play/arrow swap on an active session. Today opts out of the parts that
  * only make sense on a screen that owns the list, via showDragHandle/showDelete.
  */
+
+/** "ASAP · 14m 05s" counting up while the todo is open, "ASAP · took 3h 12m" once it is complete. */
+@Composable
+private fun AsapTimerLine(todo: Todo) {
+    val since = todo.asapSince ?: return
+    val open = todo.state != TodoState.COMPLETE
+    val now by produceState(System.currentTimeMillis(), since, open) {
+        while (open) {
+            value = System.currentTimeMillis()
+            // Seconds only show for the first hour, so only tick that fast until then.
+            delay(if (value - since < 3_600_000L) 1_000L else 30_000L)
+        }
+    }
+    val elapsed = formatAsapElapsed(todo.asapElapsedMillis(now) ?: 0L)
+    val tint = if (open) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Timer, contentDescription = "ASAP", modifier = Modifier.size(12.dp), tint = tint)
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = if (open) "ASAP · $elapsed" else "ASAP · took $elapsed",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (open) FontWeight.Bold else null,
+            color = tint
+        )
+    }
+}
 
 /** Day section header: which day it was, its date, and (when this day actually had todos due
  * on it, as opposed to only hosting carried-over overdue rows) an "X% Done" progress bar --
@@ -301,12 +333,15 @@ internal fun TodoRow(
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = repeatRowText(todo.repeatInterval, todo.repeatCompletedCount, todo.repeatMissedCount),
+                                text = repeatRowText(todo.repeatInterval, todo.repeatCompletedCount, todo.repeatMissedCount, todo.repeatWeekdays),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
+                    // ASAP: how long it has been waiting, counting up while it is open and frozen at
+                    // the time it took once it is done.
+                    if (todo.asapSince != null) AsapTimerLine(todo)
                     // Due time, or for an all-day todo (a deadline with no time of its own) just
                     // the date -- and, when one is set, the alarm icon right after it, the only
                     // place the list says "this one will ring".
@@ -389,11 +424,12 @@ internal fun repeatTallyText(completed: Int, missed: Int): String =
     "$completed completed · $missed missed"
 
 /** The repeating todo's line on a row: its interval, then the tally once a cycle has finished. */
-internal fun repeatRowText(repeat: TodoRepeat, completed: Int, missed: Int): String {
+internal fun repeatRowText(repeat: TodoRepeat, completed: Int, missed: Int, weekdays: Int = 0): String {
     val interval = when (repeat) {
         TodoRepeat.NONE -> ""
         TodoRepeat.DAILY -> "Daily"
-        TodoRepeat.WEEKLY -> "Weekly"
+        // Chosen weekdays say which ("Mon, Wed, Fri", "Weekdays"); none chosen is plain weekly.
+        TodoRepeat.WEEKLY -> Weekdays.describe(weekdays).ifEmpty { "Weekly" }
         TodoRepeat.MONTHLY -> "Monthly"
     }
     return if (completed == 0 && missed == 0) interval else "$interval · ${repeatTallyText(completed, missed)}"

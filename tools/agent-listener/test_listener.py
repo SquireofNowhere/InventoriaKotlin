@@ -409,6 +409,62 @@ class StreamEventTests(unittest.TestCase):
         self.assertEqual({}, mirror)
 
 
+class TitleTests(SessionCase):
+    """A chat is named after its first answer, the way claude.ai names a conversation."""
+
+    def title_of(self, chat_id):
+        return self.vault.wait_for(lambda: self.vault.meta(chat_id).get("titleSource") and self.vault.meta(chat_id))
+
+    def test_the_first_answer_names_the_chat(self):
+        os.environ["FAKE_CLAUDE_TITLE"] = "Planning the week"
+        self.manager()
+        self.vault.post("chatA", "m1", "what is on this week")
+        self.answered("chatA", "m1")
+        meta = self.title_of("chatA")
+        self.assertEqual("Planning the week", meta["title"])
+        self.assertEqual("auto", meta["titleSource"])
+
+    def test_a_name_the_user_gave_is_never_replaced(self):
+        os.environ["FAKE_CLAUDE_TITLE"] = "Not wanted"
+        self.manager()
+        self.vault.write("agent_chat/chats/chatA", {"title": "Mine", "titleSource": "user"}, method="PATCH")
+        self.vault.post("chatA", "m1", "hello")
+        self.answered("chatA", "m1")
+        time.sleep(1.0)  # long enough for a wrongly started naming run to have finished
+        self.assertEqual("Mine", self.vault.meta("chatA")["title"])
+        self.assertEqual("user", self.vault.meta("chatA")["titleSource"])
+
+    def test_a_chat_is_named_once(self):
+        os.environ["FAKE_CLAUDE_TITLE"] = "First name"
+        self.manager()
+        self.vault.post("chatA", "m1", "one")
+        self.answered("chatA", "m1")
+        self.title_of("chatA")
+        os.environ["FAKE_CLAUDE_TITLE"] = "Second name"
+        self.vault.post("chatA", "m2", "two")
+        self.answered("chatA", "m2")
+        time.sleep(1.0)
+        self.assertEqual("First name", self.vault.meta("chatA")["title"])
+
+
+class CleanTitleTests(unittest.TestCase):
+    def test_takes_the_first_line_without_labels_quotes_or_markdown(self):
+        self.assertEqual("Weekly planning", listener.clean_title('"Weekly planning."\n\nHope that helps'))
+        self.assertEqual("Weekly planning", listener.clean_title("Title: **Weekly planning**"))
+        self.assertEqual("Weekly planning", listener.clean_title("\n  # Weekly planning  \n"))
+
+    def test_nothing_is_nothing(self):
+        self.assertEqual("", listener.clean_title(""))
+        self.assertEqual("", listener.clean_title(None))
+        self.assertEqual("", listener.clean_title('  ""  '))
+
+    def test_a_long_title_is_cut(self):
+        title = listener.clean_title("word " * 40)
+        self.assertLessEqual(len(title), 61)  # 60 characters, trimmed of trailing space, plus the ellipsis
+        self.assertTrue(title.endswith("…"))
+        self.assertNotIn(" …", title)
+
+
 class ContextMeterTests(unittest.TestCase):
     def test_reads_the_last_prompt_not_the_sum_of_calls(self):
         meter = listener.ContextMeter()

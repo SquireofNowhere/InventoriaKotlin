@@ -1,5 +1,6 @@
 package com.inventoria.app.ui.main
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.inventoria.app.data.model.FocusArea
+import com.inventoria.app.ui.screens.chat.ChatBubbleOverlay
+import com.inventoria.app.ui.screens.chat.ChatLink
 import com.inventoria.app.ui.screens.chat.ChatListScreen
 import com.inventoria.app.ui.screens.chat.ChatListViewModel
 import com.inventoria.app.ui.screens.chat.ChatScreen
@@ -178,6 +181,32 @@ fun InventoriaApp(
         launchViewModel.requestTaskDetail(taskId)
         navController.switchToTab(Screen.Tasks.route)
     }
+    // A link in one of Claude's replies. Todos, blocks and tasks go through the same kind of
+    // request as the task detail above; items and collections are plain routes, reached through
+    // the Inventory tab so Back lands there (as a widget tap does).
+    val pendingTodoOpen by launchViewModel.pendingTodoOpen.collectAsState()
+    val pendingBlockOpen by launchViewModel.pendingBlockOpen.collectAsState()
+    val onOpenChatLink: (ChatLink) -> Unit = { link ->
+        when (link) {
+            is ChatLink.Todo -> {
+                launchViewModel.requestTodoOpen(link.id)
+                navController.switchToTab(Screen.Todos.route)
+            }
+            is ChatLink.Block -> {
+                launchViewModel.requestBlockOpen(link.id)
+                navController.switchToTab(Screen.Todos.route)
+            }
+            is ChatLink.Task -> onOpenTaskDetail(link.id)
+            is ChatLink.Item -> {
+                navController.switchToTab(Screen.InventoryHub.route)
+                navController.navigate("item_detail/${link.id}")
+            }
+            is ChatLink.Collection -> {
+                navController.switchToTab(Screen.InventoryHub.route)
+                navController.navigate("collection/${link.id}")
+            }
+        }
+    }
     // Strictly sequential, never stacked: the focus choice reshapes the tabs and dashboard the
     // changelog describes, so it goes first and What's New waits for it to be answered.
     if (showFocusPrompt) {
@@ -272,6 +301,7 @@ fun InventoriaApp(
                 }
             }
         ) { innerPadding ->
+        Box(Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
             startDestination = Screen.Today.route,
@@ -312,7 +342,8 @@ fun InventoriaApp(
                         navController.navigate("claude_chat/$chatId") {
                             popUpTo("claude_chat/{chatId}") { inclusive = true }
                         }
-                    }
+                    },
+                    onOpenLink = onOpenChatLink
                 )
             }
 
@@ -450,7 +481,11 @@ fun InventoriaApp(
                     onNavigateToHelp = { openHelpFor(Screen.Todos.helpCategoryId) },
                     // "View on Tasks" is a tab switch, not a drill-down -- must not plain-push.
                     onNavigateToTasks = { navController.switchToTab(Screen.Tasks.route) },
-                    onOpenTaskDetail = onOpenTaskDetail
+                    onOpenTaskDetail = onOpenTaskDetail,
+                    openTodoId = pendingTodoOpen,
+                    onOpenTodoIdConsumed = { launchViewModel.consumeTodoOpenRequest() },
+                    openBlockId = pendingBlockOpen,
+                    onOpenBlockIdConsumed = { launchViewModel.consumeBlockOpenRequest() }
                 )
             }
 
@@ -583,6 +618,15 @@ fun InventoriaApp(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
+        }
+        // Claude, one tap away from any tab or page -- but not on the chat's own screens, where
+        // it would only cover the conversation. innerPadding keeps it clear of the system bars.
+        if (currentBaseRoute?.startsWith("claude_chat") != true) {
+            ChatBubbleOverlay(
+                onOpenChat = { navController.navigate("claude_chats") },
+                modifier = Modifier.padding(innerPadding)
+            )
+        }
         }
     }
 }

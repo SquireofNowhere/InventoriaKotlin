@@ -10,8 +10,12 @@ import com.inventoria.shared.model.TaskKind
 import com.inventoria.shared.model.TaskTimePlan
 import com.inventoria.shared.model.TaskType
 import com.inventoria.shared.model.Todo
+import com.inventoria.shared.model.TodoRepeat
 import com.inventoria.shared.model.TodoState
+import com.inventoria.shared.model.Weekdays
+import com.inventoria.shared.model.asapElapsedMillis
 import com.inventoria.shared.model.autoStartPlan
+import com.inventoria.shared.model.isAsap
 import com.inventoria.shared.model.computeTaskTypeStats
 import com.inventoria.shared.model.hasReminder
 import com.inventoria.shared.model.nowMillis
@@ -23,6 +27,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.datetime.TimeZone
 import java.time.LocalDate
 import java.time.ZonedDateTime
 
@@ -78,8 +83,16 @@ suspend fun Vault.requireTaskType(id: String): TaskType {
 private fun <T> encode(serializer: KSerializer<T>, value: T): JsonObject =
     InventoriaJson.encodeToJsonElement(serializer, value) as JsonObject
 
+/**
+ * A link the app's chat turns into a button that opens the thing: `inventoria://todo/<id>`, and
+ * likewise item, collection, task (a tracked segment, which is a timer) and block. Every view carries
+ * one as `link`, and the chat is told to write the names of what it mentions as links to them.
+ */
+fun appLink(kind: String, id: Any): String = "inventoria://$kind/$id"
+
 fun itemView(item: InventoryItem): JsonObject {
     var view = encode(InventoryItem.serializer(), item)
+        .withField("link", JsonPrimitive(appLink("item", item.id)))
         .withField("createdAtIso", JsonPrimitive(isoString(item.createdAt)))
         .withField("updatedAtIso", JsonPrimitive(isoString(item.updatedAt)))
     item.getTotalValue()?.let { view = view.withField("totalValue", JsonPrimitive(it)) }
@@ -87,17 +100,25 @@ fun itemView(item: InventoryItem): JsonObject {
 }
 
 fun todoView(todo: Todo): JsonObject {
-    var view = encode(Todo.serializer(), todo)
+    var view = encode(Todo.serializer(), todo).withField("link", JsonPrimitive(appLink("todo", todo.id)))
     todo.deadline?.let { view = view.withField("deadlineDate", JsonPrimitive(dayString(it))) }
     todo.deadlineMinuteOfDay?.let { view = view.withField("deadlineTime", JsonPrimitive(minuteString(it))) }
     todo.completedAt?.let { view = view.withField("completedAtIso", JsonPrimitive(isoString(it))) }
     if (todo.hasReminder) view = view.withField("remindersText", JsonPrimitive(todo.reminders().describe()))
     todo.autoStartPlan().takeUnless { it.isEmpty }?.let { view = view.withField("autoStartText", JsonPrimitive(it.describe())) }
+    todo.asapElapsedMillis()?.let { elapsed ->
+        view = view.withField("isAsap", JsonPrimitive(todo.isAsap))
+            .withField("asapElapsedMinutes", JsonPrimitive(elapsed / 60_000))
+    }
+    if (todo.repeatWeekdays != 0 && todo.repeatInterval == TodoRepeat.WEEKLY) {
+        view = view.withField("repeatDaysText", JsonPrimitive(Weekdays.describe(todo.repeatWeekdays)))
+    }
     return view
 }
 
 fun taskView(task: Task, now: Long = nowMillis()): JsonObject {
     var view = encode(Task.serializer(), task)
+        .withField("link", JsonPrimitive(appLink("task", task.id)))
         .withField("startIso", JsonPrimitive(isoString(task.startTime)))
         .withField("durationMinutes", JsonPrimitive(task.elapsedMillis(now) / 60_000))
         .withField("kindName", JsonPrimitive(task.kind.displayName))
@@ -107,13 +128,19 @@ fun taskView(task: Task, now: Long = nowMillis()): JsonObject {
     return view
 }
 
-fun blockView(block: ScheduleBlock): JsonObject =
-    encode(ScheduleBlock.serializer(), block)
+fun blockView(block: ScheduleBlock): JsonObject {
+    val view = encode(ScheduleBlock.serializer(), block)
+        .withField("link", JsonPrimitive(appLink("block", block.id)))
         .withField("date", JsonPrimitive(dayString(block.dayStart)))
         .withField("start", JsonPrimitive(minuteString(block.startMinuteOfDay)))
         .withField("end", JsonPrimitive(minuteString(block.endMinuteOfDay)))
+    return if (block.repeatWeekdays != 0 && block.repeatWeekly) {
+        view.withField("repeatDaysText", JsonPrimitive(Weekdays.describe(block.repeatWeekdays)))
+    } else view
+}
 
-fun collectionView(c: InventoryCollection): JsonObject = encode(InventoryCollection.serializer(), c)
+fun collectionView(c: InventoryCollection): JsonObject =
+    encode(InventoryCollection.serializer(), c).withField("link", JsonPrimitive(appLink("collection", c.id)))
 
 /** How ready a collection is, by the app's own rule: an entry counts once the item covers its required quantity. */
 fun readiness(entries: List<InventoryCollectionItem>, itemsById: Map<Long, InventoryItem>): JsonObject {
@@ -423,7 +450,7 @@ fun readTools(vault: Vault): List<Tool> = listOf(
             val days = generateSequence(start) { it.plusDays(1) }.takeWhile { !it.isAfter(end) }.toList()
             val rows = days.flatMap { day ->
                 val dayStart = day.atStartOfDay(zone).toInstant().toEpochMilli()
-                blocks.filter { occursOn(it, day, dayStart) }
+                blocks.filter { it.occursOn(dayStart, TimeZone.of(zone.id)) }
                     .sortedBy { it.startMinuteOfDay }
                     .map { blockView(it).withField("occursOn", JsonPrimitive(day.toString())) }
             }
@@ -472,13 +499,3 @@ fun readTools(vault: Vault): List<Tool> = listOf(
 enum class RestorableKind { ITEM, COLLECTION, TODO, TASK, TASK_TYPE, SCHEDULE_BLOCK }
 
 val RESTORABLE_KINDS: List<String> = RestorableKind.entries.map { it.name }
-
-/** Same rule as ScheduleBlock.occursOn, on a java.time day so the server needs no kotlinx-datetime. */
-private fun occursOn(block: ScheduleBlock, day: LocalDate, dayStart: Long): Boolean {
-    if (dayStart == block.dayStart) return true
-    if (dayStart < block.dayStart) return false
-    if (block.repeatDaily) return true
-    if (!block.repeatWeekly) return false
-    val blockDay = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(block.dayStart), zone).dayOfWeek
-    return blockDay == day.dayOfWeek
-}

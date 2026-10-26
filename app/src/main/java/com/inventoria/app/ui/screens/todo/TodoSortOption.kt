@@ -2,6 +2,7 @@ package com.inventoria.app.ui.screens.todo
 
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoState
+import com.inventoria.app.data.model.isAsap
 
 /** How todos are ordered within whatever they are grouped into -- the Todos screen's counterpart
  * of the Inventory screen's SortOption. DEADLINE_ASC is the default and is exactly the order the
@@ -29,7 +30,9 @@ enum class TodoSortOption(val displayName: String) {
         val base: Comparator<Todo> = when (this) {
             DEADLINE_ASC ->
                 if (withinDay) compareBy<Todo> { it.deadlineMinuteOfDay ?: Int.MAX_VALUE }
-                else compareBy<Todo> { it.deadline == null }
+                // Something due as soon as possible is the soonest there is.
+                else compareBy<Todo> { !it.isAsap }
+                    .thenBy { it.deadline == null }
                     .thenBy { it.deadline ?: 0L }
                     .thenBy { it.deadlineMinuteOfDay ?: Int.MAX_VALUE }
             DEADLINE_DESC ->

@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.inventoria.app.data.model.ScheduleBlock
+import com.inventoria.app.data.model.Weekdays
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
@@ -127,8 +128,17 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
     val taskTypes by viewModel.taskTypes.collectAsState()
     val taskTypeNames by viewModel.taskTypeNamesById.collectAsState()
     val rawData by viewModel.rawData.collectAsState()
-    val todayStart = remember { getStartOfDay(System.currentTimeMillis()) }
-    // Same once-a-minute ticker TodoScreen runs: moves the now-line and grows a running task.
+    // The list is anchored on the day this screen was opened: item DAY_INDEX_ANCHOR is that day for
+    // as long as the screen lives, however many midnights pass.
+    val anchorDay = remember { getStartOfDay(System.currentTimeMillis()) }
+    // "Today" is not the same thing: it moves on at midnight. Same once-a-minute ticker TodoScreen
+    // runs; it also moves the now-line and grows a running task.
+    val todayStart by produceState(anchorDay) {
+        while (true) {
+            delay(60_000)
+            value = getStartOfDay(System.currentTimeMillis())
+        }
+    }
     val nowMinuteOfDay by produceState(currentMinuteOfDay()) {
         while (true) {
             delay(60_000)
@@ -136,8 +146,8 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
         }
     }
 
-    fun dayForIndex(index: Int): Long = plusDays(todayStart, index - DAY_INDEX_ANCHOR)
-    fun indexForDay(day: Long): Int = DAY_INDEX_ANCHOR + daysBetween(todayStart, day)
+    fun dayForIndex(index: Int): Long = plusDays(anchorDay, index - DAY_INDEX_ANCHOR)
+    fun indexForDay(day: Long): Int = DAY_INDEX_ANCHOR + daysBetween(anchorDay, day)
 
     val zoom = rememberTimelineZoom("schedule")
     val hourHeight = BASE_HOUR_HEIGHT * zoom.scale
@@ -146,13 +156,19 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = DAY_INDEX_ANCHOR)
     val scope = rememberCoroutineScope()
 
+    /**
+     * Brings [dayStart] into view with the time of day it is *now* near the top, whichever day it
+     * is -- so tapping a date in the week strip shows what is happening at this hour there, not
+     * midnight. The zoom and the clock are read here, when the scroll happens: this is called from
+     * effects that outlive any one recomposition, and an hour height captured when they started
+     * would put the scroll in the wrong place as soon as the zoom had changed.
+     */
     suspend fun scrollToDay(dayStart: Long, animate: Boolean) {
         val index = indexForDay(dayStart)
-        val offset = if (dayStart == todayStart) {
-            val headerPx = with(density) { DAY_HEADER_HEIGHT.toPx() }
-            val minute = (nowMinuteOfDay - 60).coerceAtLeast(0)
-            (headerPx + minute / 60f * with(density) { hourHeight.toPx() }).roundToInt()
-        } else 0
+        val headerPx = with(density) { DAY_HEADER_HEIGHT.toPx() }
+        val hourPx = with(density) { (BASE_HOUR_HEIGHT * zoom.scale).toPx() }
+        val minute = (currentMinuteOfDay() - 60).coerceAtLeast(0)
+        val offset = (headerPx + minute / 60f * hourPx).roundToInt()
         if (animate) listState.animateScrollToItem(index, offset) else listState.scrollToItem(index, offset)
     }
 
@@ -274,8 +290,8 @@ fun ScheduleScreen(viewModel: ScheduleViewModel, onOpenTaskDetail: (String) -> U
             taskTypes = taskTypes,
             onDismiss = { viewModel.dismissDialog() },
             onDelete = { viewModel.requestDelete(block) },
-            onSave = { title, kind, taskTypeId, dayStart, start, end, repeat, notes, autoStart, autoStop ->
-                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeat, notes, autoStart, autoStop)
+            onSave = { title, kind, taskTypeId, dayStart, start, end, repeat, notes, autoStart, autoStop, weekdays ->
+                viewModel.saveBlock(title, kind, taskTypeId, dayStart, start, end, repeat, notes, autoStart, autoStop, weekdays)
             }
         )
     }
@@ -791,7 +807,11 @@ private fun FlatScheduleBlock(block: ScheduleBlock, typeName: String?, modifier:
                     Spacer(Modifier.width(3.dp))
                     Icon(
                         Icons.Default.Repeat,
-                        contentDescription = if (block.repeatDaily) "Repeats daily" else "Repeats weekly",
+                        contentDescription = when {
+                            block.repeatDaily -> "Repeats daily"
+                            block.repeatWeekdays != 0 -> "Repeats " + Weekdays.describe(block.repeatWeekdays)
+                            else -> "Repeats weekly"
+                        },
                         modifier = Modifier.size(11.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -953,7 +973,7 @@ private fun ScheduleBlockDialog(
     taskTypes: List<TaskType>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onSave: (String, TaskKind, String?, Long, Int, Int, BlockRepeat, String, Boolean, Boolean) -> Unit
+    onSave: (String, TaskKind, String?, Long, Int, Int, BlockRepeat, String, Boolean, Boolean, Int) -> Unit
 ) {
     var title by remember { mutableStateOf(block.title) }
     var autoStart by remember { mutableStateOf(block.autoStart) }
@@ -972,6 +992,12 @@ private fun ScheduleBlockDialog(
             }
         )
     }
+    // Which days a weekly block falls on. Null until a day button is touched, so that until then it just
+    // follows the date above (and is saved as plain weekly, one weekday).
+    var chosenWeekdays by remember { mutableStateOf<Set<Int>?>(null) }
+    val dateWeekday = Weekdays.isoDayOf(dayStart)
+    val shownWeekdays: Set<Int> = chosenWeekdays
+        ?: if (block.repeatWeekdays != 0) Weekdays.daysOf(block.repeatWeekdays).toSet() else setOf(dateWeekday)
     var notes by remember { mutableStateOf(block.notes) }
     val context = LocalContext.current
     val spanValid = endMinute > startMinute
@@ -1062,11 +1088,22 @@ private fun ScheduleBlockDialog(
                         when (repeat) {
                             BlockRepeat.NONE -> "Just this day"
                             BlockRepeat.DAILY -> "Every day from this date on"
-                            BlockRepeat.WEEKLY -> "Every $weekdayName from this date on"
+                            BlockRepeat.WEEKLY ->
+                                if (shownWeekdays == setOf(dateWeekday)) "Every $weekdayName from this date on"
+                                else "Every ${Weekdays.describe(Weekdays.maskOf(shownWeekdays)).ifEmpty { "week" }} from this date on"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // Weekly can fall on chosen days, the way an alarm's repeat does: weekdays only, say.
+                    if (repeat == BlockRepeat.WEEKLY) {
+                        WeekdayPicker(
+                            selected = shownWeekdays,
+                            onToggle = { day ->
+                                chosenWeekdays = if (day in shownWeekdays) shownWeekdays - day else shownWeekdays + day
+                            }
+                        )
+                    }
                 }
                 // A block is a plan unless you ask more of it: with this on, the timer starts itself
                 // when the block begins (and can end itself when the block does). Two quiet switches.
@@ -1116,8 +1153,14 @@ private fun ScheduleBlockDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeat, notes, autoStart, autoStop) },
-                enabled = title.isNotBlank() && spanValid
+                onClick = {
+                    // Only the date's own weekday (or nothing picked) is plain weekly: stored as 0, so the
+                    // block keeps following its date. Anything else is a chosen set.
+                    val weekdays = if (shownWeekdays.isEmpty() || shownWeekdays == setOf(dateWeekday)) 0
+                    else Weekdays.maskOf(shownWeekdays)
+                    onSave(title, kind, taskTypeId, dayStart, startMinute, endMinute, repeat, notes, autoStart, autoStop, weekdays)
+                },
+                enabled = title.isNotBlank() && spanValid && (repeat != BlockRepeat.WEEKLY || shownWeekdays.isNotEmpty())
             ) {
                 Text("Save")
             }

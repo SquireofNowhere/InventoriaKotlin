@@ -8,6 +8,7 @@ import com.inventoria.app.data.TaskTypeRepository
 import com.inventoria.app.data.TodoRepository
 import com.inventoria.app.data.deletedRowPurgeThreshold
 import com.inventoria.app.data.model.ScheduleBlock
+import com.inventoria.app.data.model.Weekdays
 import com.inventoria.app.data.model.Task
 import com.inventoria.app.data.model.TaskKind
 import com.inventoria.app.data.model.TaskType
@@ -220,6 +221,17 @@ class ScheduleViewModel @Inject constructor(
         )
     }
 
+    /** Shows [id] on the calendar and opens it for editing, as following a link from the chat does.
+     * Does nothing if it has gone since the link was written. */
+    fun openBlockById(id: String) {
+        viewModelScope.launch {
+            scheduleBlockRepository.getBlockById(id)?.takeIf { !it.isDeleted }?.let { block ->
+                goToDay(block.dayStart)
+                startEditingBlock(block)
+            }
+        }
+    }
+
     fun startEditingBlock(block: ScheduleBlock) {
         _pendingBlock.value = block
     }
@@ -238,7 +250,8 @@ class ScheduleViewModel @Inject constructor(
         repeat: BlockRepeat,
         notes: String,
         autoStart: Boolean = false,
-        autoStop: Boolean = false
+        autoStop: Boolean = false,
+        repeatWeekdays: Int = 0
     ) {
         val pending = _pendingBlock.value ?: return
         val trimmed = title.trim()
@@ -252,7 +265,10 @@ class ScheduleViewModel @Inject constructor(
             startMinuteOfDay = startMinuteOfDay,
             endMinuteOfDay = endMinuteOfDay,
             repeatDaily = repeat == BlockRepeat.DAILY,
+            // Stays set for chosen weekdays too, so a device on an older build still shows the block
+            // weekly rather than not at all; the days themselves are repeatWeekdays.
             repeatWeekly = repeat == BlockRepeat.WEEKLY,
+            repeatWeekdays = if (repeat == BlockRepeat.WEEKLY) Weekdays.clean(repeatWeekdays) else 0,
             // Stopping is only meaningful for a block that starts something.
             autoStart = autoStart,
             autoStop = autoStart && autoStop,

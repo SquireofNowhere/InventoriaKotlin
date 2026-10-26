@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,6 +44,7 @@ import com.inventoria.app.data.model.TaskType
 import com.inventoria.app.data.model.Todo
 import com.inventoria.app.data.model.TodoPriority
 import com.inventoria.app.data.model.TodoRepeat
+import com.inventoria.app.data.model.Weekdays
 import com.inventoria.app.data.model.autoStartPlan
 import com.inventoria.app.data.model.reminders
 import com.inventoria.app.ui.screens.task.TaskKindDropdownMenu
@@ -71,6 +73,7 @@ fun TodoScreen(
     // deliberately not on Today. See TodoViewModel.todoSections.
     val todoSections by viewModel.plannerSections.collectAsState()
     val undatedTodoEntries by viewModel.undatedTodoEntries.collectAsState()
+    val asapEntries by viewModel.plannerAsap.collectAsState()
     val todoGroups by viewModel.plannerGroups.collectAsState()
     val sortOption by viewModel.sortOption.collectAsState()
     val groupOption by viewModel.groupOption.collectAsState()
@@ -99,8 +102,8 @@ fun TodoScreen(
     // collapsed parent, or hidden with the rest of the completed work -- would otherwise leave its
     // last known Y range in here forever, and a drag over that empty space would silently resolve
     // to a todo that is not on screen.
-    val renderedTodoIds = remember(todoSections, undatedTodoEntries, todoGroups) {
-        (todoSections.flatMap { it.visibleTodos } + undatedTodoEntries + todoGroups.flatMap { it.entries }).mapTo(mutableSetOf()) { it.todo.id }
+    val renderedTodoIds = remember(todoSections, undatedTodoEntries, todoGroups, asapEntries) {
+        (todoSections.flatMap { it.visibleTodos } + undatedTodoEntries + asapEntries + todoGroups.flatMap { it.entries }).mapTo(mutableSetOf()) { it.todo.id }
     }
     LaunchedEffect(renderedTodoIds) { itemBoundsY.keys.retainAll(renderedTodoIds) }
     var contentBoxTopLeft by remember { mutableStateOf(Offset.Zero) }
@@ -195,7 +198,7 @@ fun TodoScreen(
                     detectTapGestures(onTap = { viewModel.clearSelection() })
                 }
         ) {
-            if (todoSections.isEmpty() && undatedTodoEntries.isEmpty() && todoGroups.isEmpty()) {
+            if (todoSections.isEmpty() && undatedTodoEntries.isEmpty() && todoGroups.isEmpty() && asapEntries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No todos yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -223,6 +226,21 @@ fun TodoScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                    if (asapEntries.isNotEmpty()) {
+                        // Above everything dated: what is due as soon as possible, longest-waiting first.
+                        item(key = "asap_header") {
+                            Text(
+                                text = "ASAP",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+                        items(asapEntries, key = { it.todo.id }) { entry ->
+                            todoRow(entry)
                         }
                     }
                     todoGroups.forEach { group ->
@@ -344,6 +362,8 @@ fun TodoScreen(
             initialReminders = ReminderPlan.AT_DUE,
             initialAutoStart = AutoStartPlan.NONE,
             initialRepeat = TodoRepeat.NONE,
+            initialRepeatWeekdays = 0,
+            initialAsap = false,
             repeatCompletedCount = 0,
             repeatMissedCount = 0,
             initialParentId = selectedTodoId,
@@ -351,8 +371,8 @@ fun TodoScreen(
             parentChoices = allTodos,
             onCreateSubTodo = null,
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart ->
-                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart, weekdays, asap ->
+                viewModel.addTodo(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart, weekdays, asap)
             }
         )
     }
@@ -370,6 +390,8 @@ fun TodoScreen(
             initialReminders = todo.reminders(),
             initialAutoStart = todo.autoStartPlan(),
             initialRepeat = todo.repeatInterval,
+            initialRepeatWeekdays = todo.repeatWeekdays,
+            initialAsap = todo.asapSince != null,
             repeatCompletedCount = todo.repeatCompletedCount,
             repeatMissedCount = todo.repeatMissedCount,
             initialParentId = todo.parentTodoId,
@@ -377,8 +399,8 @@ fun TodoScreen(
             parentChoices = allTodos.filter { it.id !in invalidParentIds },
             onCreateSubTodo = { viewModel.startAddingSubTodoOf(todo) },
             onDismiss = { viewModel.dismissDialog() },
-            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart ->
-                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart)
+            onSave = { title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart, weekdays, asap ->
+                viewModel.saveEditedTodo(todo, title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminder, repeat, parentId, priority, autoStart, weekdays, asap)
             }
         )
     }
@@ -396,6 +418,8 @@ private fun TodoEditDialog(
     initialReminders: ReminderPlan,
     initialAutoStart: AutoStartPlan,
     initialRepeat: TodoRepeat,
+    initialRepeatWeekdays: Int,
+    initialAsap: Boolean,
     repeatCompletedCount: Int,
     repeatMissedCount: Int,
     initialParentId: String?,
@@ -403,7 +427,7 @@ private fun TodoEditDialog(
     parentChoices: List<Todo>,
     onCreateSubTodo: (() -> Unit)?,
     onDismiss: () -> Unit,
-    onSave: (String, String, TaskKind, String?, Long?, Int?, ReminderPlan, TodoRepeat, String?, TodoPriority?, AutoStartPlan) -> Unit
+    onSave: (String, String, TaskKind, String?, Long?, Int?, ReminderPlan, TodoRepeat, String?, TodoPriority?, AutoStartPlan, Int, Boolean) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var description by remember { mutableStateOf(initialDescription) }
@@ -414,6 +438,16 @@ private fun TodoEditDialog(
     var reminders by remember { mutableStateOf(initialReminders) }
     var autoStart by remember { mutableStateOf(initialAutoStart) }
     var repeat by remember { mutableStateOf(initialRepeat) }
+    // Due as soon as possible instead of on a day. A todo is one or the other, so turning it on
+    // clears the date, the time and the repeat, which all hang off a date.
+    var asap by remember { mutableStateOf(initialAsap) }
+    // The weekdays a weekly repeat falls on. Null until the user touches a day button, so that until
+    // then it just follows the deadline's own weekday (and is saved as "plain weekly").
+    var chosenWeekdays by remember { mutableStateOf<Set<Int>?>(null) }
+    val deadlineWeekday = deadline?.let { Weekdays.isoDayOf(it) }
+    val shownWeekdays: Set<Int> = chosenWeekdays
+        ?: if (initialRepeatWeekdays != 0) Weekdays.daysOf(initialRepeatWeekdays).toSet()
+        else deadlineWeekday?.let { setOf(it) } ?: emptySet()
     var parentId by remember { mutableStateOf(initialParentId) }
     var priority by remember { mutableStateOf(initialPriority) }
     val context = LocalContext.current
@@ -450,7 +484,19 @@ private fun TodoEditDialog(
                     onTypeSelected = { taskTypeId = it }
                 )
                 TodoPriorityDropdownMenu(selectedPriority = priority, onPrioritySelected = { priority = it })
-                Row(
+                AsapRow(
+                    asap = asap,
+                    onChange = { on ->
+                        asap = on
+                        if (on) {
+                            deadline = null
+                            deadlineMinuteOfDay = null
+                            repeat = TodoRepeat.NONE
+                            chosenWeekdays = null
+                        }
+                    }
+                )
+                if (!asap) Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -476,7 +522,7 @@ private fun TodoEditDialog(
                 // way to say "today at 17:00", so a time chosen with no date fills the date in as
                 // today rather than making you go back for it. Clearing the date above still takes
                 // the time with it -- a time with no day is not a deadline.
-                Row(
+                if (!asap) Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
@@ -524,7 +570,11 @@ private fun TodoEditDialog(
                     repeat = repeat,
                     completedCount = repeatCompletedCount,
                     missedCount = repeatMissedCount,
-                    onRepeatChange = { repeat = it }
+                    onRepeatChange = { repeat = it },
+                    weekdays = shownWeekdays,
+                    onWeekdayToggle = { day ->
+                        chosenWeekdays = if (day in shownWeekdays) shownWeekdays - day else shownWeekdays + day
+                    }
                 )
                 ParentTodoPicker(
                     parentChoices = parentChoices,
@@ -542,7 +592,13 @@ private fun TodoEditDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminders, repeat, parentId, priority, autoStart) },
+                onClick = {
+                    // Just the deadline's own weekday (or nothing picked) is plain weekly: stored as 0, so
+                    // the todo keeps following whatever its date is. Anything else is a chosen set.
+                    val weekdays = if (shownWeekdays.isEmpty() || shownWeekdays == setOfNotNull(deadlineWeekday)) 0
+                    else Weekdays.maskOf(shownWeekdays)
+                    onSave(title, description, kind, taskTypeId, deadline, deadlineMinuteOfDay, reminders, repeat, parentId, priority, autoStart, weekdays, asap)
+                },
                 enabled = title.isNotBlank()
             ) {
                 Text("Save")
@@ -552,6 +608,31 @@ private fun TodoEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+/** The ASAP switch: due as soon as possible rather than on a date, with a timer on the row counting
+ * up from the moment it is switched on, so you can see how long it is taking. */
+@Composable
+private fun AsapRow(asap: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("ASAP")
+            }
+            Text(
+                if (asap) "No date; a timer counts up until it is done" else "Due as soon as possible, instead of on a date",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = asap, onCheckedChange = onChange)
+    }
 }
 
 @Composable
@@ -593,7 +674,9 @@ private fun RepeatPicker(
     repeat: TodoRepeat,
     completedCount: Int,
     missedCount: Int,
-    onRepeatChange: (TodoRepeat) -> Unit
+    onRepeatChange: (TodoRepeat) -> Unit,
+    weekdays: Set<Int>,
+    onWeekdayToggle: (Int) -> Unit
 ) {
     val on = repeat != TodoRepeat.NONE
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -634,6 +717,8 @@ private fun RepeatPicker(
                 }
             }
         }
+        // Weekly can fall on chosen days ("Mon, Wed, Fri") instead of only the deadline's weekday.
+        if (on && repeat == TodoRepeat.WEEKLY) WeekdayPicker(selected = weekdays, onToggle = onWeekdayToggle)
         if (completedCount > 0 || missedCount > 0) {
             Text(
                 repeatTallyText(completedCount, missedCount),

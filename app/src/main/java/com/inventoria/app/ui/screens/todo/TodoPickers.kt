@@ -3,6 +3,24 @@ package com.inventoria.app.ui.screens.todo
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.inventoria.app.data.model.Weekdays
 import java.util.Calendar
 
 /**
@@ -43,4 +61,43 @@ internal fun showTimePicker(context: Context, initialMinuteOfDay: Int?, onTimeSe
         minute,
         true
     ).show()
+}
+
+private val WEEKDAY_LETTERS = listOf("M", "T", "W", "T", "F", "S", "S")
+
+/**
+ * Seven round day buttons, Monday to Sunday, for choosing which days of the week something repeats
+ * on -- the same idea as the alarm clock's day picker. [selected] holds ISO days (1 = Monday) and
+ * [onToggle] is told which one was tapped. A line underneath says it in words ("Mon, Wed, Fri",
+ * "Weekdays"), because seven bare letters are easy to misread.
+ */
+@Composable
+internal fun WeekdayPicker(selected: Set<Int>, onToggle: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            (1..7).forEach { day ->
+                val on = day in selected
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onToggle(day) }
+                        .semantics { contentDescription = Weekdays.name(day) + if (on) ", on" else ", off" }
+                ) {
+                    Text(
+                        WEEKDAY_LETTERS[day - 1],
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Text(
+            Weekdays.describe(Weekdays.maskOf(selected)).ifEmpty { "Pick at least one day" },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }

@@ -20,6 +20,17 @@ object ChangelogCatalog {
     val entries: List<ChangelogEntry> by lazy {
         listOf(
             ChangelogEntry(
+                versionCode = 129,
+                versionName = "2.48",
+                changes = listOf(
+                    "Claude's replies now look the way they were written: bold, lists, code and links are drawn properly instead of showing raw symbols. When a reply mentions a todo, item, collection, timer or schedule block, its name is a button that opens it. Update the agent listener on your PC (restart it) for Claude to start adding those buttons.",
+                    "A chat button now floats over every tab and page, one tap from anywhere. Drag it wherever it is out of the way and it stays there. Chats also name themselves after their first answer, the way claude.ai does, and you can rename any chat from its menu or from the chat list. On a tablet the chat is now a column down the middle, so the send button sits beside the text.",
+                    "A todo can be ASAP instead of having a date. Switch on ASAP when you add or edit a todo: it moves to the top of Todos and Today, and a timer counts up from the moment you tagged it, stopping when you tick it off, so you can see how long it really took.",
+                    "Repeats can now pick their days. A weekly todo or schedule block shows Monday to Sunday buttons, so a block like Morning Routine can repeat on weekdays only, or Monday, Wednesday and Friday.",
+                    "On the Schedule tab, tapping a date or the Today button now lands on the current time of day, whatever the zoom, and no longer goes wrong after you have zoomed or left the app open past midnight."
+                )
+            ),
+            ChangelogEntry(
                 versionCode = 128,
                 versionName = "2.47",
                 changes = listOf(

@@ -64,10 +64,10 @@ from your phone's.
 | Items | `list_items`, `get_item`, `create_item`, `update_item` (incl. `quantity_delta`), `move_item`, `set_equipped`, `delete_item`, `link_items`, `unlink_items` |
 | Photos | `add_item_image` (file or base64, uploaded to Storage), `remove_item_image`, `set_item_profile_picture` |
 | Collections | `list_collections`, `get_collection`, `create_collection`, `update_collection`, `delete_collection`, `set_collection_item`, `remove_collection_item` |
-| Todos | `list_todos`, `get_todo`, `create_todo`, `update_todo` (incl. stacked reminders, calendar reminders and auto start), `set_todo_state`, `delete_todo` |
-| Planning | `list_schedule_blocks`, `create_schedule_block`, `update_schedule_block` (incl. `auto_start` / `auto_stop`), `delete_schedule_block`, `list_task_types`, `create_task_type`, `rename_task_type`, `delete_task_type` |
+| Todos | `list_todos`, `get_todo`, `create_todo`, `update_todo` (incl. stacked reminders, calendar reminders, auto start, `asap` and `repeat_days`), `set_todo_state`, `delete_todo` |
+| Planning | `list_schedule_blocks`, `create_schedule_block`, `update_schedule_block` (incl. `weekdays`, `auto_start` / `auto_stop`), `delete_schedule_block`, `list_task_types`, `create_task_type`, `rename_task_type`, `delete_task_type` |
 | Tracked time | `list_tasks`, `update_task` (name, Task Type, Kind, **start / end / duration**), `delete_task`, `create_task` (back-fill a finished segment) |
-| Claude chat | `chat_status`, `list_chats`, `read_chat`, `send_chat_message`, `set_chat_model` |
+| Claude chat | `chat_status`, `list_chats`, `read_chat`, `send_chat_message`, `set_chat_model`, `rename_chat` |
 | Timers | `list_active_timers`, `start_timer` (optionally with a time plan), `pause_timer`, `resume_timer`, `stop_timer`, `set_session_time_plan` |
 | Reports | `time_report` (by day, Task Type, Kind or name), `todo_stats` |
 | Bulk | `bulk_update_todos`, `bulk_move_items`, `batch_create` |
@@ -118,6 +118,19 @@ session that was once paused are history and can be edited.
 Kind) and re-freezes its score; with `apply_to_session` it recolours every segment of a *finished*
 session, as the app's session picker does. A session that is still open is refused.
 
+## ASAP todos and repeating on chosen days
+
+- **ASAP** (`asap` on `create_todo` / `update_todo`): the todo is due as soon as possible instead of on a
+  date. `true` clears its date, time and repeat and starts the timer the app counts up from now, until
+  the todo is completed; `false` (or null) removes the tag. A date and ASAP in one call is refused, and
+  so is giving an open ASAP todo a date without `asap=false`. Results carry `isAsap` and
+  `asapElapsedMinutes`.
+- **Repeat days** (`repeat_days` on todos, `weekdays` on schedule blocks): with a WEEKLY repeat, the days
+  of the week it falls on, as `mon`/`fri` names, `1`-`7` numbers or the groups `weekdays`, `weekends`,
+  `everyday`. Just the start's own weekday is stored as plain weekly, as the app does; `[]` goes back to
+  that. Sending days for a repeat that is not weekly is refused. Results carry `repeatDaysText`, and
+  `list_schedule_blocks` counts a block's end day and chosen days when it expands occurrences.
+
 ## The Claude chat
 
 The app's chat with Claude lives in `users/<uid>/agent_chat` and is answered by the agent listener
@@ -133,6 +146,11 @@ The app's chat with Claude lives in `users/<uid>/agent_chat` and is answered by 
   are not allowed to call it (they would be answering themselves).
 - `set_chat_model` changes a chat's model and effort, checked against the catalog the listener
   published, since the listener silently drops a choice it does not list.
+- `rename_chat` names a chat. A name set by hand (here or in the app) is kept: the listener names a chat
+  from what it is about after its first answer, but never over one a person chose.
+- Every todo, item, collection, tracked task and schedule block these tools return carries a `link`
+  such as `inventoria://todo/<id>`. The chat is told to write the names of what it mentions as links to
+  them, and the app draws those as buttons that open the thing.
 - There is deliberately no `delete_chat`: chats have no tombstone, and this server never hard-deletes.
 
 ## Timers, photos and backups

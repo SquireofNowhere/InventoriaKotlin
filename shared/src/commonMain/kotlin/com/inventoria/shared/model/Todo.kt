@@ -45,6 +45,13 @@ data class Todo(
     // Vestigial on Android since v2.12; kept so a round-trip through the web never drops it.
     val activeSessionGroupId: String? = null,
     val repeatInterval: TodoRepeat = TodoRepeat.NONE,
+    // Which weekdays a WEEKLY repeat falls on, as a Weekdays bit set (bit 0 Monday ... bit 6 Sunday).
+    // Zero is plain weekly: a week after the last deadline.
+    val repeatWeekdays: Int = 0,
+    // When the todo was tagged ASAP, in millis; null when it is not. An ASAP todo is due as soon as
+    // possible instead of on a day (so it has no deadline), and a timer counts up from this while it
+    // is open. See isAsap.
+    val asapSince: Long? = null,
     val repeatCompletedCount: Int = 0,
     val repeatMissedCount: Int = 0,
     val isDeleted: Boolean = false,
@@ -54,6 +61,36 @@ data class Todo(
 /** Where an all-day deadline's alarm lands when the todo carries no time of its own. The reminder
  * maths itself is in ReminderPlan.kt. */
 const val ALL_DAY_REMINDER_MINUTE_OF_DAY = 9 * 60
+
+/** Due as soon as possible, and still open: the state in which the ASAP timer counts up. A completed
+ * todo keeps its [Todo.asapSince], so it can still say how long it took, but is no longer ASAP. */
+val Todo.isAsap: Boolean get() = asapSince != null && state != TodoState.COMPLETE
+
+/** How long this todo has been ASAP: up to [now] while it is open, up to its completion once done. */
+fun Todo.asapElapsedMillis(now: Long = nowMillis()): Long? {
+    val since = asapSince ?: return null
+    val until = if (state == TodoState.COMPLETE) completedAt ?: now else now
+    return (until - since).coerceAtLeast(0L)
+}
+
+/** The deadline one cycle after [day] for a todo repeating by [repeat] on [weekdays]: a WEEKLY repeat
+ * with weekdays chosen goes to the next of those days (strictly after [day]); everything else is the
+ * plain interval, which is also what no chosen weekdays means. */
+fun nextCycleDeadline(
+    repeat: TodoRepeat,
+    weekdays: Int,
+    day: Long,
+    zone: TimeZone = TimeZone.currentSystemDefault()
+): Long {
+    val chosen = Weekdays.clean(weekdays)
+    if (repeat != TodoRepeat.WEEKLY || chosen == 0) return repeat.nextDeadline(day, zone)
+    var next = day
+    // At most seven steps: [chosen] is not empty, so some day within a week is in it.
+    do {
+        next = plusCalendar(next, DatePeriod(days = 1), zone)
+    } while (!Weekdays.contains(chosen, Weekdays.isoDayOf(next, zone)))
+    return next
+}
 
 /** The deadline one cycle later than [day] (a start-of-day timestamp). */
 fun TodoRepeat.nextDeadline(day: Long, zone: TimeZone = TimeZone.currentSystemDefault()): Long =
@@ -79,7 +116,7 @@ fun Todo.settleCycles(todayStart: Long, zone: TimeZone = TimeZone.currentSystemD
     while (next < todayStart) {
         if (!judged && state == TodoState.COMPLETE) completed++ else missed++
         judged = true
-        next = repeatInterval.nextDeadline(next, zone)
+        next = nextCycleDeadline(repeatInterval, repeatWeekdays, next, zone)
     }
     return copy(
         deadline = next,

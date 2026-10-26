@@ -47,6 +47,11 @@ data class ScheduleBlock(
     /** Repeats every day from [dayStart] on. Wins over [repeatWeekly] if a stray sync ever leaves
      * both set -- the editor only ever writes one of the two. */
     @get:PropertyName("repeatDaily") @set:PropertyName("repeatDaily") var repeatDaily: Boolean = false,
+    /** The weekdays a weekly block falls on, as a [Weekdays] bit set: "Mon, Wed, Fri" instead of only
+     * the weekday of [dayStart]. Zero -- every block from before this existed -- is that one weekday.
+     * Only read together with [repeatWeekly], which stays set whenever this is, so a device on an
+     * older build still shows the block weekly rather than not at all. */
+    @get:PropertyName("repeatWeekdays") @set:PropertyName("repeatWeekdays") var repeatWeekdays: Int = 0,
     /** The last day (inclusive, start-of-day) this block shows on, or null for no end. Removing a
      * repeating block from today on sets this to the day before instead of deleting the row, so the
      * days already gone by keep showing what the schedule used to be. See [historyEnd]. */
@@ -66,6 +71,12 @@ data class ScheduleBlock(
      * getter, so Firebase's mapper never mistakes it for a field. */
     fun occursOn(day: Long): Boolean {
         if (endDay != null && day > endDay!!) return false
+        val chosen = Weekdays.clean(repeatWeekdays)
+        if (repeatWeekly && !repeatDaily && chosen != 0) {
+            // Chosen weekdays replace "the weekday of dayStart", so the first day only counts when
+            // it is one of them.
+            return day >= dayStart && Weekdays.contains(chosen, Weekdays.isoDayOf(day))
+        }
         if (day == dayStart) return true
         if (day < dayStart) return false
         if (repeatDaily) return true

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +69,7 @@ fun ChatListScreen(
     val presence by viewModel.presence.collectAsState()
     val connection by viewModel.connection.collectAsState()
     var pendingDelete by remember { mutableStateOf<ChatSummary?>(null) }
+    var pendingRename by remember { mutableStateOf<ChatSummary?>(null) }
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -136,12 +138,21 @@ fun ChatListScreen(
                             chat = chat,
                             now = now,
                             onClick = { onOpenChat(chat.id) },
+                            onRename = { pendingRename = chat },
                             onDelete = { pendingDelete = chat }
                         )
                     }
                 }
             }
         }
+    }
+
+    pendingRename?.let { chat ->
+        RenameChatDialog(
+            currentTitle = chat.title,
+            onRename = { viewModel.rename(chat.id, it) },
+            onDismiss = { pendingRename = null }
+        )
     }
 
     pendingDelete?.let { chat ->
@@ -176,7 +187,7 @@ private fun EmptyChatList() {
 }
 
 @Composable
-private fun ChatRow(chat: ChatSummary, now: Long, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun ChatRow(chat: ChatSummary, now: Long, onClick: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
     val levelColor = when (chat.contextLevel) {
         ContextLevel.FINE -> MaterialTheme.colorScheme.primary
         ContextLevel.GETTING_FULL -> MaterialTheme.colorScheme.tertiary
@@ -213,6 +224,9 @@ private fun ChatRow(chat: ChatSummary, now: Long, onClick: () -> Unit, onDelete:
                 }
             }
             Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onRename) {
+                Icon(Icons.Default.Edit, contentDescription = "Rename chat")
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.DeleteOutline, contentDescription = "Delete chat")
             }

@@ -115,6 +115,10 @@ class InventoryDatabaseMigrationTest {
                 assertEquals("", todo?.reminderPlan)
                 // Added by MIGRATION_21_22 the same way: a pre-existing todo never starts itself.
                 assertEquals("", todo?.autoStart)
+                // Added by MIGRATION_22_23: a pre-existing todo is not ASAP (nullable, so unset) and
+                // repeats on no chosen weekdays (0 means "the weekday it already falls on").
+                assertNull(todo?.asapSince)
+                assertEquals(0, todo?.repeatWeekdays)
 
                 // The table MIGRATION_15_16 creates has to be usable through its DAO, not merely
                 // present -- a column with the wrong affinity passes CREATE TABLE and fails here.
@@ -148,6 +152,10 @@ class InventoryDatabaseMigrationTest {
                 db.scheduleBlockDao().updateBlock(block.copy(autoStart = true, autoStop = true))
                 assertEquals(true, db.scheduleBlockDao().getBlockById("block-1")?.autoStart)
                 assertEquals(true, db.scheduleBlockDao().getBlockById("block-1")?.autoStop)
+                // Added by MIGRATION_22_23 as NOT NULL DEFAULT 0, and it must round-trip a chosen set.
+                assertEquals(0, block.repeatWeekdays)
+                db.scheduleBlockDao().updateBlock(block.copy(repeatWeekdays = 0b0010101))
+                assertEquals(0b0010101, db.scheduleBlockDao().getBlockById("block-1")?.repeatWeekdays)
             }
         } finally {
             db.close()

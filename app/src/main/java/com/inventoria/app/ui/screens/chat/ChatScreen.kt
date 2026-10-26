@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -87,6 +88,10 @@ import com.inventoria.app.data.ModelCatalog
 import com.inventoria.app.data.ModelOption
 import kotlinx.coroutines.delay
 
+/** The widest the conversation gets: wide enough to read comfortably, narrow enough that a tablet's
+ * composer sits beside the text. */
+private val CHAT_COLUMN_MAX_WIDTH = 720.dp
+
 /** Starter prompts on an empty chat; tapping one fills the message box rather than sending it. */
 private val SUGGESTIONS = listOf(
     "What's on my plate today?",
@@ -113,7 +118,9 @@ private val SUGGESTIONS = listOf(
 fun ChatScreen(
     viewModel: ChatViewModel,
     onNavigateBack: () -> Unit,
-    onNewChat: (String) -> Unit
+    onNewChat: (String) -> Unit,
+    /** Opens the todo, item, task or block a reply linked to. */
+    onOpenLink: (ChatLink) -> Unit = {}
 ) {
     val messages by viewModel.messages.collectAsState()
     val input by viewModel.input.collectAsState()
@@ -126,6 +133,7 @@ fun ChatScreen(
     var confirmClear by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
 
     val waitingOn = messages.lastOrNull()?.takeIf { it.isAwaitingReply }
 
@@ -191,6 +199,10 @@ fun ChatScreen(
                             )
                             if (messages.isNotEmpty()) {
                                 DropdownMenuItem(
+                                    text = { Text("Rename chat") },
+                                    onClick = { showMenu = false; showRename = true }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Delete chat", color = MaterialTheme.colorScheme.error) },
                                     onClick = { showMenu = false; confirmClear = true }
                                 )
@@ -201,11 +213,18 @@ fun ChatScreen(
             )
         }
     ) { padding ->
+        // On a tablet the chat is a column down the middle of the page, like Claude's own apps, not
+        // the full width: the composer and its send button stay beside the text instead of at the
+        // far edge of the screen. On a phone the cap is wider than the screen and changes nothing.
+        Box(
+            modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
+            contentAlignment = Alignment.TopCenter
+        ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .imePadding()
+                .fillMaxHeight()
+                .widthIn(max = CHAT_COLUMN_MAX_WIDTH)
+                .fillMaxWidth()
         ) {
             contextAdvice(chat?.contextLevel ?: ContextLevel.FINE)?.let { advice ->
                 ContextAdvice(
@@ -224,7 +243,7 @@ fun ChatScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        items(messages, key = { it.id }) { message -> Message(message) }
+                        items(messages, key = { it.id }) { message -> Message(message, onOpenLink) }
                         if (progress != null) {
                             item(key = "progress") { ProgressRow(progress) }
                         }
@@ -261,6 +280,7 @@ fun ChatScreen(
                 onModelClick = { showDetails = true }
             )
         }
+        }
     }
 
     if (showDetails) {
@@ -272,6 +292,14 @@ fun ChatScreen(
             onModel = viewModel::chooseModel,
             onEffort = viewModel::chooseEffort,
             onDismiss = { showDetails = false }
+        )
+    }
+
+    if (showRename) {
+        RenameChatDialog(
+            currentTitle = chat?.title ?: "",
+            onRename = viewModel::rename,
+            onDismiss = { showRename = false }
         )
     }
 
@@ -348,7 +376,7 @@ private fun EmptyChat(onSuggestion: (String) -> Unit) {
 
 /** Yours in a bubble on the right; Claude's as plain text across the page, signed with a sparkle. */
 @Composable
-private fun Message(message: ChatMessage) {
+private fun Message(message: ChatMessage, onOpenLink: (ChatLink) -> Unit) {
     val fromUser = message.role == ChatRole.USER
     // Where this one message has got to: sending, sent, being worked on, or not answered.
     val delivery = deliveryLabel(message)
@@ -382,12 +410,9 @@ private fun Message(message: ChatMessage) {
         }
     } else {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Claude writes markdown; draw it (bold, lists, code, links) rather than its raw characters.
             SelectionContainer {
-                Text(
-                    message.text,
-                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                ChatMarkdownText(message.text, onLink = onOpenLink)
             }
             delivery?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = deliveryColor, modifier = Modifier.padding(top = 4.dp))
