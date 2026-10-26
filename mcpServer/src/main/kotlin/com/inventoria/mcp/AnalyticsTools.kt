@@ -149,7 +149,8 @@ fun analyticsTools(vault: Vault, others: List<Tool>): List<Tool> = listOf(
     Tool(
         name = "bulk_update_todos",
         description = "Apply the same change to many todos at once (up to $MAX_BULK): any of kind, task_type_id, due_date, " +
-            "due_time, reminder_offset_minutes, reminder_before, reminder_every, reminder_schedules, priority, repeat, and/or a state (with the app's sub-todo cascade). " +
+            "due_time, reminder_offset_minutes, reminder_before, reminder_every, reminder_schedules, auto_start_before, " +
+            "auto_start_schedules, auto_start_run_minutes, priority, repeat, and/or a state (with the app's sub-todo cascade). " +
             "Title, description and parent are per-todo and are refused here. Each todo succeeds or fails on its own.",
         inputSchema = schema(
             "ids" to arrP("string", "Todo ids"),

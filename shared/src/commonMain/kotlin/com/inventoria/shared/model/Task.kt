@@ -26,8 +26,8 @@ data class Task(
     val countsForStreak: Boolean = false,
     val originTodoId: String? = null,
     val score: Int = 0,
-    // TaskTimePlan.encode() text: planned length, rings, automatic stop. Not interpreted here --
-    // carried so a round-trip through the MCP server or web never drops it.
+    // TaskTimePlan.encode() text: planned length, rings, automatic stop. Only the phone rings and
+    // stops on it; this module reads and writes the text (see TaskTimePlan) and never acts on it.
     val timePlan: String = ""
 ) {
     /** Time spent so far: live from [startTime] while running, the stored [duration] once stopped

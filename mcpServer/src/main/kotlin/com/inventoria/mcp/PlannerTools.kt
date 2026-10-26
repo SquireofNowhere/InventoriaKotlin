@@ -11,8 +11,10 @@ import com.inventoria.shared.model.Todo
 import com.inventoria.shared.model.TodoPriority
 import com.inventoria.shared.model.TodoRepeat
 import com.inventoria.shared.model.TodoState
+import com.inventoria.shared.model.autoStartPlan
 import com.inventoria.shared.model.nowMillis
 import com.inventoria.shared.model.reminders
+import com.inventoria.shared.model.withAutoStart
 import com.inventoria.shared.model.withReminders
 import com.inventoria.shared.remote.InventoriaJson
 import kotlinx.serialization.json.JsonArray
@@ -107,6 +109,7 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
         }
         t = t.withReminders(ReminderPlan.of(leads, every, schedules))
     }
+    t = applyAutoStartArgs(args, t)
     if (args.has("priority")) {
         t = t.copy(priority = if (args.isNull("priority")) null else args.enum<TodoPriority>("priority"))
     }
@@ -132,8 +135,10 @@ internal suspend fun applyTodoArgs(vault: Vault, args: Args, base: Todo): Todo {
         if (t.repeatInterval != TodoRepeat.NONE && args.has("repeat")) {
             throw ToolError("A repeating todo needs a due_date")
         }
-        // withReminders drops what counts from the deadline and keeps the calendar schedules.
-        t = t.copy(deadlineMinuteOfDay = null, repeatInterval = TodoRepeat.NONE).withReminders(t.reminders())
+        // withReminders and withAutoStart drop what counts from the deadline and keep the calendar schedules.
+        t = t.copy(deadlineMinuteOfDay = null, repeatInterval = TodoRepeat.NONE)
+            .withReminders(t.reminders())
+            .withAutoStart(t.autoStartPlan())
     }
     if (t.title.isBlank()) throw ToolError("'title' cannot be empty")
     return t
@@ -207,7 +212,7 @@ internal val TODO_FIELDS = arrayOf(
     "priority" to strP("Priority, A1 (highest) to C3 (lowest)", nullable = true, enum = TodoPriority.entries.map { it.name }),
     "parent_id" to strP("Make this a sub-todo of the todo with this id", nullable = true),
     "repeat" to strP("Repeat interval once a due_date is set", enum = TodoRepeat.entries.map { it.name })
-)
+) + AUTO_START_FIELDS
 
 fun plannerTools(vault: Vault): List<Tool> = listOf(
     Tool(
@@ -325,8 +330,9 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
 
     Tool(
         name = "create_schedule_block",
-        description = "Plan a block of time (e.g. 06:00-07:00 Gym). A block never scores and never starts anything by " +
-            "itself; it shows on the Schedule view and Today's Now card.",
+        description = "Plan a block of time (e.g. 06:00-07:00 Gym). A block scores nothing itself; it shows on the " +
+            "Schedule view and Today's Now card. With auto_start the phone also begins tracking a session, named, " +
+            "kinded and typed like the block, when the block starts (and with auto_stop ends it when the block ends).",
         inputSchema = schema(
             "title" to strP("Block title"),
             "date" to strP("The day it starts, YYYY-MM-DD"),
@@ -335,6 +341,8 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
             "kind" to strP("Kind: $KIND_LEGEND", enum = KIND_NAMES),
             "task_type_id" to strP("Task Type id", nullable = true),
             "repeat" to strP("Repeat after the first day", enum = listOf("NONE", "DAILY", "WEEKLY")),
+            "auto_start" to boolP("Start tracking a session by itself when the block begins (default false)"),
+            "auto_stop" to boolP("Stop that session by itself when the block ends. Needs auto_start (default false)"),
             "notes" to strP("Notes"),
             required = listOf("title", "date", "start", "end")
         ),
@@ -352,9 +360,12 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
             endMinuteOfDay = parseMinuteOfDay(args.reqStr("end")),
             repeatDaily = repeat == "DAILY",
             repeatWeekly = repeat == "WEEKLY",
+            autoStart = args.bool("auto_start") ?: false,
+            autoStop = args.bool("auto_stop") ?: false,
             notes = args.str("notes") ?: "",
             updatedAt = nowMillis()
         )
+        if (block.autoStop && !block.autoStart) throw ToolError("'auto_stop' needs 'auto_start'")
         if (repeat !in listOf("NONE", "DAILY", "WEEKLY")) throw ToolError("'repeat' must be NONE, DAILY or WEEKLY")
         if (block.endMinuteOfDay <= block.startMinuteOfDay) throw ToolError("'end' must be later than 'start'")
         obj("block" to blockView(vault.create("schedule_blocks", block.id, block, ScheduleBlock.serializer())))
@@ -376,6 +387,10 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
                 "The last day a repeating block shows on, YYYY-MM-DD; earlier days keep it. null removes the end.",
                 nullable = true
             ),
+            "auto_start" to boolP(
+                "Start tracking a session by itself when the block begins. Turning it off also turns auto_stop off."
+            ),
+            "auto_stop" to boolP("Stop that session by itself when the block ends. Needs auto_start."),
             "notes" to strP("Notes"),
             required = listOf("id")
         ),
@@ -388,7 +403,12 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
         val repeat = args.str("repeat")?.uppercase()
         if (repeat != null && repeat !in listOf("NONE", "DAILY", "WEEKLY")) throw ToolError("'repeat' must be NONE, DAILY or WEEKLY")
         val updated = vault.edit("schedule_blocks", id, ScheduleBlock.serializer()) { b ->
+            val autoStart = args.bool("auto_start") ?: b.autoStart
+            if (args.bool("auto_stop") == true && !autoStart) throw ToolError("'auto_stop' needs 'auto_start'")
             val next = b.copy(
+                autoStart = autoStart,
+                // As in the app's editor: stopping by itself only means something when it starts by itself.
+                autoStop = autoStart && (args.bool("auto_stop") ?: b.autoStop),
                 title = if (args.has("title")) args.reqStr("title").trim() else b.title,
                 kind = args.enum<TaskKind>("kind") ?: b.kind,
                 taskTypeId = args.pickStr("task_type_id", b.taskTypeId),
@@ -401,7 +421,9 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
                 notes = if (args.has("notes")) args.str("notes") ?: "" else b.notes
             )
             if (next.endMinuteOfDay <= next.startMinuteOfDay) throw ToolError("'end' must be later than 'start'")
-            if (next.endDay != null && next.endDay < next.dayStart) throw ToolError("'end_date' cannot be before the block's start date")
+            // A local copy: endDay is a public property of another module, which cannot be smart-cast.
+            val lastDay = next.endDay
+            if (lastDay != null && lastDay < next.dayStart) throw ToolError("'end_date' cannot be before the block's start date")
             next
         }
         obj("block" to blockView(updated))
@@ -443,13 +465,19 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
 
     Tool(
         name = "update_task",
-        description = "Rename a tracked task segment or change its Task Type. Its Kind and score are not editable here: " +
-            "the score was frozen when the segment finished. A task that is running or paused is live on a device and " +
-            "cannot be edited from here.",
+        description = "Rename a tracked task segment, change its Task Type, or change when it ran: send start and/or " +
+            "end, or start/nothing plus duration_minutes (what you leave out stays). New times must already be over. " +
+            "Changing the times re-freezes the segment's score from its new length, using the current same-Kind " +
+            "streak, as the app does when you edit a time there. Kind is not editable here. A segment that is " +
+            "running, or the paused latest segment of an active session, is live on a device and cannot be edited: " +
+            "stop it first. To plan a live session's rings and stop, use set_session_time_plan.",
         inputSchema = schema(
             "id" to strP("Task id"),
             "name" to strP("New name"),
             "task_type_id" to strP("Task Type id", nullable = true),
+            "start" to strP("When it began, 2026-10-03T14:05 (local time in the vault's zone) or epoch milliseconds"),
+            "end" to strP("When it ended, same format. Send this or duration_minutes."),
+            "duration_minutes" to intP("How long it lasted, counted from the start; instead of end"),
             required = listOf("id")
         ),
         readOnly = false
@@ -457,21 +485,38 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
         val id = args.reqStr("id")
         val task = vault.row("tasks", id, Task.serializer())
         if (task == null || task.isDeleted) throw ToolError("No task '$id'")
-        if (task.isRunning || task.isPaused) throw ToolError("Task '${task.name}' is running or paused on a device; stop it there first")
+        if (isLiveSegment(vault, task)) throw ToolError("Task '${task.name}' is running or paused on a device; stop it there first")
         args.str("task_type_id")?.let { vault.requireTaskType(it) }
+
+        val retime = args.has("start") || args.has("end") || args.has("duration_minutes")
+        val times = if (retime) {
+            resolveSegmentTimes(task, args.str("start"), args.str("end"), args.int("duration_minutes"), nowMillis())
+        } else null
+        // Read before the edit, as the phone does: the streak is whatever the finished sessions say right now.
+        val score = times?.let { (start, end) -> scoreOf(vault, task.kind, end - start) }
+        val overlaps = times?.let { (start, end) -> overlappingSegments(vault.tasks(), task, start, end) }.orEmpty()
+
         val updated = vault.edit("tasks", id, Task.serializer()) { t ->
             t.copy(
                 name = if (args.has("name")) args.reqStr("name").trim() else t.name,
                 isNameCustom = if (args.has("name")) true else t.isNameCustom,
-                taskTypeId = args.pickStr("task_type_id", t.taskTypeId)
+                taskTypeId = args.pickStr("task_type_id", t.taskTypeId),
+                startTime = times?.first ?: t.startTime,
+                endTime = times?.second ?: t.endTime,
+                duration = times?.let { (start, end) -> end - start } ?: t.duration,
+                score = score ?: t.score
             )
         }
-        obj("task" to taskView(updated))
+        obj(
+            "task" to taskView(updated),
+            "overlapsWith" to JsonArray(overlaps.take(5).map { obj("id" to it.id, "name" to it.name, "startIso" to isoString(it.startTime)) })
+        )
     },
 
     Tool(
         name = "delete_task",
-        description = "Delete a tracked task segment (soft delete, restorable). Not allowed while it is running or paused.",
+        description = "Delete a tracked task segment (soft delete, restorable). Not allowed while it is running, or " +
+            "while it is the paused latest segment of an active session.",
         inputSchema = schema("id" to strP("Task id"), required = listOf("id")),
         readOnly = false,
         destructive = true
@@ -479,7 +524,7 @@ fun plannerTools(vault: Vault): List<Tool> = listOf(
         val id = args.reqStr("id")
         val task = vault.row("tasks", id, Task.serializer())
         if (task == null || task.isDeleted) throw ToolError("No task '$id'")
-        if (task.isRunning || task.isPaused) throw ToolError("Task '${task.name}' is running or paused on a device; stop or discard it there")
+        if (isLiveSegment(vault, task)) throw ToolError("Task '${task.name}' is running or paused on a device; stop or discard it there")
         vault.setDeleted("tasks", id, true)
         obj("deleted" to task.name)
     },

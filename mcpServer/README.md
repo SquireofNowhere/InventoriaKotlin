@@ -64,10 +64,10 @@ from your phone's.
 | Items | `list_items`, `get_item`, `create_item`, `update_item` (incl. `quantity_delta`), `move_item`, `set_equipped`, `delete_item`, `link_items`, `unlink_items` |
 | Photos | `add_item_image` (file or base64, uploaded to Storage), `remove_item_image`, `set_item_profile_picture` |
 | Collections | `list_collections`, `get_collection`, `create_collection`, `update_collection`, `delete_collection`, `set_collection_item`, `remove_collection_item` |
-| Todos | `list_todos`, `get_todo`, `create_todo`, `update_todo`, `set_todo_state`, `delete_todo` |
-| Planning | `list_schedule_blocks`, `create_schedule_block`, `update_schedule_block`, `delete_schedule_block`, `list_task_types`, `create_task_type`, `rename_task_type`, `delete_task_type` |
-| Tracked time | `list_tasks`, `update_task` (name, Task Type), `delete_task`, `create_task` (back-fill a finished segment) |
-| Timers | `list_active_timers`, `start_timer`, `pause_timer`, `resume_timer`, `stop_timer` |
+| Todos | `list_todos`, `get_todo`, `create_todo`, `update_todo` (incl. stacked reminders, calendar reminders and auto start), `set_todo_state`, `delete_todo` |
+| Planning | `list_schedule_blocks`, `create_schedule_block`, `update_schedule_block` (incl. `auto_start` / `auto_stop`), `delete_schedule_block`, `list_task_types`, `create_task_type`, `rename_task_type`, `delete_task_type` |
+| Tracked time | `list_tasks`, `update_task` (name, Task Type, **start / end / duration**), `delete_task`, `create_task` (back-fill a finished segment) |
+| Timers | `list_active_timers`, `start_timer` (optionally with a time plan), `pause_timer`, `resume_timer`, `stop_timer`, `set_session_time_plan` |
 | Reports | `time_report` (by day, Task Type, Kind or name), `todo_stats` |
 | Bulk | `bulk_update_todos`, `bulk_move_items`, `batch_create` |
 | Backup | `export_vault`, `import_vault` (additive only) |
@@ -88,6 +88,30 @@ These mirror what the phone's sync depends on (see `Vault.kt`):
   remembers and restores the previous container;
 - new items and collections get millisecond-timestamp ids. The phone numbers its own rows 1, 2, 3...,
   so this avoids a collision with a row the phone made offline and has not synced yet.
+
+## Time plans and automatic starts
+
+Three features of the app are plain text on the synced rows. The server reads, writes and describes
+them (`timePlanText`, `autoStartText` in the results) but never acts on them: the phone does the
+ringing and the starting, and re-arms its alarms when the rows sync.
+
+- **A session's time plan** (`Task.timePlan`): a planned length, rings at marks or every so often,
+  and an automatic stop. `start_timer` takes `goal_minutes`, `ring_at_minutes`, `ring_every_minutes`,
+  `stop_at_goal` and `stop_at`; `set_session_time_plan` changes them on a running or paused session
+  (null clears one field, `clear` removes the plan). The plan is written to every segment of the
+  session and carried onto the next one when a pause is resumed, as the app does.
+- **A todo's auto start** (`Todo.autoStart`): `auto_start_before` (counted back from the deadline),
+  `auto_start_schedules` (calendar tokens, no deadline needed) and `auto_start_run_minutes` (when the
+  started session stops itself). A start counted from a deadline is refused on a todo with none.
+- **A schedule block's `auto_start` / `auto_stop`**: the phone starts a session named, kinded and
+  typed like the block when it begins, and ends it with the block. `auto_stop` needs `auto_start`.
+
+**Editing when a segment ran.** `update_task` takes `start`, `end` and/or `duration_minutes` (what you
+leave out stays), only for time that is already over. The segment's score is re-frozen from its new
+length using the current same-Kind streak, which is what the app does when you edit a time there.
+Overlaps with other segments are reported, not refused. A segment that is running, or is the paused
+latest segment of a session still open, is live on a device and is left alone; older segments of a
+session that was once paused are history and can be edited.
 
 ## Timers, photos and backups
 

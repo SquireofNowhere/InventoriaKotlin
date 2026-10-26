@@ -3,7 +3,9 @@ package com.inventoria.mcp
 import com.inventoria.shared.model.Scoring
 import com.inventoria.shared.model.Task
 import com.inventoria.shared.model.TaskKind
+import com.inventoria.shared.model.TaskTimePlan
 import com.inventoria.shared.model.nowMillis
+import com.inventoria.shared.model.sessionTimePlan
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
@@ -31,8 +33,21 @@ private suspend fun hasActiveInterrupter(vault: Vault, groupId: String): Boolean
     activeSessions(vault).values.any { segments -> segments.any { it.interruptedGroupId == groupId } }
 
 /** The score a segment of [kind] lasting [durationMs] freezes at, by the streak as of [endedBy]. */
-private suspend fun scoreOf(vault: Vault, kind: TaskKind, durationMs: Long, endedBy: Long = Long.MAX_VALUE): Int =
+internal suspend fun scoreOf(vault: Vault, kind: TaskKind, durationMs: Long, endedBy: Long = Long.MAX_VALUE): Int =
     Scoring.frozenScore(kind, durationMs, Scoring.streakCount(vault.tasks(), kind, endedBy))
+
+/**
+ * Whether [task] is being tracked on a device right now, so editing it from here would fight the
+ * phone: the running segment, or the paused latest segment of a session that is still open. An
+ * older segment of a session that was paused and resumed keeps its paused flag for good but is
+ * history, as is any segment of a finished session.
+ */
+internal suspend fun isLiveSegment(vault: Vault, task: Task): Boolean {
+    if (task.isRunning) return true
+    if (!task.isPaused || !task.isSessionActive) return false
+    val latest = vault.tasks().filter { it.groupId == task.groupId }.maxByOrNull { it.startTime }
+    return latest?.id == task.id
+}
 
 private suspend fun endSession(vault: Vault, groupId: String) {
     for (t in vault.tasks().filter { it.groupId == groupId && it.isSessionActive }) {
@@ -92,6 +107,8 @@ private suspend fun resumeSession(vault: Vault, groupId: String, now: Long): Tas
         interruptedGroupId = latest.interruptedGroupId,
         countsForStreak = latest.countsForStreak,
         originTodoId = latest.originTodoId,
+        // A session's plan rides on every segment; without this a resume would silently drop it.
+        timePlan = latest.timePlan,
         updatedAt = nowMillis()
     )
     return vault.create("tasks", task.id, task, Task.serializer())
@@ -144,7 +161,8 @@ private fun sessionView(segments: List<Task>, now: Long): JsonObject {
         "runningSegmentId" to running?.id,
         "interruptsGroupId" to latest.interruptedGroupId,
         "originTodoId" to latest.originTodoId,
-        "startedIso" to isoString(segments.minOf { it.startTime })
+        "startedIso" to isoString(segments.minOf { it.startTime }),
+        "timePlan" to TaskTimePlan.parse(latest.timePlan).takeUnless { it.isEmpty }?.describeInVaultZone()
     )
 }
 
@@ -220,15 +238,17 @@ fun timerTools(vault: Vault): List<Tool> = listOf(
         name = "start_timer",
         description = "Start tracking time live. Give a name, or a todo_id to start from that todo (it takes the todo's " +
             "title, Kind and Task Type and is tagged to it, and runs under a tracked parent todo's session as the app " +
-            "does). interrupts_group_id starts it on top of a session, pausing that one until this stops. At most " +
-            "$MAX_ACTIVE_SESSIONS sessions can be active. $PHONE_NOTE",
+            "does). interrupts_group_id starts it on top of a session, pausing that one until this stops. Give " +
+            "goal_minutes, ring_* or stop_* to attach a time plan (rings and an automatic stop) from the start; change " +
+            "it later with set_session_time_plan. At most $MAX_ACTIVE_SESSIONS sessions can be active. $PHONE_NOTE",
         inputSchema = schema(
             "name" to strP("What you are doing (optional when todo_id is given)"),
             "todo_id" to strP("Start from this todo"),
             "kind" to strP("Kind: $KIND_LEGEND (default GRAPHITE, or the todo's)", enum = TaskKind.entries.map { it.name }),
             "task_type_id" to strP("Task Type id"),
             "interrupts_group_id" to strP("Run on top of this active session, which is paused meanwhile"),
-            "counts_for_streak" to boolP("With interrupts_group_id: let it take part in streaks (default false)")
+            "counts_for_streak" to boolP("With interrupts_group_id: let it take part in streaks (default false)"),
+            *TIME_PLAN_FIELDS
         ),
         readOnly = false
     ) { args ->
@@ -245,6 +265,8 @@ fun timerTools(vault: Vault): List<Tool> = listOf(
         val typeId = args.str("task_type_id") ?: todo?.taskTypeId
         if (typeId != null) vault.requireTaskType(typeId)
         val kind = args.enum<TaskKind>("kind") ?: todo?.kind ?: TaskKind.GRAPHITE
+        // Checked before anything is paused for an interruption, so a bad plan changes nothing.
+        val plan = applyTimePlanArgs(args, TaskTimePlan.NONE, now)
 
         var interrupted: String? = null
         val explicit = args.str("interrupts_group_id")
@@ -272,6 +294,7 @@ fun timerTools(vault: Vault): List<Tool> = listOf(
             // Deliberate work under a parent todo counts toward streaks; a plain interruption does not.
             countsForStreak = if (explicit != null) args.bool("counts_for_streak") ?: false else interrupted != null,
             originTodoId = todo?.id,
+            timePlan = plan.encode(),
             updatedAt = now
         )
         obj(
@@ -334,6 +357,41 @@ fun timerTools(vault: Vault): List<Tool> = listOf(
             "points" to Math.round(total.sumOf { it.score } / 6.0) / 10.0,
             "originTodoId" to originTodoId,
             "resumedGroupId" to interrupted
+        )
+    },
+
+    Tool(
+        name = "set_session_time_plan",
+        description = "Plan a session that is running or paused: how long it should go for, when it rings, and whether it " +
+            "stops by itself (goal_minutes, ring_at_minutes, ring_every_minutes, stop_at_goal, stop_at). Only the fields " +
+            "you send change; null clears one, and clear removes the whole plan. The plan is written to every segment of " +
+            "the session, and the phone re-arms its alarms when it syncs. Only time actually running counts toward the " +
+            "goal and the rings, so a pause does not move them. Does not touch the score.",
+        inputSchema = schema(
+            "group_id" to strP("Session id from list_active_timers"),
+            *TIME_PLAN_FIELDS,
+            "clear" to boolP("Remove the whole plan first (fields sent alongside then build a new one)"),
+            required = listOf("group_id")
+        ),
+        readOnly = false
+    ) { args ->
+        val groupId = args.reqStr("group_id")
+        val segments = vault.tasks().filter { it.groupId == groupId }
+        if (segments.none { it.isSessionActive }) throw ToolError("No active session '$groupId'; see list_active_timers")
+        val clear = args.bool("clear") == true
+        if (!clear && !hasTimePlanArgs(args)) throw ToolError("Send at least one plan field, or clear")
+
+        val plan = applyTimePlanArgs(args, if (clear) TaskTimePlan.NONE else segments.sessionTimePlan(), nowMillis())
+        val text = plan.encode()
+        for (segment in segments) {
+            if (segment.timePlan != text) vault.edit("tasks", segment.id, Task.serializer()) { it.copy(timePlan = text) }
+        }
+        obj(
+            "groupId" to groupId,
+            "timePlan" to text,
+            "timePlanText" to if (plan.isEmpty) "No plan" else plan.describeInVaultZone(),
+            "segmentsUpdated" to segments.count { it.timePlan != text },
+            "note" to "The phone re-arms its alarms for the new plan when it next syncs."
         )
     }
 )

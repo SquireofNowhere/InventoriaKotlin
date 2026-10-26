@@ -7,9 +7,11 @@ import com.inventoria.shared.model.ItemLink
 import com.inventoria.shared.model.ScheduleBlock
 import com.inventoria.shared.model.Task
 import com.inventoria.shared.model.TaskKind
+import com.inventoria.shared.model.TaskTimePlan
 import com.inventoria.shared.model.TaskType
 import com.inventoria.shared.model.Todo
 import com.inventoria.shared.model.TodoState
+import com.inventoria.shared.model.autoStartPlan
 import com.inventoria.shared.model.computeTaskTypeStats
 import com.inventoria.shared.model.hasReminder
 import com.inventoria.shared.model.nowMillis
@@ -90,6 +92,7 @@ fun todoView(todo: Todo): JsonObject {
     todo.deadlineMinuteOfDay?.let { view = view.withField("deadlineTime", JsonPrimitive(minuteString(it))) }
     todo.completedAt?.let { view = view.withField("completedAtIso", JsonPrimitive(isoString(it))) }
     if (todo.hasReminder) view = view.withField("remindersText", JsonPrimitive(todo.reminders().describe()))
+    todo.autoStartPlan().takeUnless { it.isEmpty }?.let { view = view.withField("autoStartText", JsonPrimitive(it.describe())) }
     return view
 }
 
@@ -99,6 +102,8 @@ fun taskView(task: Task, now: Long = nowMillis()): JsonObject {
         .withField("durationMinutes", JsonPrimitive(task.elapsedMillis(now) / 60_000))
         .withField("kindName", JsonPrimitive(task.kind.displayName))
     task.endTime?.let { view = view.withField("endIso", JsonPrimitive(isoString(it))) }
+    TaskTimePlan.parse(task.timePlan).takeUnless { it.isEmpty }
+        ?.let { view = view.withField("timePlanText", JsonPrimitive(it.describeInVaultZone())) }
     return view
 }
 
@@ -364,7 +369,8 @@ fun readTools(vault: Vault): List<Tool> = listOf(
                 (from == null || t.startTime >= from) &&
                 (to == null || t.startTime < to) &&
                 (type == null || t.taskTypeId == type) &&
-                (args.bool("running") == null || (t.isRunning || t.isPaused) == args.bool("running"))
+                // A segment keeps isPaused for good once its session resumes, so only an open session's counts as live.
+                (args.bool("running") == null || (t.isRunning || (t.isPaused && t.isSessionActive)) == args.bool("running"))
         }.sortedByDescending { it.startTime }
         page(matched.size, matched.take(limitOf(args)).map { taskView(it, now) }, "tasks")
     },

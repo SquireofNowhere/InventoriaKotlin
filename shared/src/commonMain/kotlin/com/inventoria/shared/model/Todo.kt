@@ -34,8 +34,8 @@ data class Todo(
     // ReminderPlan.encode() text: several lead times and/or an "every so often" repeat. Blank means
     // no plan stored, so reminderOffsetMinutes alone speaks.
     val reminderPlan: String = "",
-    // AutoStartPlan.encode() text: when the todo starts tracking itself. Not interpreted here --
-    // carried so a round-trip through the MCP server or web never drops it.
+    // AutoStartPlan.encode() text: when the todo starts tracking itself. Only the phone starts
+    // anything on it; this module reads and writes the text (see AutoStartPlan).
     val autoStart: String = "",
     val priority: TodoPriority? = null,
     val parentTodoId: String? = null,

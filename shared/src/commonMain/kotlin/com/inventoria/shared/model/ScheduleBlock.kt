@@ -23,7 +23,7 @@ data class ScheduleBlock(
     // block going forward sets this rather than deleting it, so past days keep it.
     val endDay: Long? = null,
     // Start a tracked session by itself when the block begins, and optionally end it with the
-    // block. Interpreted by the Android app only; carried here so nothing is dropped.
+    // block. Only the phone acts on these; autoStop means nothing without autoStart.
     val autoStart: Boolean = false,
     val autoStop: Boolean = false,
     val notes: String = "",
