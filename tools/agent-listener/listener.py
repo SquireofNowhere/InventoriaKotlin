@@ -28,6 +28,7 @@ Stdlib only. Stop with Ctrl+C.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -233,6 +234,68 @@ def clean_env():
     return env
 
 
+# The MCP server jar is built for this Java (mcpServer/build.gradle.kts: jvmToolchain(21)). A `java`
+# first on PATH that is older makes it die with UnsupportedClassVersionError, which Claude only
+# reports as the server "failing to connect".
+MIN_JAVA = 21
+_java_cache = {}
+
+
+def java_major(java):
+    """The major version of a `java` executable (8 for 1.8), or 0 if it will not say."""
+    try:
+        result = subprocess.run([java, "-version"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    match = re.search(r'version "(\d+)(?:\.(\d+))?', (result.stderr or "") + (result.stdout or ""))
+    if not match:
+        return 0
+    major = int(match.group(1))
+    return int(match.group(2) or 0) if major == 1 else major
+
+
+def java_candidates():
+    """Places a suitable Java might be, best guesses first. INVENTORIA_JAVA wins if set."""
+    found = []
+    for path in (os.environ.get("INVENTORIA_JAVA"), shutil.which("java")):
+        if path:
+            found.append(path)
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        found.append(str(Path(java_home) / "bin" / "java"))
+    roots = [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Android" / "Android Studio" / "jbr",
+        *sorted((Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Java").glob("*"), reverse=True),
+        *sorted((Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Eclipse Adoptium").glob("*"), reverse=True),
+        *sorted((Path.home() / ".gradle" / "jdks").glob("*"), reverse=True),
+    ]
+    for root in roots:
+        for name in ("java.exe", "java"):
+            if (root / "bin" / name).exists():
+                found.append(str(root / "bin" / name))
+                break
+    return found
+
+
+def find_java():
+    """(path, None) for the first Java that is MIN_JAVA or newer, else (None, why-not). Cached."""
+    if "result" in _java_cache:
+        return _java_cache["result"]
+    seen = []
+    for candidate in dict.fromkeys(java_candidates()):
+        major = java_major(candidate)
+        seen.append(f"{candidate} (Java {major or '?'})")
+        if major >= MIN_JAVA:
+            _java_cache["result"] = (candidate, None)
+            return _java_cache["result"]
+    reason = (
+        f"The Inventoria MCP server needs Java {MIN_JAVA} or newer, and none was found"
+        + (f" (looked at: {'; '.join(seen)})" if seen else "")
+        + ". Install one, or set INVENTORIA_JAVA to its java executable."
+    )
+    return None, reason  # not cached: installing Java should not need a restart
+
+
 def invoke_claude(home, prompt, timeout, on_event=None):
     """One locked-down `claude -p` run. Returns (ok, stdout, error_text)."""
     claude = shutil.which("claude")
@@ -242,9 +305,14 @@ def invoke_claude(home, prompt, timeout, on_event=None):
     jar = os.environ.get("INVENTORIA_MCP_JAR") or str(
         Path(__file__).resolve().parents[2] / "mcpServer" / "build" / "libs" / "inventoria-mcp-all.jar"
     )
+    java, java_problem = find_java()
+    if not java:
+        # Without this the server dies at startup, Claude runs with no tools, and the user's chat
+        # gets a puzzling "I couldn't check" instead of the actual reason.
+        return False, "", java_problem
     mcp_config = home / "agent-listener-mcp.json"
     mcp_config.write_text(json.dumps({
-        "mcpServers": {"inventoria": {"command": shutil.which("java") or "java", "args": ["-jar", jar]}}
+        "mcpServers": {"inventoria": {"command": java, "args": ["-jar", jar]}}
     }), encoding="utf-8")
     command = [
         claude, "-p", prompt,
@@ -301,6 +369,10 @@ WRITE_VERBS = {
 
 def describe_tool(tool_name):
     """(phase, label) for a tool call: 'looking' for reads, 'changing' for writes."""
+    if "inventoria" not in tool_name:
+        # Claude's own plumbing (it looks tools up with ToolSearch before using them): not something
+        # the user asked for, so it reads as plain thinking.
+        return "thinking", None
     name = tool_name.rsplit("__", 1)[-1]
     if name in TOOL_LABELS:
         return TOOL_LABELS[name]
@@ -343,6 +415,13 @@ def make_progress_reporter(write_activity):
     state = {"last": None, "at": 0.0}
 
     def report(event):
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            # The first thing a run says is which MCP servers started. If ours did not, Claude carries
+            # on without tools and answers "I couldn't check" -- say why here, where the user can see it.
+            for server in event.get("mcp_servers") or []:
+                if server.get("status") != "connected":
+                    log(f"MCP server {server.get('name')!r} did not start ({server.get('status')}); "
+                        f"this run has no vault tools. Check the Java version (needs {MIN_JAVA}+) and the jar.")
         described = describe_event(event)
         if described is None or described == state["last"]:
             return

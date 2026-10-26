@@ -18,6 +18,12 @@ Needs Python 3 (standard library only), the `claude` CLI on `PATH`, and the Inve
 already set up (see `mcpServer/README.md`): the listener borrows its sign-in from
 `~/.inventoria-mcp/`, so it gets no access the MCP server does not already have.
 
+The MCP server jar is built for Java 21, so the listener looks for a Java 21 or newer rather than
+trusting whichever `java` is first on `PATH` (it checks `INVENTORIA_JAVA`, `PATH`, `JAVA_HOME`, Android
+Studio's bundled JDK and the usual install folders). With an older Java the server dies on start and
+Claude can only say it "failed to connect"; if no suitable Java exists the chat now says so plainly.
+Set `INVENTORIA_JAVA` to a `java` executable to choose one yourself.
+
 ## One-time setup for the chat
 
 The chat lives in `users/<uid>/agent_chat`. The app (the vault owner) can always write there, but the
