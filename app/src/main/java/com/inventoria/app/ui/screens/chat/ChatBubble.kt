@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Icon
@@ -31,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 private val BUBBLE_SIZE = 52.dp
+
+/** Kept this far from every edge, so it is never flush against the screen's edge. */
+private val EDGE_MARGIN = 8.dp
 private const val PREFS = "chat_bubble"
 
 /**
@@ -52,14 +56,18 @@ fun ChatBubbleOverlay(onOpenChat: () -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val sizePx = with(density) { BUBBLE_SIZE.toPx() }
-        val maxX = (with(density) { maxWidth.toPx() } - sizePx).coerceAtLeast(1f)
-        val maxY = (with(density) { maxHeight.toPx() } - sizePx).coerceAtLeast(1f)
+        val marginPx = with(density) { EDGE_MARGIN.toPx() }
+        val maxX = (with(density) { maxWidth.toPx() } - sizePx - 2 * marginPx).coerceAtLeast(1f)
+        val maxY = (with(density) { maxHeight.toPx() } - sizePx - 2 * marginPx).coerceAtLeast(1f)
 
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .offset { IntOffset((fractionX * maxX).roundToInt(), (fractionY * maxY).roundToInt()) }
+                .offset { IntOffset((marginPx + fractionX * maxX).roundToInt(), (marginPx + fractionY * maxY).roundToInt()) }
                 .size(BUBBLE_SIZE)
+                // The bubble lives at the edges, where the system's Back swipe also starts: without this,
+                // dragging it in from the side goes Back instead of moving it.
+                .systemGestureExclusion()
                 .shadow(6.dp, CircleShape)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primaryContainer)

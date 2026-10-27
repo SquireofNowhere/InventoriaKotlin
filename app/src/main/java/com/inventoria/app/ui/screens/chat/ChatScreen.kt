@@ -469,7 +469,15 @@ private fun Composer(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Full width with the two ends pushed apart. A weighted chip (fill = false, so it can be as
+            // narrow as its text) beside a weighted spacer used to split the free space between them,
+            // which left the send button part-way across instead of at the edge -- barely noticeable on
+            // a phone, plainly wrong on a tablet.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Surface(
                     onClick = onModelClick,
                     shape = CircleShape,
@@ -491,7 +499,6 @@ private fun Composer(
                         Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Model and effort", modifier = Modifier.size(18.dp))
                     }
                 }
-                Spacer(Modifier.weight(1f))
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier

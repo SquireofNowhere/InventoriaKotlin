@@ -1088,9 +1088,14 @@ private fun ScheduleBlockDialog(
                         when (repeat) {
                             BlockRepeat.NONE -> "Just this day"
                             BlockRepeat.DAILY -> "Every day from this date on"
-                            BlockRepeat.WEEKLY ->
-                                if (shownWeekdays == setOf(dateWeekday)) "Every $weekdayName from this date on"
-                                else "Every ${Weekdays.describe(Weekdays.maskOf(shownWeekdays)).ifEmpty { "week" }} from this date on"
+                            BlockRepeat.WEEKLY -> when (val mask = Weekdays.maskOf(shownWeekdays)) {
+                                Weekdays.bit(dateWeekday) -> "Every $weekdayName from this date on"
+                                0 -> "Pick at least one day"
+                                Weekdays.ALL -> "Every day from this date on"
+                                Weekdays.WORKDAYS -> "Every weekday from this date on"
+                                Weekdays.WEEKEND -> "Every weekend day from this date on"
+                                else -> "On ${Weekdays.describe(mask)} from this date on"
+                            }
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
