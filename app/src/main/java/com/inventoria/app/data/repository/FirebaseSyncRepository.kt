@@ -462,7 +462,7 @@ class FirebaseSyncRepository @Inject constructor(
          * papered over that; this keeps the repair without letting stale rows overwrite newer ones.
          */
         suspend fun pushMissing() {
-            push(spec.allLocal().filter { spec.key(it) !in cloud })
+            push(spec.allLocal().filter { !cloud.containsKey(spec.key(it)) })
         }
 
         /**
