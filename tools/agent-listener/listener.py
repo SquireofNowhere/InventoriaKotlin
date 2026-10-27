@@ -1244,7 +1244,8 @@ Write for a phone screen: short and plain. The app draws markdown, so bold, shor
 code are fine; keep headings and tables to a minimum. Whenever you name a todo, item, collection,
 tracked task or schedule block that the tools returned, make its name a markdown link to the `link`
 field the tool gave it, like [Buy milk](inventoria://todo/ID): the app shows it as a button that
-opens it. Use only links the tools returned, never ones you made up."""
+opens it. Always write it in that markdown form, [name](link), and never as a bare address in the
+text. Use only links the tools returned, never ones you made up."""
 
 # The name a chat gets, the way claude.ai titles a conversation. Asked of a throwaway Claude with no
 # tools, on a small model: it is a few words, and must not hold up the next message.

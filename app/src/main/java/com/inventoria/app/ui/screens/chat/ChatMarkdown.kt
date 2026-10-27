@@ -149,7 +149,7 @@ internal fun parseMarkdown(markdown: String): List<MdBlock> {
 
 // --- Inline -----------------------------------------------------------------------------------
 
-private val BARE_URL = Regex("""https?://[^\s<>()\[\]]+[^\s<>()\[\].,;:!?'"]""")
+private val BARE_URL = Regex("""(?:https?|inventoria)://[^\s<>()\[\]]+[^\s<>()\[\].,;:!?'"]""")
 
 private fun isWordChar(c: Char?): Boolean = c != null && (c.isLetterOrDigit() || c == '_')
 
@@ -237,13 +237,26 @@ private fun parseInlineInto(text: String, style: InlineRun, out: MutableList<Inl
             continue
         }
 
-        if (c == 'h' && style.link == null && !style.code) {
+        if ((c == 'h' || c == 'i') && style.link == null && !style.code) {
             val url = BARE_URL.matchAt(text, i)
             if (url != null && (i == 0 || !isWordChar(text[i - 1]))) {
-                flush()
-                out += style.copy(text = url.value, link = url.value)
-                i += url.value.length
-                continue
+                val appLink = parseChatLink(url.value)
+                if (url.value.startsWith(CHAT_LINK_SCHEME, ignoreCase = true)) {
+                    // A bare address to something in the app: Claude was asked for a markdown link but
+                    // wrote the address on its own. Show it as the same button, with a plain label
+                    // rather than the long id. An address the app cannot open is just text.
+                    if (appLink != null) {
+                        flush()
+                        out += style.copy(text = chatLinkLabel(appLink), link = url.value)
+                        i += url.value.length
+                        continue
+                    }
+                } else {
+                    flush()
+                    out += style.copy(text = url.value, link = url.value)
+                    i += url.value.length
+                    continue
+                }
             }
         }
 
@@ -347,4 +360,13 @@ internal fun parseChatLink(url: String): ChatLink? {
         "block", "schedule" -> ChatLink.Block(id)
         else -> null
     }
+}
+
+/** What a bare app address is shown as: it has no label of its own, and the id is not for reading. */
+internal fun chatLinkLabel(link: ChatLink): String = when (link) {
+    is ChatLink.Todo -> "Open todo"
+    is ChatLink.Item -> "Open item"
+    is ChatLink.Collection -> "Open collection"
+    is ChatLink.Task -> "Open task"
+    is ChatLink.Block -> "Open block"
 }

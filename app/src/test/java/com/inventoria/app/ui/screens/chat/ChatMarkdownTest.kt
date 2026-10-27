@@ -177,6 +177,39 @@ class ChatMarkdownTest {
     }
 
     @Test
+    fun `a bare app address becomes a labelled button, not a long id`() {
+        assertEquals(
+            listOf(InlineRun("Task: "), InlineRun("Open task", link = "inventoria://task/efd72dd7-1950-4889")),
+            parseInline("Task: inventoria://task/efd72dd7-1950-4889")
+        )
+        assertEquals(
+            listOf(InlineRun("see "), InlineRun("Open item", link = "inventoria://item/1791183040129"), InlineRun(".")),
+            parseInline("see inventoria://item/1791183040129.")
+        )
+        // every kind has a label, and the schedule alias Claude used reads as a block
+        assertEquals("Open block", parseInline("inventoria://schedule/e13f").single().text)
+        assertEquals("Open todo", parseInline("inventoria://todo/ced6").single().text)
+        assertEquals("Open collection", parseInline("inventoria://collection/1").single().text)
+    }
+
+    @Test
+    fun `a bare app address the app cannot open stays plain text`() {
+        assertEquals(listOf(InlineRun("inventoria://item/notanumber")), parseInline("inventoria://item/notanumber"))
+        assertEquals(listOf(InlineRun("inventoria://nothing/1")), parseInline("inventoria://nothing/1"))
+        // and a word that merely contains the letters is untouched
+        assertEquals(listOf(InlineRun("an inventoria is a list")), parseInline("an inventoria is a list"))
+    }
+
+    @Test
+    fun `an address inside code is not turned into a button`() {
+        assertEquals(listOf(InlineRun("inventoria://task/x", code = true)), parseInline("`inventoria://task/x`"))
+        assertEquals(
+            listOf(MdBlock.Code("", "inventoria://task/example")),
+            parseMarkdown("```\ninventoria://task/example\n```")
+        )
+    }
+
+    @Test
     fun `brackets that are not a link stay`() {
         assertEquals(listOf(InlineRun("[a] and (b)")), parseInline("[a] and (b)"))
     }
